@@ -1,0 +1,12 @@
+host/target/
+target/target/
+target/external/aarch64-vmsa
+target/external/default-checkout/
+output/runs/
+output/*
+!output/.gitkeep
+__pycache__/
+*.pyc
+.DS_Store
+.upstream-inspect/
+.tmp-tools/

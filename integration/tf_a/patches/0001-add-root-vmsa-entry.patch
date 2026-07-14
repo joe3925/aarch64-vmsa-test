@@ -1,0 +1,38 @@
+diff --git a/plat/arm/board/fvp/fvp_bl31_setup.c b/plat/arm/board/fvp/fvp_bl31_setup.c
+index f38f1d7..1c255f8 100644
+--- a/plat/arm/board/fvp/fvp_bl31_setup.c
++++ b/plat/arm/board/fvp/fvp_bl31_setup.c
+@@ -91,9 +91,16 @@ void __init bl31_early_platform_setup2(u_register_t arg0,
+ 	}
+ }
+ 
++#if VMSA_ROOT_TEST
++void fvp_vmsa_root_test(void);
++#endif
++
+ void __init bl31_platform_setup(void)
+ {
+ 	arm_bl31_platform_setup();
++#if VMSA_ROOT_TEST
++	fvp_vmsa_root_test();
++#endif
+ 
+ #if USE_GIC_DRIVER == 3
+ 	fvp_pcpu_init();
+diff --git a/plat/arm/board/fvp/platform.mk b/plat/arm/board/fvp/platform.mk
+index 51d4e06..77c9bd8 100644
+--- a/plat/arm/board/fvp/platform.mk
++++ b/plat/arm/board/fvp/platform.mk
+@@ -616,3 +616,12 @@ else
+ $(eval $(call TOOL_ADD_PAYLOAD,${FVP_TB_FW_CONFIG},--tb-fw-config,${FVP_TB_FW_CONFIG}))
+ endif
+ endif
++
++ifneq (${VMSA_ROOT_LIB},)
++VMSA_ROOT_TEST := 1
++$(eval $(call add_define,VMSA_ROOT_TEST))
++PLAT_INCLUDES += -I${VMSA_TEST_INCLUDE}
++BL31_SOURCES += plat/arm/board/fvp/fvp_vmsa_root.c \
++                plat/arm/board/fvp/fvp_vmsa_root_entry.S
++BL31_LIBS += ${VMSA_ROOT_LIB}
++endif

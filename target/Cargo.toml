@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+members = [
+    "abi",
+    "harness",
+    "architecture",
+    "payloads/ns_el2",
+    "payloads/secure_el2",
+    "payloads/realm_el2",
+    "payloads/realm_stage2",
+    "payloads/root_el3",
+    "payloads/lower_el",
+]
+exclude = ["external/aarch64-vmsa"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1

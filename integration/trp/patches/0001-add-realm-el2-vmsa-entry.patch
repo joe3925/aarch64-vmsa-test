@@ -1,0 +1,55 @@
+diff --git a/services/std_svc/rmmd/trp/trp.mk b/services/std_svc/rmmd/trp/trp.mk
+index 2912c66..3439096 100644
+--- a/services/std_svc/rmmd/trp/trp.mk
++++ b/services/std_svc/rmmd/trp/trp.mk
+@@ -7,6 +7,14 @@ RMM_SOURCES		+=	services/std_svc/rmmd/trp/trp_entry.S \
+ 				services/std_svc/rmmd/trp/trp_main.c  \
+ 				services/std_svc/rmmd/trp/trp_helpers.c
+ 
++ifneq (${VMSA_REALM_LIB},)
++RMM_SOURCES += services/std_svc/rmmd/trp/trp_vmsa_test.c \
++               services/std_svc/rmmd/trp/trp_vmsa_entry.S
++RMM_LIBS += ${VMSA_REALM_LIB}
++RMM_INCLUDE_DIRS += ${VMSA_TEST_INCLUDE}
++RMM_DEFINES += VMSA_REALM_TEST
++endif
++
+ RMM_DEFAULT_LINKER_SCRIPT_SOURCE := services/std_svc/rmmd/trp/linker.ld.S
+ 
+ # Include the platform-specific TRP Makefile
+diff --git a/services/std_svc/rmmd/trp/trp_main.c b/services/std_svc/rmmd/trp/trp_main.c
+index 9ecb90c..d93f437 100644
+--- a/services/std_svc/rmmd/trp/trp_main.c
++++ b/services/std_svc/rmmd/trp/trp_main.c
+@@ -113,6 +113,10 @@ static int trp_validate_warmboot_args(unsigned long long x0,
+ 	return 0;
+ }
+ 
++#if defined(VMSA_REALM_TEST)
++void trp_vmsa_test(void);
++#endif
++
+ /* Main function for TRP */
+ void trp_main(void)
+ {
+@@ -131,4 +135,7 @@ void trp_main(void)
+ 	INFO("TRP: RMM-EL3 Interface ABI reported by EL3: v.%u.%u\n",
+ 		TRP_RMM_EL3_VERSION_GET_MAJOR(trp_boot_abi_version),
+ 		TRP_RMM_EL3_VERSION_GET_MINOR(trp_boot_abi_version));
++#if defined(VMSA_REALM_TEST)
++	trp_vmsa_test();
++#endif
+ }
+diff --git a/services/std_svc/rmmd/trp/linker.ld.S b/services/std_svc/rmmd/trp/linker.ld.S
+index a80924c..87c14f4 100644
+--- a/services/std_svc/rmmd/trp/linker.ld.S
++++ b/services/std_svc/rmmd/trp/linker.ld.S
+@@ -41,6 +41,7 @@ SECTIONS
+ 	 __RW_START__ = . ;
+ 
+-	.data : {
++	.data : ALIGN(PAGE_SIZE_4K) {
++		__VMSA_RW_START__ = .;
+ 		*(.data*)
+ 	} >RAM
+ 

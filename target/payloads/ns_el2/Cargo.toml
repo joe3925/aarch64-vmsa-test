@@ -1,0 +1,17 @@
+[package]
+name = "vmsa-test-ns-el2"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["staticlib"]
+path = "src/lib.rs"
+test = false
+bench = false
+
+[dependencies]
+aarch64-vmsa = { path = "../../external/aarch64-vmsa" }
+vmsa-test-architecture = { path = "../../architecture" }
+vmsa-test-abi = { path = "../../abi" }
+vmsa-test-harness = { path = "../../harness" }
+vmsa-test-lower-el = { path = "../lower_el" }

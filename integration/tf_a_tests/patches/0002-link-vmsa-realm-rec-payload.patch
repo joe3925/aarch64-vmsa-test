@@ -1,0 +1,60 @@
+diff --git a/Makefile b/Makefile
+index 262ffda..bd27cf0 100644
+--- a/Makefile
++++ b/Makefile
+@@ -319,4 +319,11 @@ ifneq (${VMSA_TEST_LIB},)
+ TFTF_INCLUDES	+= -I.
+ endif
+ 
++ifneq (${VMSA_REALM_LIB},)
++REALM_EXTRA_OBJS += ${VMSA_REALM_LIB}
++TFTF_EXTRA_OBJS += ${VMSA_REALM_LIB}
++REALM_INCLUDES += -I.
++TFTF_INCLUDES += -I.
++endif
++
+ ifneq (${BP_OPTION},none)
+diff --git a/include/runtime_services/host_realm_managment/host_shared_data.h b/include/runtime_services/host_realm_managment/host_shared_data.h
+index 2fd99e2..ebc5685 100644
+--- a/include/runtime_services/host_realm_managment/host_shared_data.h
++++ b/include/runtime_services/host_realm_managment/host_shared_data.h
+@@ -74,5 +74,6 @@ enum realm_cmd {
+ 	REALM_WRITE_BRBCR_EL1,
+ 	REALM_PLANE_N_INST_FETCH_ABORT,
+ 	REALM_TEST_FEAT_TCR2,
++	REALM_VMSA_TEST_CMD,
+ 	REALM_DA_RSI_CALLS
+ };
+diff --git a/realm/realm.mk b/realm/realm.mk
+index a69b589..6588fab 100644
+--- a/realm/realm.mk
++++ b/realm/realm.mk
+@@ -45,6 +45,7 @@ REALM_SOURCES:=								\
+ 	realm_rsi.c							\
+ 	realm_shared_data.c						\
+ 	realm_simd.c							\
++	vmsa_test_realm.c						\
+ 	)
+ 
+ REALM_SOURCES += lib/${ARCH}/cache_helpers.S				\
+diff --git a/realm/realm_payload_main.c b/realm/realm_payload_main.c
+index c9001c6..a87a4e0 100644
+--- a/realm/realm_payload_main.c
++++ b/realm/realm_payload_main.c
+@@ -24,6 +24,8 @@ static fpu_state_t rl_fpu_state_write;
+ static fpu_state_t rl_fpu_state_read;
+ static rsi_plane_run run __aligned(PAGE_SIZE);
+ 
++extern bool vmsa_test_realm_rec_run(void);
++
+ /*
+  * This function reads sleep time in ms from shared buffer and spins PE
+  * in a loop for that time period.
+@@ -689,4 +691,7 @@ void realm_payload_main(void)
+ 		case REALM_TEST_FEAT_TCR2:
+ 			test_succeed = test_realm_feat_tcr2();
+ 			break;
++		case REALM_VMSA_TEST_CMD:
++			test_succeed = vmsa_test_realm_rec_run();
++			break;
+ 		default:

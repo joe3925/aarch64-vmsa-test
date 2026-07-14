@@ -1,0 +1,15 @@
+diff --git a/Makefile b/Makefile
+index 9645f10..262ffda 100644
+--- a/Makefile
++++ b/Makefile
+@@ -313,6 +313,10 @@ TFTF_CFLAGS		+= ${COMMON_CFLAGS}
+ TFTF_ASFLAGS		+= ${COMMON_ASFLAGS}
+ TFTF_LDFLAGS		+= ${COMMON_LDFLAGS}
+ TFTF_EXTRA_OBJS 	:=
++ifneq (${VMSA_TEST_LIB},)
++TFTF_EXTRA_OBJS	+= ${VMSA_TEST_LIB}
++TFTF_INCLUDES	+= -I.
++endif
+ 
+ ifneq (${BP_OPTION},none)
+ TFTF_CFLAGS		+= -mbranch-protection=${BP_OPTION}

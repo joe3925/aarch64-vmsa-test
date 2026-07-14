@@ -1,0 +1,92 @@
+diff --git a/Makefile b/Makefile
+index 6685570..df12ec1 100644
+--- a/Makefile
++++ b/Makefile
+@@ -25,5 +25,6 @@ ifeq ($(filter $(ENABLE_ASSERTIONS), 1 0),)
+ endif
+ GN_ARGS += enable_assertions="$(ENABLE_ASSERTIONS)"
++GN_ARGS += $(GN_ARGS_EXTRA)
+ 
+ # If HAFNIUM_HERMETIC_BUILD is "true" (not default), invoke `make` inside
+ # a container. The 'run_in_container.sh' script will set the variable value to
+diff --git a/build/image/image.gni b/build/image/image.gni
+index 7b76f44..749c820 100644
+--- a/build/image/image.gni
++++ b/build/image/image.gni
+@@ -45,6 +45,9 @@ template("image_binary") {
+       "-T",
+       rebase_path("//build/image/image.ld"),
+     ]
++    if (defined(invoker.ldflags)) {
++      ldflags += invoker.ldflags
++    }
+     visibility = [
+       ":${checked_elf_target}",
+       ":${invoker.target_name}",
+@@ -99,6 +102,7 @@ template("hypervisor") {
+                              "defines",
+                              "deps",
+                              "public_deps",
++                             "ldflags",
+                              "sources",
+                              "testonly",
+                            ])
+diff --git a/src/BUILD.gn b/src/BUILD.gn
+index b70a7dd..875db37 100644
+--- a/src/BUILD.gn
++++ b/src/BUILD.gn
+@@ -10,5 +10,6 @@ declare_args() {
+   # Target which implements the standard output interface.
+   stdout = ":stdout"
++  vmsa_test_lib = ""
+ }
+ 
+ # The hypervisor image.
+@@ -18,6 +20,9 @@ hypervisor("hafnium") {
+     ":layout",
+     ":src_not_testable_yet",
+   ]
++  if (vmsa_test_lib != "") {
++    ldflags = [ vmsa_test_lib ]
++  }
+ }
+ 
+ # Hypervisor specific code that isn't. One day it will be testable and both the
+@@ -32,6 +37,13 @@ source_set("src_not_testable_yet") {
+     "load.c",
+     "main.c",
+   ]
++  if (vmsa_test_lib != "") {
++    sources += [
++      "vmsa_secure.c",
++      "vmsa_secure_entry.S",
++    ]
++    defines = [ "VMSA_SECURE_TEST=1" ]
++  }
+   deps = [
+     ":src_testable",
+     "//project/${project}/${plat_name}",
+diff --git a/src/init.c b/src/init.c
+index e753a76..cd4f33a 100644
+--- a/src/init.c
++++ b/src/init.c
+@@ -59,5 +59,9 @@ void one_time_init_mm(void)
+  * Performs one-time initialisation of the hypervisor.
+  */
++#if VMSA_SECURE_TEST
++void hafnium_vmsa_secure_test(void);
++#endif
++
+ void one_time_init(void)
+ {
+ 	struct string manifest_fname = STRING_INIT("manifest.dtb");
+@@ -74,6 +78,9 @@ void one_time_init(void)
+ 	struct manifest *manifest;
+ 
+ 	arch_one_time_init();
++#if VMSA_SECURE_TEST
++	hafnium_vmsa_secure_test();
++#endif
+ 
+ 	/* Enable locks now that mm is initialised. */
+ 	dlog_enable_lock();

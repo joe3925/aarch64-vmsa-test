@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="aarch64-vmsa Realm stage-2 infrastructure" description="Run a real Realm lifecycle before the Rust R-EL2 harness">
+    <testcase name="Realm lifecycle and Rust VMSA harness" function="test_vmsa_realm_stage2_lifecycle" />
+  </testsuite>
+</testsuites>

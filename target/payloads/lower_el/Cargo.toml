@@ -1,0 +1,15 @@
+[package]
+name = "vmsa-test-lower-el"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["rlib"]
+path = "src/lib.rs"
+test = false
+bench = false
+
+[dependencies]
+vmsa-test-architecture = { path = "../../architecture" }
+vmsa-test-abi = { path = "../../abi" }
+vmsa-test-harness = { path = "../../harness" }

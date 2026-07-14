@@ -1,0 +1,22 @@
+{
+  "cactus-primary": {
+    "image": "cactus.bin",
+    "pm": "cactus.dts",
+    "owner": "SiP"
+  },
+  "cactus-secondary": {
+    "image": "cactus.bin",
+    "pm": "cactus-secondary.dts",
+    "owner": "Plat"
+  },
+  "cactus-tertiary": {
+    "image": "cactus.bin",
+    "pm": "cactus-tertiary.dts",
+    "owner": "Plat"
+  },
+  "ivy": {
+    "image": "ivy.bin",
+    "pm": "ivy-sel1.dts",
+    "owner": "Plat"
+  }
+}
