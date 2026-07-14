@@ -218,14 +218,38 @@ pub const fn stage1_start_level(
         TranslationFormat::Vmsa64Lpa2 => 52,
         TranslationFormat::Vmsa128 => 56,
     };
-    if bits < 32
-        || bits > maximum
-        || (matches!(format, TranslationFormat::Vmsa128) && !matches!(granule, Granule::Size4KiB))
-    {
+    if bits < 32 || bits > maximum {
         return None;
     }
-    let level = match granule {
-        Granule::Size4KiB => {
+    let level = match (format, granule) {
+        (TranslationFormat::Vmsa128, Granule::Size4KiB) => {
+            if bits <= 36 {
+                1
+            } else if bits <= 44 {
+                0
+            } else if bits <= 52 {
+                -1
+            } else {
+                -2
+            }
+        }
+        (TranslationFormat::Vmsa128, Granule::Size16KiB) => {
+            if bits <= 34 {
+                2
+            } else if bits <= 44 {
+                1
+            } else {
+                0
+            }
+        }
+        (TranslationFormat::Vmsa128, Granule::Size64KiB) => {
+            if bits <= 40 {
+                2
+            } else {
+                1
+            }
+        }
+        (_, Granule::Size4KiB) => {
             if bits <= 39 {
                 1
             } else if bits <= 48 {
@@ -234,7 +258,7 @@ pub const fn stage1_start_level(
                 -1
             }
         }
-        Granule::Size16KiB => {
+        (_, Granule::Size16KiB) => {
             if bits <= 36 {
                 2
             } else if bits <= 47 {
@@ -243,7 +267,7 @@ pub const fn stage1_start_level(
                 0
             }
         }
-        Granule::Size64KiB => {
+        (_, Granule::Size64KiB) => {
             if bits <= 42 {
                 2
             } else {
@@ -402,11 +426,31 @@ pub const fn lpa2_el2_stage1_controls_4k(
     input_bits: AddressBits,
     output_bits: AddressBits,
 ) -> Option<TranslationControls> {
+    lpa2_el2_stage1_controls(Granule::Size4KiB, input_bits, output_bits)
+}
+
+pub const fn lpa2_el2_stage1_controls(
+    granule: Granule,
+    input_bits: AddressBits,
+    output_bits: AddressBits,
+) -> Option<TranslationControls> {
     if input_bits.get() != 52 || output_bits.get() != 52 {
         return None;
     }
+    let tg0 = match granule {
+        Granule::Size4KiB => 0u64,
+        Granule::Size16KiB => 2u64,
+        Granule::Size64KiB => 1u64,
+    };
     Some(TranslationControls::from_bits(
-        12 | (1 << 8) | (1 << 10) | (3 << 12) | (6 << 16) | (1 << 23) | (1 << 31) | (1 << 32),
+        12 | (1 << 8)
+            | (1 << 10)
+            | (3 << 12)
+            | (tg0 << 14)
+            | (6 << 16)
+            | (1 << 23)
+            | (1 << 31)
+            | (1 << 32),
     ))
 }
 
@@ -439,11 +483,24 @@ pub const fn d128_el1_stage1_controls_4k(
     input_bits: AddressBits,
     output_bits: AddressBits,
 ) -> Option<TranslationControls> {
+    d128_el1_stage1_controls(Granule::Size4KiB, input_bits, output_bits)
+}
+
+pub const fn d128_el1_stage1_controls(
+    granule: Granule,
+    input_bits: AddressBits,
+    output_bits: AddressBits,
+) -> Option<TranslationControls> {
     if input_bits.get() != 52 || output_bits.get() != 52 {
         return None;
     }
+    let tg0 = match granule {
+        Granule::Size4KiB => 0u64,
+        Granule::Size16KiB => 2u64,
+        Granule::Size64KiB => 1u64,
+    };
     Some(TranslationControls::from_bits(
-        12 | (1 << 8) | (1 << 10) | (3 << 12) | (1 << 23) | (6 << 32),
+        12 | (1 << 8) | (1 << 10) | (3 << 12) | (tg0 << 14) | (1 << 23) | (6 << 32),
     ))
 }
 
@@ -476,11 +533,26 @@ pub const fn vmsa64_stage2_controls_4k(
     output_bits: AddressBits,
     start_level: LookupLevel,
 ) -> Option<TranslationControls> {
-    let (minimum_input, maximum_input, sl0) = match start_level.get() {
-        0 => (40, 48, 2u64),
-        1 => (31, 39, 1u64),
-        2 => (22, 30, 0u64),
-        3 => (12, 21, 3u64),
+    vmsa64_stage2_controls(Granule::Size4KiB, input_bits, output_bits, start_level)
+}
+
+pub const fn vmsa64_stage2_controls(
+    granule: Granule,
+    input_bits: AddressBits,
+    output_bits: AddressBits,
+    start_level: LookupLevel,
+) -> Option<TranslationControls> {
+    let (minimum_input, maximum_input, sl0) = match (granule, start_level.get()) {
+        (Granule::Size4KiB, 0) => (40, 48, 2u64),
+        (Granule::Size4KiB, 1) => (31, 39, 1u64),
+        (Granule::Size4KiB, 2) => (22, 30, 0u64),
+        (Granule::Size4KiB, 3) => (12, 21, 3u64),
+        (Granule::Size16KiB, 1) => (37, 47, 2u64),
+        (Granule::Size16KiB, 2) => (25, 36, 1u64),
+        (Granule::Size16KiB, 3) => (14, 24, 0u64),
+        (Granule::Size64KiB, 1) => (43, 48, 2u64),
+        (Granule::Size64KiB, 2) => (29, 42, 1u64),
+        (Granule::Size64KiB, 3) => (16, 28, 0u64),
         _ => return None,
     };
     if input_bits.get() < minimum_input || input_bits.get() > maximum_input {
@@ -496,6 +568,11 @@ pub const fn vmsa64_stage2_controls_4k(
         52 => 6u64,
         _ => return None,
     };
+    let tg0 = match granule {
+        Granule::Size4KiB => 0u64,
+        Granule::Size16KiB => 2u64,
+        Granule::Size64KiB => 1u64,
+    };
     Some(TranslationControls::from_bits(
         (1 << 31)
             | (64 - input_bits.get() as u64)
@@ -503,11 +580,74 @@ pub const fn vmsa64_stage2_controls_4k(
             | (1 << 8)
             | (1 << 10)
             | (3 << 12)
+            | (tg0 << 14)
             | (ps << 16),
     ))
 }
 
+pub const fn lpa2_stage2_controls_4k(
+    input_bits: AddressBits,
+    output_bits: AddressBits,
+) -> Option<TranslationControls> {
+    lpa2_stage2_controls(
+        Granule::Size4KiB,
+        input_bits,
+        output_bits,
+        LookupLevel::new(-1).unwrap(),
+    )
+}
+
+pub const fn lpa2_stage2_controls(
+    granule: Granule,
+    input_bits: AddressBits,
+    output_bits: AddressBits,
+    start_level: LookupLevel,
+) -> Option<TranslationControls> {
+    if input_bits.get() != 52 || output_bits.get() != 52 {
+        return None;
+    }
+    let tg0 = match granule {
+        Granule::Size4KiB => 0u64,
+        Granule::Size16KiB => 2u64,
+        Granule::Size64KiB => 1u64,
+    };
+    let ds = match granule {
+        Granule::Size4KiB | Granule::Size16KiB => 1u64 << 32,
+        Granule::Size64KiB => 0,
+    };
+    let (sl0, sl2) = match (granule, start_level.get()) {
+        (Granule::Size4KiB, -1) => (0u64, 1u64 << 33),
+        (Granule::Size4KiB, 0) => (2u64, 0u64),
+        (Granule::Size4KiB, 1) => (1u64, 0u64),
+        (Granule::Size16KiB, 0) => (3u64, 0u64),
+        (Granule::Size16KiB, 1) | (Granule::Size64KiB, 1) => (2u64, 0u64),
+        (Granule::Size16KiB, 2) | (Granule::Size64KiB, 2) => (1u64, 0u64),
+        (Granule::Size16KiB, 3) | (Granule::Size64KiB, 3) => (0u64, 0u64),
+        _ => return None,
+    };
+    Some(TranslationControls::from_bits(
+        (1 << 31)
+            | 12
+            | (sl0 << 6)
+            | (1 << 8)
+            | (1 << 10)
+            | (3 << 12)
+            | (tg0 << 14)
+            | (6 << 16)
+            | ds
+            | sl2,
+    ))
+}
+
 pub const fn d128_stage2_controls_4k(
+    input_bits: AddressBits,
+    output_bits: AddressBits,
+) -> Option<TranslationControls> {
+    d128_stage2_controls(Granule::Size4KiB, input_bits, output_bits)
+}
+
+pub const fn d128_stage2_controls(
+    granule: Granule,
     input_bits: AddressBits,
     output_bits: AddressBits,
 ) -> Option<TranslationControls> {
@@ -519,12 +659,18 @@ pub const fn d128_stage2_controls_4k(
         52 => 6u64,
         _ => return None,
     };
+    let tg0 = match granule {
+        Granule::Size4KiB => 0u64,
+        Granule::Size16KiB => 2u64,
+        Granule::Size64KiB => 1u64,
+    };
     Some(TranslationControls::from_bits(
         (1 << 31)
             | (64 - input_bits.get() as u64)
             | (1 << 8)
             | (1 << 10)
             | (3 << 12)
+            | (tg0 << 14)
             | (ps << 16)
             | (1 << 36)
             | (1 << 38),
@@ -1836,7 +1982,7 @@ where
         ArenaFrameProvider::new(memory),
     )
     .map_err(|_| HarnessError::InvalidState)?;
-    const CODE_WINDOW: u64 = 512 * 1024;
+    const CODE_WINDOW: u64 = 1024 * 1024;
     let code_fields = R::raw_leaf(MappingAttributes {
         writable: false,
         executable: true,
@@ -1962,7 +2108,7 @@ where
 }
 
 #[doc(hidden)]
-pub fn prepare_lower_runtime_d128<R>(
+pub fn prepare_lower_runtime_d128<R, G>(
     memory: &mut TestMemory,
     setup: TranslationSetup,
     entry: u64,
@@ -1971,17 +2117,18 @@ pub fn prepare_lower_runtime_d128<R>(
 ) -> Result<(), HarnessError>
 where
     R: TranslationRegime,
-    Vmsa128: HasLayout<StageOf<R>, Granule4KiB>,
-    <Vmsa128 as HasLayout<StageOf<R>, Granule4KiB>>::Layout: DescriptorLayout<
+    G: TestGranule,
+    Vmsa128: HasLayout<StageOf<R>, G>,
+    <Vmsa128 as HasLayout<StageOf<R>, G>>::Layout: DescriptorLayout<
             Vmsa128,
             StageOf<R>,
-            Granule4KiB,
+            G,
             LeafFields = RawVmsa128Stage1LeafAttrs,
             TableFields = RawVmsa128Stage1TableAttrs,
         >,
 {
     if setup.format != TranslationFormat::Vmsa128
-        || setup.granule != Granule::Size4KiB
+        || setup.granule != G::GRANULE
         || entry == 0
         || stack_top < 4096
         || lower_runtime_state == 0
@@ -2000,7 +2147,7 @@ where
         setup.input_bits.get(),
         setup.output_bits.get(),
     );
-    let mut mapper = Mapper::<Vmsa128, R, Granule4KiB, _, _, Offline>::new_offline(
+    let mut mapper = Mapper::<Vmsa128, R, G, _, _, Offline>::new_offline(
         root,
         access,
         ArenaFrameProvider::new(memory),
@@ -2030,37 +2177,37 @@ where
         access_flag: true,
         ..RawVmsa128Stage1TableAttrs::default()
     };
-    const PAGE_SIZE: u64 = 4096;
-    const CODE_WINDOW: u64 = 512 * 1024;
-    const STATE_WINDOW: u64 = PAGE_SIZE;
+    const CODE_WINDOW: u64 = 1024 * 1024;
+    let page_size = G::SIZE;
+    let state_window = page_size;
     let code_windows = [
         entry & !(CODE_WINDOW - 1),
         vmsa_test_architecture::exception::vector_address() & !(CODE_WINDOW - 1),
         vmsa_test_architecture::exception::runtime_code_address() & !(CODE_WINDOW - 1),
         vmsa_test_architecture::transition::runtime_code_address() & !(CODE_WINDOW - 1),
     ];
-    let stack_page = (stack_top - 1) & !(PAGE_SIZE - 1);
+    let stack_page = G::align_down(stack_top - 1);
     let state_windows = [
-        vmsa_test_architecture::exception::runtime_state_address() & !(STATE_WINDOW - 1),
-        vmsa_test_architecture::transition::runtime_state_address() & !(STATE_WINDOW - 1),
-        lower_runtime_state & !(STATE_WINDOW - 1),
+        G::align_down(vmsa_test_architecture::exception::runtime_state_address()),
+        G::align_down(vmsa_test_architecture::transition::runtime_state_address()),
+        G::align_down(lower_runtime_state),
     ];
     let is_state_page = |address: u64| {
         state_windows
             .iter()
-            .any(|start| (*start..*start + STATE_WINDOW).contains(&address))
+            .any(|start| (*start..*start + state_window).contains(&address))
     };
     let is_code_page = |address: u64| {
         code_windows
             .iter()
             .any(|start| (*start..*start + CODE_WINDOW).contains(&address))
     };
-    let arena_start = unsafe { memory.as_ref() }.physical_base() & !(PAGE_SIZE - 1);
+    let arena_start = G::align_down(unsafe { memory.as_ref() }.physical_base());
     let arena_end = unsafe { memory.as_ref() }
         .physical_base()
         .checked_add(unsafe { memory.as_ref() }.byte_len() as u64)
         .ok_or(HarnessError::Memory)?;
-    let arena_last = arena_end.saturating_sub(1) & !(PAGE_SIZE - 1);
+    let arena_last = G::align_down(arena_end.saturating_sub(1));
     for index in 0..code_windows.len() {
         if code_windows[..index].contains(&code_windows[index]) {
             continue;
@@ -2081,7 +2228,7 @@ where
                     )
                     .map_err(|_| HarnessError::InvalidState)?;
             }
-            address = address.checked_add(PAGE_SIZE).ok_or(HarnessError::Memory)?;
+            address = address.checked_add(page_size).ok_or(HarnessError::Memory)?;
         }
     }
     if !is_state_page(stack_page) {
@@ -2100,7 +2247,7 @@ where
             continue;
         }
         let mut page = state_windows[index];
-        let end = page.checked_add(STATE_WINDOW).ok_or(HarnessError::Memory)?;
+        let end = page.checked_add(state_window).ok_or(HarnessError::Memory)?;
         while page < end {
             mapper
                 .map_leaf(
@@ -2111,7 +2258,7 @@ where
                     table_fields,
                 )
                 .map_err(|_| HarnessError::InvalidState)?;
-            page = page.checked_add(PAGE_SIZE).ok_or(HarnessError::Memory)?;
+            page = page.checked_add(page_size).ok_or(HarnessError::Memory)?;
         }
     }
     let mut address = arena_start;
@@ -2127,7 +2274,7 @@ where
                 )
                 .map_err(|_| HarnessError::InvalidState)?;
         }
-        address = address.checked_add(PAGE_SIZE).ok_or(HarnessError::Memory)?;
+        address = address.checked_add(page_size).ok_or(HarnessError::Memory)?;
     }
     const UART_PAGE: u64 = 0x1c0a_0000;
     if !is_code_page(UART_PAGE)
@@ -2157,6 +2304,230 @@ pub struct TestMapper<
 {
     inner: InnerMapper<F, R, G>,
     _regime: PhantomData<(F, R, G)>,
+}
+
+#[derive(Clone, Copy)]
+struct ProbeInvalidation {
+    marker: u64,
+}
+
+impl<F, G> aarch64_vmsa::mapper::MapperInvalidation<F, G> for ProbeInvalidation
+where
+    F: DescriptorFormat,
+    G: TranslationGranule,
+{
+    fn leaf_inserted(
+        &mut self,
+        _: aarch64_vmsa::table::TableAccessLocation<F, G>,
+        _: usize,
+        _: F::Raw,
+        _: F::Raw,
+    ) {
+    }
+    fn leaf_removed(
+        &mut self,
+        _: aarch64_vmsa::table::TableAccessLocation<F, G>,
+        _: usize,
+        _: F::Raw,
+    ) {
+    }
+    fn table_descriptor_inserted(
+        &mut self,
+        _: aarch64_vmsa::table::TableAccessLocation<F, G>,
+        _: usize,
+        _: F::Raw,
+        _: F::Raw,
+    ) {
+    }
+    fn table_descriptor_removed(
+        &mut self,
+        _: aarch64_vmsa::table::TableAccessLocation<F, G>,
+        _: usize,
+        _: F::Raw,
+    ) {
+    }
+    fn before_table_frame_reclaim(&mut self, _: TablePhysAddr<G>, _: TableAllocLayout) {}
+    fn synchronize(&mut self) {}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MapperConstructionError {
+    UnalignedRoot {
+        address: u64,
+        align: u64,
+    },
+    InvalidRootLevel {
+        root_level: i8,
+        lowest_level: i8,
+        final_level: i8,
+    },
+    InvalidRootAddressBits {
+        addr_bits: u8,
+        max_addr_bits: u8,
+    },
+    InvalidConfiguredOutputAddressBits {
+        output_address_bits: u8,
+        format_max_bits: u8,
+    },
+    RootAddressOutOfRange {
+        address: u64,
+        output_address_bits: u8,
+    },
+    Unexpected,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MapperOperationError {
+    AccessProvider(aarch64_vmsa::table::AccessError),
+    FrameProvider(crate::MemoryError),
+    AccessLocation(aarch64_vmsa::table::AccessError),
+    Table(aarch64_vmsa::table::TableError),
+    TableAddress(aarch64_vmsa::table::TableAddressError),
+    Descriptor(aarch64_vmsa::descriptor::DescriptorError),
+    Cursor(aarch64_vmsa::translation::walk::WalkCursorError),
+    InvalidLeafLevel {
+        level: i8,
+        root_level: i8,
+        final_level: i8,
+    },
+    InputAddressOutOfRange {
+        address: u64,
+        address_bits: u8,
+    },
+    AddressOverflow,
+    InvalidLevel {
+        level: i8,
+    },
+    OutputAddressOverflow {
+        base: u64,
+        offset: u64,
+    },
+    OutputAddressOutOfRange {
+        address: u64,
+        output_address_bits: u8,
+    },
+    UnalignedInput {
+        address: u64,
+        align: u64,
+    },
+    UnalignedOutput {
+        address: u64,
+        align: u64,
+    },
+    LengthNotMappingMultiple {
+        length: u64,
+        mapping_size: u64,
+    },
+    InputNotLeafBase {
+        input: u64,
+        covered_input_base: u64,
+        covered_size: u64,
+        level: i8,
+    },
+    AlreadyMapped {
+        input: u64,
+        level: i8,
+        entry_index: usize,
+    },
+    NotMapped {
+        input: u64,
+    },
+    Unexpected,
+}
+
+fn normalize_mapper_operation_error(
+    error: aarch64_vmsa::mapper::MapperError<aarch64_vmsa::table::AccessError, crate::MemoryError>,
+) -> MapperOperationError {
+    use aarch64_vmsa::mapper::MapperError;
+    match error {
+        MapperError::Access(error) => MapperOperationError::AccessProvider(error),
+        MapperError::Frame(error) => MapperOperationError::FrameProvider(error),
+        MapperError::AccessLocation(error) => MapperOperationError::AccessLocation(error),
+        MapperError::Table(error) => MapperOperationError::Table(error),
+        MapperError::TableAddress(error) => MapperOperationError::TableAddress(error),
+        MapperError::Descriptor(error) => MapperOperationError::Descriptor(error),
+        MapperError::Cursor(error) => MapperOperationError::Cursor(error),
+        MapperError::InvalidLeafLevel {
+            level,
+            root_level,
+            final_level,
+        } => MapperOperationError::InvalidLeafLevel {
+            level: level.as_i8(),
+            root_level: root_level.as_i8(),
+            final_level: final_level.as_i8(),
+        },
+        MapperError::InputAddressOutOfRange { addr, addr_bits } => {
+            MapperOperationError::InputAddressOutOfRange {
+                address: addr,
+                address_bits: addr_bits,
+            }
+        }
+        MapperError::AddressOverflow => MapperOperationError::AddressOverflow,
+        MapperError::InvalidLevel { level } => MapperOperationError::InvalidLevel {
+            level: level.as_i8(),
+        },
+        MapperError::OutputAddressOverflow { base, offset } => {
+            MapperOperationError::OutputAddressOverflow {
+                base: base.0,
+                offset,
+            }
+        }
+        MapperError::OutputAddressOutOfRange {
+            addr,
+            output_address_bits,
+        } => MapperOperationError::OutputAddressOutOfRange {
+            address: addr.0,
+            output_address_bits,
+        },
+        MapperError::UnalignedInput { addr, align } => MapperOperationError::UnalignedInput {
+            address: addr,
+            align,
+        },
+        MapperError::UnalignedOutput { addr, align } => MapperOperationError::UnalignedOutput {
+            address: addr.0,
+            align,
+        },
+        MapperError::LengthNotMappingMultiple { len, mapping_size } => {
+            MapperOperationError::LengthNotMappingMultiple {
+                length: len,
+                mapping_size,
+            }
+        }
+        MapperError::InputNotLeafBase {
+            input,
+            covered_input_base,
+            covered_size,
+            level,
+        } => MapperOperationError::InputNotLeafBase {
+            input: input.raw(),
+            covered_input_base,
+            covered_size,
+            level: level.as_i8(),
+        },
+        MapperError::AlreadyMapped {
+            input,
+            level,
+            entry_index,
+        } => MapperOperationError::AlreadyMapped {
+            input: input.raw(),
+            level: level.as_i8(),
+            entry_index,
+        },
+        MapperError::NotMapped { input } => MapperOperationError::NotMapped { input: input.raw() },
+        MapperError::InvalidRootLevel { .. }
+        | MapperError::InvalidRootAddressBits { .. }
+        | MapperError::InvalidConfiguredOutputAddressBits { .. } => {
+            MapperOperationError::Unexpected
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MapLeafResult {
+    pub tables_allocated: u8,
+    pub level: LookupLevel,
+    pub kind: WalkDescriptorKind,
+    pub covered_size: u64,
 }
 
 /// Explicit negative-test surface for replacing a descriptor in an offline,
@@ -2450,6 +2821,136 @@ impl<R: TranslationRegime, G: TestGranule, F: DescriptorFormat> TestMapper<R, G,
 where
     F: HasLayout<StageOf<R>, G>,
 {
+    pub fn verify_offline_accessors_into_parts(mut self) -> bool {
+        let expected_root = self.inner.root();
+        let expected_offset = self.inner.access().offset();
+        let expected_memory = self.inner.frames().memory();
+        if self.inner.access_mut().offset() != expected_offset
+            || self.inner.frames_mut().memory() != expected_memory
+        {
+            return false;
+        }
+        let (root, access, frames) = self.inner.into_parts();
+        root.addr().raw() == expected_root.addr().raw()
+            && root.level() == expected_root.level()
+            && root.addr_bits() == expected_root.addr_bits()
+            && root.output_addr_bits() == expected_root.output_addr_bits()
+            && access.offset() == expected_offset
+            && frames.memory() == expected_memory
+    }
+
+    pub fn verify_live_accessors_into_parts(self) -> bool {
+        let (root, access, frames) = self.inner.into_parts();
+        let expected_root = root;
+        let expected_offset = access.offset();
+        let expected_memory = frames.memory();
+        let Ok(mut mapper) = Mapper::<F, R, G, _, _, aarch64_vmsa::mapper::Live<_>>::new_live(
+            root,
+            access,
+            frames,
+            ProbeInvalidation {
+                marker: 0x51a7_e001,
+            },
+        ) else {
+            return false;
+        };
+        if mapper.root().addr().raw() != expected_root.addr().raw()
+            || mapper.root().level() != expected_root.level()
+            || mapper.root().addr_bits() != expected_root.addr_bits()
+            || mapper.root().output_addr_bits() != expected_root.output_addr_bits()
+            || mapper.access().offset() != expected_offset
+            || mapper.frames().memory() != expected_memory
+            || mapper.invalidation().marker != 0x51a7_e001
+            || mapper.access_mut().offset() != expected_offset
+            || mapper.frames_mut().memory() != expected_memory
+        {
+            return false;
+        }
+        mapper.invalidation_mut().marker = 0x51a7_e002;
+        let (root, access, frames, invalidation) = mapper.into_parts();
+        root.addr().raw() == expected_root.addr().raw()
+            && root.level() == expected_root.level()
+            && root.addr_bits() == expected_root.addr_bits()
+            && root.output_addr_bits() == expected_root.output_addr_bits()
+            && access.offset() == expected_offset
+            && frames.memory() == expected_memory
+            && invalidation.marker == 0x51a7_e002
+    }
+
+    pub(crate) fn validate_new(
+        memory: NonNull<TestMemory>,
+        root: &crate::RootTableMemory,
+        start_level: Level,
+        input_bits: u8,
+        output_bits: u8,
+    ) -> Result<(), MapperConstructionError> {
+        Self::validate_new_at(
+            memory,
+            root.phys_addr(),
+            start_level,
+            input_bits,
+            output_bits,
+        )
+    }
+
+    pub(crate) fn validate_new_at(
+        memory: NonNull<TestMemory>,
+        root_address: u64,
+        start_level: Level,
+        input_bits: u8,
+        output_bits: u8,
+    ) -> Result<(), MapperConstructionError> {
+        let root_address =
+            TablePhysAddr::new(PhysAddr(root_address)).map_err(|error| match error {
+                aarch64_vmsa::table::TableAddressError::Unaligned { addr, align } => {
+                    MapperConstructionError::UnalignedRoot {
+                        address: addr.0,
+                        align,
+                    }
+                }
+            })?;
+        // SAFETY: TestMemory guarantees a constant physical-to-virtual offset.
+        let offset = unsafe { memory.as_ref() }.physical_to_virtual_offset();
+        // SAFETY: The offset maps every arena physical address to its reserved VA.
+        let access = unsafe { OffsetTableAccess::new(VirtAddr(offset)) };
+        let root = RootTable::new(root_address, start_level, input_bits, output_bits);
+        Mapper::<F, R, G, _, _, Offline>::new_offline(root, access, ArenaFrameProvider::new(memory))
+            .map(|_| ())
+            .map_err(|error| match error {
+                aarch64_vmsa::mapper::MapperError::InvalidRootLevel {
+                    root_level,
+                    lowest_level,
+                    final_level,
+                } => MapperConstructionError::InvalidRootLevel {
+                    root_level: root_level.as_i8(),
+                    lowest_level: lowest_level.as_i8(),
+                    final_level: final_level.as_i8(),
+                },
+                aarch64_vmsa::mapper::MapperError::InvalidRootAddressBits {
+                    addr_bits,
+                    max_addr_bits,
+                } => MapperConstructionError::InvalidRootAddressBits {
+                    addr_bits,
+                    max_addr_bits,
+                },
+                aarch64_vmsa::mapper::MapperError::InvalidConfiguredOutputAddressBits {
+                    output_address_bits,
+                    format_max_bits,
+                } => MapperConstructionError::InvalidConfiguredOutputAddressBits {
+                    output_address_bits,
+                    format_max_bits,
+                },
+                aarch64_vmsa::mapper::MapperError::OutputAddressOutOfRange {
+                    addr,
+                    output_address_bits,
+                } => MapperConstructionError::RootAddressOutOfRange {
+                    address: addr.0,
+                    output_address_bits,
+                },
+                _ => MapperConstructionError::Unexpected,
+            })
+    }
+
     pub(crate) fn new(
         memory: NonNull<TestMemory>,
         root: &crate::RootTableMemory,
@@ -2514,14 +3015,15 @@ where
         payload_data: [u64; 2],
         sandbox_regions: &[(u64, u64)],
     ) -> Result<(), HarnessError> {
+        const CODE_WINDOW: u64 = 1024 * 1024;
         let leaf_level = LookupLevel::new(3).ok_or(HarnessError::InvalidState)?;
         let stack = vmsa_test_architecture::registers::stack_pointer() & !(G::SIZE - 1);
         let stack_start = stack.saturating_sub(15 * G::SIZE);
         let stack_end = stack.saturating_add(16 * G::SIZE);
         let code_regions = [
-            entry & !0x7_ffff,
-            vmsa_test_architecture::exception::vector_address() & !0x7_ffff,
-            vmsa_test_architecture::exception::recovery_vector_address() & !0x7_ffff,
+            entry & !(CODE_WINDOW - 1),
+            vmsa_test_architecture::exception::vector_address() & !(CODE_WINDOW - 1),
+            vmsa_test_architecture::exception::recovery_vector_address() & !(CODE_WINDOW - 1),
         ];
         let data_pages = [
             payload_data[0] & !(G::SIZE - 1),
@@ -2536,7 +3038,9 @@ where
             if code_regions[..index].contains(&region) {
                 continue;
             }
-            let end = region.checked_add(0x8_0000).ok_or(HarnessError::Memory)?;
+            let end = region
+                .checked_add(CODE_WINDOW)
+                .ok_or(HarnessError::Memory)?;
             let mut address = region;
             while address < end {
                 let sandbox_data = sandbox_regions.iter().any(|(input, _)| *input == address);
@@ -2573,7 +3077,7 @@ where
             }
             let contains_code = code_regions
                 .iter()
-                .any(|region| (*region..*region + 0x8_0000).contains(&address));
+                .any(|region| (*region..*region + CODE_WINDOW).contains(&address));
             self.map_attributes_leaf(
                 address,
                 address,
@@ -2682,6 +3186,91 @@ where
             .map(|_| ())
             .map_err(|_| HarnessError::InvalidState)
     }
+
+    pub fn map_attributes_leaf_exact(
+        &mut self,
+        input: u64,
+        output: u64,
+        level: i8,
+        attributes: MappingAttributes,
+    ) -> Result<MapLeafResult, MapperOperationError> {
+        let leaf = R::raw_leaf(attributes).map_err(|_| MapperOperationError::Unexpected)?;
+        let table = R::raw_table().map_err(|_| MapperOperationError::Unexpected)?;
+        self.inner
+            .map_leaf(
+                WalkInputAddr::new(input),
+                PhysAddr(output),
+                Level::new(level),
+                leaf,
+                table,
+            )
+            .map(|outcome| MapLeafResult {
+                tables_allocated: outcome.tables_allocated(),
+                level: LookupLevel::new(outcome.level().as_i8())
+                    .expect("mapper leaf levels are architectural"),
+                kind: match outcome.kind() {
+                    aarch64_vmsa::translation::walk::WalkLeafKind::Block => {
+                        WalkDescriptorKind::Block
+                    }
+                    aarch64_vmsa::translation::walk::WalkLeafKind::Page => WalkDescriptorKind::Page,
+                },
+                covered_size: outcome.covered_size(),
+            })
+            .map_err(normalize_mapper_operation_error)
+    }
+
+    pub fn unmap_exact(&mut self, input: u64) -> Result<MappingInspection, MapperOperationError> {
+        self.inner
+            .unmap(WalkInputAddr::new(input))
+            .map(|outcome| MappingInspection {
+                output: outcome.old().output().0,
+                level: LookupLevel::new(outcome.old().level().as_i8())
+                    .expect("mapper leaf levels are architectural"),
+            })
+            .map_err(normalize_mapper_operation_error)
+    }
+
+    pub fn map_range_exact(
+        &mut self,
+        input: u64,
+        output: u64,
+        length: u64,
+        level: i8,
+        attributes: MappingAttributes,
+    ) -> Result<MapRangeResult, MapperOperationError> {
+        let leaf = R::raw_leaf(attributes).map_err(|_| MapperOperationError::Unexpected)?;
+        let table = R::raw_table().map_err(|_| MapperOperationError::Unexpected)?;
+        self.inner
+            .map_range(
+                WalkInputAddr::new(input),
+                PhysAddr(output),
+                length,
+                Level::new(level),
+                leaf,
+                table,
+            )
+            .map(|outcome| MapRangeResult {
+                mappings_created: outcome.mappings_created(),
+                bytes_mapped: outcome.bytes_mapped(),
+                tables_allocated: outcome.tables_allocated(),
+            })
+            .map_err(normalize_mapper_operation_error)
+    }
+
+    pub fn unmap_reclaim_exact(&mut self, input: u64) -> Result<UnmapResult, MapperOperationError> {
+        self.inner
+            .unmap_reclaim(WalkInputAddr::new(input))
+            .map(|outcome| UnmapResult {
+                mapping: MappingInspection {
+                    output: outcome.old().output().0,
+                    level: LookupLevel::new(outcome.old().level().as_i8())
+                        .expect("mapper leaf levels are architectural"),
+                },
+                tables_freed: outcome.tables_freed(),
+                root_now_empty: outcome.root_now_empty(),
+            })
+            .map_err(normalize_mapper_operation_error)
+    }
 }
 
 impl<R: TestRegime, G: TestGranule> TestMapper<R, G, Vmsa64>
@@ -2780,13 +3369,13 @@ where
     }
 }
 
-impl<R: TestRegime> TestMapper<R, Granule4KiB, Vmsa128>
+impl<R: TestRegime, G: TestGranule> TestMapper<R, G, Vmsa128>
 where
-    Vmsa128: HasLayout<StageOf<R>, Granule4KiB>,
-    <Vmsa128 as HasLayout<StageOf<R>, Granule4KiB>>::Layout: DescriptorLayout<
+    Vmsa128: HasLayout<StageOf<R>, G>,
+    <Vmsa128 as HasLayout<StageOf<R>, G>>::Layout: DescriptorLayout<
             Vmsa128,
             StageOf<R>,
-            Granule4KiB,
+            G,
             LeafFields = RawVmsa128Stage1LeafAttrs,
             TableFields = RawVmsa128Stage1TableAttrs,
         >,
@@ -2868,7 +3457,7 @@ where
         sandbox_regions: &[(u64, u64)],
     ) -> Result<(), HarnessError> {
         const PAGE_SIZE: u64 = 4096;
-        const CODE_WINDOW: u64 = 512 * 1024;
+        const CODE_WINDOW: u64 = 1024 * 1024;
         let stack = vmsa_test_architecture::registers::stack_pointer() & !(PAGE_SIZE - 1);
         let stack_start = stack.saturating_sub(15 * PAGE_SIZE);
         let stack_end = stack.saturating_add(16 * PAGE_SIZE);
@@ -2997,38 +3586,136 @@ where
             .map_err(|_| HarnessError::InvalidState)
     }
 
+    fn d128_map_leaf_outcome(outcome: aarch64_vmsa::mapper::MapLeafOutcome) -> MapLeafResult {
+        MapLeafResult {
+            tables_allocated: outcome.tables_allocated(),
+            level: LookupLevel::new(outcome.level().as_i8())
+                .expect("mapper leaf levels are architectural"),
+            kind: match outcome.kind() {
+                aarch64_vmsa::translation::walk::WalkLeafKind::Block => WalkDescriptorKind::Block,
+                aarch64_vmsa::translation::walk::WalkLeafKind::Page => WalkDescriptorKind::Page,
+            },
+            covered_size: outcome.covered_size(),
+        }
+    }
+
+    pub fn map_d128_leaf_step_by_one_exact(
+        &mut self,
+        input: u64,
+        output: u64,
+        level: LookupLevel,
+    ) -> Result<MapLeafResult, MapperOperationError> {
+        let (leaf, table) =
+            Self::d128_fields(false).map_err(|_| MapperOperationError::Unexpected)?;
+        self.inner
+            .map_leaf_with_plan(
+                WalkInputAddr::new(input),
+                PhysAddr(output),
+                Level::new(level.get()),
+                leaf,
+                aarch64_vmsa::mapper::StepByOneTablePlan::new(table),
+            )
+            .map(Self::d128_map_leaf_outcome)
+            .map_err(normalize_mapper_operation_error)
+    }
+
+    pub fn map_d128_leaf_bounded_skl_exact(
+        &mut self,
+        input: u64,
+        output: u64,
+        level: LookupLevel,
+        maximum_table_bytes: u64,
+    ) -> Result<MapLeafResult, MapperOperationError> {
+        let (leaf, table) =
+            Self::d128_fields(false).map_err(|_| MapperOperationError::Unexpected)?;
+        self.inner
+            .map_leaf_with_plan(
+                WalkInputAddr::new(input),
+                PhysAddr(output),
+                Level::new(level.get()),
+                leaf,
+                aarch64_vmsa::mapper::BoundedSklTablePlan::new(table, maximum_table_bytes),
+            )
+            .map(Self::d128_map_leaf_outcome)
+            .map_err(normalize_mapper_operation_error)
+    }
+
+    pub fn map_d128_leaf_maximum_skl_exact(
+        &mut self,
+        input: u64,
+        output: u64,
+        level: LookupLevel,
+    ) -> Result<MapLeafResult, MapperOperationError> {
+        let (leaf, table) =
+            Self::d128_fields(false).map_err(|_| MapperOperationError::Unexpected)?;
+        self.inner
+            .map_leaf_with_plan(
+                WalkInputAddr::new(input),
+                PhysAddr(output),
+                Level::new(level.get()),
+                leaf,
+                aarch64_vmsa::mapper::MaxSklTablePlan::new(table),
+            )
+            .map(Self::d128_map_leaf_outcome)
+            .map_err(normalize_mapper_operation_error)
+    }
+
     pub fn map_hardware_managed_page(
         &mut self,
         input: u64,
         output: u64,
         attributes: D128HardwareManagedAttributes,
     ) -> Result<(), HarnessError> {
+        self.map_hardware_managed_leaf_exact(input, output, 3, attributes)
+            .map(|_| ())
+            .map_err(|_| HarnessError::InvalidState)
+    }
+
+    pub fn map_hardware_managed_leaf_exact(
+        &mut self,
+        input: u64,
+        output: u64,
+        level: i8,
+        attributes: D128HardwareManagedAttributes,
+    ) -> Result<MapLeafResult, MapperOperationError> {
         let (leaf, table) = Self::d128_fields_with_state(
             attributes.permissions,
             attributes.access_flag,
             attributes.dirty,
-        )?;
+        )
+        .map_err(|_| MapperOperationError::Unexpected)?;
         self.inner
             .map_leaf(
                 WalkInputAddr::new(input),
                 PhysAddr(output),
-                Level::L3,
+                Level::new(level),
                 leaf,
                 table,
             )
-            .map(|_| ())
-            .map_err(|_| HarnessError::InvalidState)
+            .map(|outcome| MapLeafResult {
+                tables_allocated: outcome.tables_allocated(),
+                level: LookupLevel::new(outcome.level().as_i8())
+                    .expect("mapper leaf levels are architectural"),
+                kind: match outcome.kind() {
+                    aarch64_vmsa::translation::walk::WalkLeafKind::Block => {
+                        WalkDescriptorKind::Block
+                    }
+                    aarch64_vmsa::translation::walk::WalkLeafKind::Page => WalkDescriptorKind::Page,
+                },
+                covered_size: outcome.covered_size(),
+            })
+            .map_err(normalize_mapper_operation_error)
     }
 }
 
-impl<R: TestRegime> TestMapper<R, Granule4KiB, Vmsa128>
+impl<R: TestRegime, G: TestGranule> TestMapper<R, G, Vmsa128>
 where
     R::WalkProfile: TranslationWalkProfile<Stage = Stage2>,
-    Vmsa128: HasLayout<Stage2, Granule4KiB>,
-    <Vmsa128 as HasLayout<Stage2, Granule4KiB>>::Layout: DescriptorLayout<
+    Vmsa128: HasLayout<Stage2, G>,
+    <Vmsa128 as HasLayout<Stage2, G>>::Layout: DescriptorLayout<
             Vmsa128,
             Stage2,
-            Granule4KiB,
+            G,
             LeafFields = RawVmsa128Stage2LeafAttrs,
             TableFields = RawVmsa128Stage2TableAttrs,
         >,
@@ -3050,7 +3737,20 @@ where
         level: LookupLevel,
         attributes: MappingAttributes,
     ) -> Result<(), HarnessError> {
-        let (leaf, table) = d128_stage2_fields(attributes)?;
+        self.map_stage2_leaf_exact(input, output, level, attributes)
+            .map(|_| ())
+            .map_err(|_| HarnessError::InvalidState)
+    }
+
+    pub fn map_stage2_leaf_exact(
+        &mut self,
+        input: u64,
+        output: u64,
+        level: LookupLevel,
+        attributes: MappingAttributes,
+    ) -> Result<MapLeafResult, MapperOperationError> {
+        let (leaf, table) =
+            d128_stage2_fields(attributes).map_err(|_| MapperOperationError::Unexpected)?;
         self.inner
             .map_leaf(
                 WalkInputAddr::new(input),
@@ -3059,7 +3759,18 @@ where
                 leaf,
                 table,
             )
-            .map(|_| ())
-            .map_err(|_| HarnessError::InvalidState)
+            .map(|outcome| MapLeafResult {
+                tables_allocated: outcome.tables_allocated(),
+                level: LookupLevel::new(outcome.level().as_i8())
+                    .expect("mapper leaf levels are architectural"),
+                kind: match outcome.kind() {
+                    aarch64_vmsa::translation::walk::WalkLeafKind::Block => {
+                        WalkDescriptorKind::Block
+                    }
+                    aarch64_vmsa::translation::walk::WalkLeafKind::Page => WalkDescriptorKind::Page,
+                },
+                covered_size: outcome.covered_size(),
+            })
+            .map_err(normalize_mapper_operation_error)
     }
 }

@@ -19,6 +19,7 @@ pub struct BootPlan {
 struct CatalogCase {
     name: String,
     targets: [bool; 5],
+    applicable: [bool; 5],
     isolation: Isolation,
     expects_termination: bool,
 }
@@ -34,6 +35,20 @@ pub fn validate() -> Result<(), String> {
                 "registry case {} has no adapter handler",
                 case.name
             ));
+        }
+        for target in 0..case.targets.len() {
+            if case.applicable[target] && !case.targets[target] {
+                return Err(format!(
+                    "registry case {} is applicable to adapter {} but has no handler",
+                    case.name, target
+                ));
+            }
+            if !case.applicable[target] && case.targets[target] {
+                return Err(format!(
+                    "registry case {} has a handler for inapplicable adapter {}",
+                    case.name, target
+                ));
+            }
         }
         if cases[..index].iter().any(|other| other.name == case.name) {
             return Err(format!("duplicate registry case {}", case.name));
@@ -104,6 +119,7 @@ fn parse_registry() -> Result<Vec<CatalogCase>, String> {
             .ok_or_else(|| format!("registry row has invalid name: {line}"))?
             .to_owned();
         let builder = fields[2];
+        let applicable = applicable_targets(builder)?;
         let isolation = if builder.contains("IsolationRequirement::DestructiveBoot") {
             Isolation::Destructive
         } else if builder.contains("IsolationRequirement::SeparateBoot") {
@@ -119,11 +135,49 @@ fn parse_registry() -> Result<Vec<CatalogCase>, String> {
         cases.push(CatalogCase {
             name,
             targets,
+            applicable,
             isolation,
             expects_termination,
         });
     }
     Ok(cases)
+}
+
+fn applicable_targets(builder: &str) -> Result<[bool; 5], String> {
+    let start = builder
+        .find('(')
+        .ok_or_else(|| format!("registry builder has no arguments: {builder}"))?
+        + 1;
+    let arguments = split_top_level(
+        builder
+            .get(start..builder.len().saturating_sub(1))
+            .ok_or_else(|| format!("registry builder is malformed: {builder}"))?,
+    )?;
+    let environments = arguments
+        .first()
+        .ok_or_else(|| format!("registry builder has no environment: {builder}"))?;
+    let mut targets = match *environments {
+        "NORMAL" => [true, false, false, false, false],
+        "NORMAL_SECURE" => [true, true, false, false, false],
+        "NORMAL_ROOT" => [true, false, false, false, true],
+        "NORMAL_SECURE_REALM" => [true, true, true, true, false],
+        "NORMAL_SECURE_REALM_ROOT" | "ALL_ENVIRONMENTS" => [true; 5],
+        "SecurityEnvironments::SECURE" => [false, true, false, false, false],
+        "SecurityEnvironments::SECURE.union(SecurityEnvironments::REALM)" => {
+            [false, true, true, true, false]
+        }
+        "SecurityEnvironments::REALM" => [false, false, true, true, false],
+        "SecurityEnvironments::ROOT" => [false, false, false, false, true],
+        "NORMAL_SECURE.union(SecurityEnvironments::REALM)" => [true, true, true, true, false],
+        other => return Err(format!("unknown registry environment expression: {other}")),
+    };
+    if builder.contains("NON_REC_PROFILES") {
+        targets[3] = false;
+    }
+    if builder.contains("BootProfile::RealmRecStage2") {
+        targets = [false, false, false, true, false];
+    }
+    Ok(targets)
 }
 
 fn split_top_level(line: &str) -> Result<Vec<&str>, String> {

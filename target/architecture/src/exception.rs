@@ -17,7 +17,11 @@ struct FaultSlot(UnsafeCell<Option<RawFault>>);
 // SAFETY: Guard activation serializes access and payload execution is single-core.
 unsafe impl Sync for FaultSlot {}
 
-#[repr(C)]
+// The guarded-access state must never share a translation granule with executable
+// runtime code. D128 tests install 4/16/64 KiB stage-1 mappings with distinct
+// execute and writable permission indices, so align and contain the state at the
+// largest supported granule boundary independent of final firmware layout.
+#[repr(C, align(65536))]
 struct ExceptionRuntimeState {
     guard_active: AtomicBool,
     recovery: AtomicU64,

@@ -6,6 +6,7 @@ use core::ops::FromResidual;
 pub enum HarnessError {
     Memory,
     Environment,
+    EnvironmentDetail(u64),
     GuardBusy,
     InvalidState,
     Cleanup,
@@ -48,6 +49,7 @@ impl From<HarnessError> for TestFailure {
             actual: match error {
                 HarnessError::Memory => 1,
                 HarnessError::Environment => 2,
+                HarnessError::EnvironmentDetail(code) => 0x400 + code,
                 HarnessError::GuardBusy => 3,
                 HarnessError::InvalidState => 4,
                 HarnessError::Cleanup => 5,

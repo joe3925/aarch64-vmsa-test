@@ -11,6 +11,8 @@ use crate::{
 pub trait Environment {
     type Error;
 
+    fn error_code(error: &Self::Error) -> u64;
+
     fn begin_test_scope(&mut self) -> Result<(), Self::Error>;
     fn end_test_scope(&mut self) -> Result<(), Self::Error>;
     fn mark_corrupted(&mut self);

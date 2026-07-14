@@ -135,6 +135,22 @@ pub fn validate_mounts(repository: &Path, crate_path: &Path) -> Result<(), Podma
             return Err(PodmanError::command("mount validation", &output));
         }
     }
+
+    let write_probe = command_output_os([
+        OsString::from("run"),
+        OsString::from("--rm"),
+        OsString::from("--mount"),
+        mount_argument(crate_path, "/workspace/aarch64-vmsa", true),
+        OsString::from("--entrypoint"),
+        OsString::from("/usr/bin/touch"),
+        OsString::from(CONTAINER_IMAGE),
+        OsString::from("/workspace/aarch64-vmsa/.vmsa-test-write-probe"),
+    ])?;
+    if write_probe.status.success() {
+        return Err(PodmanError::unavailable(
+            "the tested crate mount unexpectedly accepted a write",
+        ));
+    }
     Ok(())
 }
 

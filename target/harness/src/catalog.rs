@@ -25,6 +25,7 @@ const ALL_ENVIRONMENTS: SecurityEnvironments = SecurityEnvironments::ALL;
 const NORMAL: SecurityEnvironments = SecurityEnvironments::NORMAL;
 const NORMAL_SECURE: SecurityEnvironments =
     SecurityEnvironments::NORMAL.union(SecurityEnvironments::SECURE);
+const NORMAL_SECURE_REALM: SecurityEnvironments = NORMAL_SECURE.union(SecurityEnvironments::REALM);
 const NORMAL_ROOT: SecurityEnvironments =
     SecurityEnvironments::NORMAL.union(SecurityEnvironments::ROOT);
 const NORMAL_SECURE_REALM_ROOT: SecurityEnvironments = ALL_ENVIRONMENTS;
@@ -89,22 +90,10 @@ const fn isolated_profile_entry(
     entry
 }
 
-const fn capability_entry(
-    id: LogicalTest,
-    name: &'static str,
-    environments: SecurityEnvironments,
-    capability: crate::HarnessCapability,
-    model: Requirements,
-) -> CatalogEntry {
-    let mut entry = entry(id, name, environments, model);
-    entry.architecture.capabilities = HarnessCapabilities::one(capability);
-    entry
-}
-
 macro_rules! define_catalog {
     ($($variant:ident, $name:literal, $builder:ident($($argument:expr),*), $normal:tt, $secure:tt, $realm:tt, $rec:tt, $root:tt;)*) => {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-        #[repr(u8)]
+        #[repr(u16)]
         pub enum LogicalTest {
             $($variant,)*
         }
@@ -157,7 +146,7 @@ const _: () = {
         assert!(valid_catalog_name(TEST_CATALOG[index].name));
         let mut other = index + 1;
         while other < TEST_CATALOG.len() {
-            assert!(TEST_CATALOG[index].id as u8 != TEST_CATALOG[other].id as u8);
+            assert!(TEST_CATALOG[index].id as u16 != TEST_CATALOG[other].id as u16);
             assert!(!same_name(
                 TEST_CATALOG[index].name,
                 TEST_CATALOG[other].name

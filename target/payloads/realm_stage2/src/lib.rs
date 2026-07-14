@@ -4,8 +4,15 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 #[path = "../../common/mod.rs"]
 mod common;
-#[path = "../../common/smoke.rs"]
-pub mod smoke;
+#[path = "../../common/features.rs"]
+#[allow(dead_code)]
+mod features;
+#[path = "../../common/pas.rs"]
+#[allow(dead_code)]
+mod pas;
+#[path = "../../common/runtime_support.rs"]
+#[allow(dead_code)]
+mod runtime_support;
 
 use common::{BootContext, REGIME_REALM, define_environment, outcome_code};
 use vmsa_test_abi::{
@@ -43,6 +50,42 @@ unsafe extern "C" {
 pub type CurrentEnvironment = RealmStage2Environment;
 pub type CurrentRegime = aarch64_vmsa::regime::RealmEl1Stage1;
 pub type LowerRegime = aarch64_vmsa::regime::RealmEl1Stage1;
+
+fn feature_snapshot_agreement(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::live_snapshot_agreement(context.capabilities())
+}
+fn security_state_membership(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::security_state_membership(
+        context.capabilities(),
+        aarch64_vmsa::arch::SecurityStates::REALM,
+    )
+}
+fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    use aarch64_vmsa::attrs::{Stage2Permissions, Stage2XnxPermissions};
+    use aarch64_vmsa::regime::{RealmEl1Stage1, RealmEl2Stage2};
+    let current = aarch64_vmsa::arch::VmsaFeatures::current();
+    features::regime_result(features::require_regimes!(&current;
+        RealmEl1Stage1,
+        RealmEl2Stage2<Stage2Permissions>,
+        RealmEl2Stage2<Stage2XnxPermissions>,
+    ))
+}
+fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    use aarch64_vmsa::attrs::{Stage2Permissions, Stage2XnxPermissions};
+    use aarch64_vmsa::regime::{RealmEl1Stage1, RealmEl2Stage2};
+    let current = &aarch64_vmsa::arch::VmsaFeatures::current();
+    macro_rules! check {
+        ($regime:ty) => {
+            features::require_base_format!(current; $regime)
+                && features::require_extended_formats_unsupported!(current; $regime)
+        };
+    }
+    features::regime_result(
+        check!(RealmEl1Stage1)
+            && check!(RealmEl2Stage2<Stage2Permissions>)
+            && check!(RealmEl2Stage2<Stage2XnxPermissions>),
+    )
+}
 
 static REC_TEST_IPA: AtomicU64 = AtomicU64::new(0);
 static REC_FAULT_IPA: AtomicU64 = AtomicU64::new(0);
@@ -175,7 +218,7 @@ fn current_access(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResu
         execution.read_u32(address),
         vmsa_test_harness::AccessResult::Completed { value } if value == u64::from(original_pair.0 as u32)
     ) || !matches!(
-        execution.execute(smoke::execution_probe as *const () as usize as u64),
+        execution.execute(runtime_support::execution_probe as *const () as usize as u64),
         vmsa_test_harness::AccessResult::Completed {
             value: 0x5345_434f_4e44_4152
         }
@@ -281,59 +324,147 @@ fn live_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult 
 }
 
 fn pas_semantics(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    smoke::realm_pas_semantics(context)
+    pas::realm_semantics(context)
 }
 
-fn realm_failure_injection(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    use vmsa_test_harness::{HarnessError, HarnessFailurePoint};
+fn realm_fresh_sentinel(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    context.realm_rec_stage2()?.finish()?;
+    TestResult::Pass
+}
 
-    for point in [
-        HarnessFailurePoint::GranuleDelegation,
-        HarnessFailurePoint::RealmCreation,
-        HarnessFailurePoint::RecCreation,
-        HarnessFailurePoint::RecEntry,
-    ] {
-        let injected = context.with_harness_failure(point, 0, || context.realm_rec_stage2());
-        if !matches!(injected, Err(HarnessError::InjectedFailure)) {
-            return HarnessError::InvalidState.into();
-        }
-        context.realm_rec_stage2()?.finish()?;
+fn realm_creation_phase_failure(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+    point: vmsa_test_harness::HarnessFailurePoint,
+) -> TestResult {
+    let rejected = context.with_harness_failure(point, 0, || context.realm_rec_stage2());
+    let rejected_as_expected = matches!(
+        rejected,
+        Err(vmsa_test_harness::HarnessError::InjectedFailure)
+    );
+    drop(rejected);
+    if !rejected_as_expected {
+        return vmsa_test_harness::HarnessError::InvalidState.into();
     }
+    realm_fresh_sentinel(context)
+}
 
+fn realm_delegation_failure(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    realm_creation_phase_failure(
+        context,
+        vmsa_test_harness::HarnessFailurePoint::GranuleDelegation,
+    )
+}
+
+fn realm_creation_failure(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    realm_creation_phase_failure(
+        context,
+        vmsa_test_harness::HarnessFailurePoint::RealmCreation,
+    )
+}
+
+fn realm_rec_creation_failure(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    realm_creation_phase_failure(context, vmsa_test_harness::HarnessFailurePoint::RecCreation)
+}
+
+fn realm_rec_entry_failure(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    realm_creation_phase_failure(context, vmsa_test_harness::HarnessFailurePoint::RecEntry)
+}
+
+fn realm_map_failure(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     let mut translation = context.realm_rec_stage2()?;
-    let injected_map =
-        context.with_harness_failure(HarnessFailurePoint::FirmwareCallback, 0, || {
+    let rejected =
+        context.with_harness_failure(vmsa_test_harness::HarnessFailurePoint::RealmMap, 0, || {
             translation.map()
         });
-    if injected_map != Err(HarnessError::InjectedFailure) {
-        return HarnessError::InvalidState.into();
+    if rejected != Err(vmsa_test_harness::HarnessError::InjectedFailure) {
+        return vmsa_test_harness::HarnessError::InvalidState.into();
     }
     translation.map()?;
-    let injected_protect =
-        context.with_harness_failure(HarnessFailurePoint::FirmwareCallback, 0, || {
-            translation.protect_read_only()
-        });
-    if injected_protect != Err(HarnessError::InjectedFailure) {
-        return HarnessError::InvalidState.into();
+    translation.unmap()?;
+    translation.finish()?;
+    realm_fresh_sentinel(context)
+}
+
+fn realm_protect_read_only_failure(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    let mut translation = context.realm_rec_stage2()?;
+    translation.map()?;
+    let rejected = context.with_harness_failure(
+        vmsa_test_harness::HarnessFailurePoint::RealmMutation,
+        0,
+        || translation.protect_read_only(),
+    );
+    if rejected != Err(vmsa_test_harness::HarnessError::InjectedFailure) {
+        return vmsa_test_harness::HarnessError::InvalidState.into();
     }
     translation.protect_read_only()?;
     translation.protect_read_write()?;
-    let injected_unmap =
-        context.with_harness_failure(HarnessFailurePoint::FirmwareCallback, 0, || {
-            translation.unmap()
-        });
-    if injected_unmap != Err(HarnessError::InjectedFailure) {
-        return HarnessError::InvalidState.into();
+    translation.unmap()?;
+    translation.finish()?;
+    realm_fresh_sentinel(context)
+}
+
+fn realm_protect_read_write_failure(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    let mut translation = context.realm_rec_stage2()?;
+    translation.map()?;
+    translation.protect_read_only()?;
+    let rejected = context.with_harness_failure(
+        vmsa_test_harness::HarnessFailurePoint::RealmMutation,
+        0,
+        || translation.protect_read_write(),
+    );
+    if rejected != Err(vmsa_test_harness::HarnessError::InjectedFailure) {
+        return vmsa_test_harness::HarnessError::InvalidState.into();
+    }
+    translation.protect_read_write()?;
+    translation.unmap()?;
+    translation.finish()?;
+    realm_fresh_sentinel(context)
+}
+
+fn realm_unmap_failure(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    let mut translation = context.realm_rec_stage2()?;
+    translation.map()?;
+    let rejected = context.with_harness_failure(
+        vmsa_test_harness::HarnessFailurePoint::RealmMutation,
+        0,
+        || translation.unmap(),
+    );
+    if rejected != Err(vmsa_test_harness::HarnessError::InjectedFailure) {
+        return vmsa_test_harness::HarnessError::InvalidState.into();
     }
     translation.unmap()?;
-    let injected_cleanup =
-        context.with_harness_failure(HarnessFailurePoint::Cleanup, 0, || translation.finish());
-    if injected_cleanup != Err(HarnessError::InjectedFailure) {
-        return HarnessError::InvalidState.into();
-    }
+    translation.finish()?;
+    realm_fresh_sentinel(context)
+}
 
-    context.realm_rec_stage2()?.finish()?;
-    TestResult::Pass
+fn realm_finish_phase_failure(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+    point: vmsa_test_harness::HarnessFailurePoint,
+) -> TestResult {
+    let translation = context.realm_rec_stage2()?;
+    let rejected = context.with_harness_failure(point, 0, || translation.finish());
+    if rejected != Err(vmsa_test_harness::HarnessError::InjectedFailure) {
+        return vmsa_test_harness::HarnessError::InvalidState.into();
+    }
+    realm_fresh_sentinel(context)
+}
+
+fn realm_destruction_failure(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    realm_finish_phase_failure(
+        context,
+        vmsa_test_harness::HarnessFailurePoint::RealmDestruction,
+    )
+}
+
+fn realm_undelegation_failure(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    realm_finish_phase_failure(
+        context,
+        vmsa_test_harness::HarnessFailurePoint::GranuleUndelegation,
+    )
 }
 
 fn realm_translation_cycle(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {

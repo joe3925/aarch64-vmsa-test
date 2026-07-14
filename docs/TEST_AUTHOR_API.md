@@ -98,6 +98,14 @@ closed harness `AttributeError` enum. Tests can therefore match, for example,
 `HarnessError::Attribute(AttributeError::MemoryAttributeNotConfigured)` without
 depending on crate internals or raw descriptor encodings.
 
+Constructor and mapper-boundary tests use the safe exact-error facade rather
+than reaching through the arena. `validate_offline_mapper_geometry` returns
+`MapperConstructionError`; `map_attributes_leaf_exact`, `map_range_exact`,
+`unmap_exact`, and `unmap_reclaim_exact` return `MapperOperationError` plus
+normalized outcome structures. These methods invoke the crate mapper directly
+through the same scoped `OffsetTableAccess` used by ordinary tests. They expose
+neither table pointers nor frame-provider internals.
+
 ## Live mutation, BBM, TLBI, and inspection
 
 ```rust
@@ -295,7 +303,7 @@ with `IsolationRequirement::SeparateBoot` or
 registration regardless of isolation:
 
 ```rust
-ExampleCase, "smoke.example-case",
+ExampleCase, "example.catalog-case",
 isolated_profile_entry(
     SecurityEnvironments::NORMAL,
     BootProfiles::one(BootProfile::NsEl2),
@@ -303,7 +311,7 @@ isolated_profile_entry(
     false,
     Requirements::LPA2,
 ),
-(smoke::example_case), (none), (none), (none), (none);
+(example::catalog_case), (none), (none), (none), (none);
 ```
 
 `none` is explicit architectural inapplicability for that adapter. If the

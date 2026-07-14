@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from collections import defaultdict, deque
 from pathlib import Path, PurePosixPath
 
 
@@ -17,48 +18,48 @@ def classify(path: list[str], kind: str) -> tuple[str, str, str]:
 
     if kind in {"use", "module"}:
         return (
-            "pure-compile-time-or-type-system",
+            "type-only",
             "public namespace and reexport surface",
             "classified",
         )
     if "error" in joined or kind == "variant" and any("error" in part for part in lowered):
         return (
-            "exercisable-through-isolated-malformed-input",
+            "isolated-malformed-input",
             "typed errors, failure injection, or isolated malformed descriptors",
             "evidence-incomplete",
         )
     if module == "regime" or kind in {"trait", "type_alias"}:
         return (
-            "pure-compile-time-or-type-system",
+            "type-only",
             "typed catalog bounds and compile-time regime/format selection",
             "classified",
         )
     if module == "arch":
         return (
-            "pure-compile-time-or-type-system",
+            "type-only",
             "typed feature input and adapter capability validation",
             "classified",
         )
     if module == "address":
         return (
-            "architecturally-unobservable",
+            "value-only",
             "typed address/geometry construction and mapper boundary validation",
             "evidence-incomplete",
         )
     if module in {"attrs", "descriptor", "translation"}:
         return (
-            "exercisable-through-typed-descriptor-inspection",
+            "typed-inspection",
             "semantic codec, descriptor inspection, and typed walk inspection",
             "evidence-incomplete",
         )
     if module in {"mapper", "table"}:
         return (
-            "directly-exercisable-through-harness",
+            "direct-fvp-execution",
             "offline/live mapper, installed translation, mutation, and restoration",
             "evidence-incomplete",
         )
     return (
-        "architecturally-unobservable",
+        "value-only",
         "crate/module/type surface with no independent architectural observation",
         "classified",
     )
@@ -117,6 +118,11 @@ def main() -> int:
     parser.add_argument("rustdoc_json", type=Path)
     parser.add_argument("output_csv", type=Path)
     parser.add_argument("--revision", required=True)
+    parser.add_argument(
+        "--previous",
+        type=Path,
+        help="preserve reviewed classification, route, and evidence for matching public items",
+    )
     args = parser.parse_args()
 
     with args.rustdoc_json.open(encoding="utf-8") as source:
@@ -145,9 +151,33 @@ def main() -> int:
         )
 
     rows.sort(key=lambda row: (row["public_path"], row["kind"], row["rustdoc_item_id"]))
+    if args.previous is not None:
+        previous: dict[tuple[str, str], deque[dict[str, str]]] = defaultdict(deque)
+        with args.previous.open(encoding="utf-8", newline="") as source:
+            for row in csv.DictReader(source):
+                previous[(row["public_path"], row["kind"])].append(row)
+        for row in rows:
+            matches = previous[(row["public_path"], row["kind"])]
+            if matches:
+                reviewed = matches.popleft()
+                for field in ("classification", "harness_route", "evidence_state"):
+                    row[field] = reviewed[field]
+
+    live_feature_paths = {
+        "aarch64_vmsa::arch::features::IdRegisterSnapshot::current",
+        "aarch64_vmsa::arch::features::VmsaFeatures::current",
+        "aarch64_vmsa::arch::features::decode_features",
+    }
+    for row in rows:
+        if row["public_path"] in live_feature_paths:
+            row["classification"] = "direct-fvp-execution"
+            row["harness_route"] = "features.live-snapshot-agreement in every FVP profile"
+            row["evidence_state"] = "evidence-complete"
     args.output_csv.parent.mkdir(parents=True, exist_ok=True)
     with args.output_csv.open("w", encoding="utf-8", newline="") as destination:
-        writer = csv.DictWriter(destination, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(
+            destination, fieldnames=list(rows[0]), quoting=csv.QUOTE_ALL
+        )
         writer.writeheader()
         writer.writerows(rows)
 

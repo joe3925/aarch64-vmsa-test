@@ -7,7 +7,7 @@ their requirements are in `target/harness/src/catalog.rs`.
 Matrix enumeration is deterministic and includes boot profile as a
 runtime-distinguishing dimension. Exact identity formatting plus applicable,
 inapplicable, unsupported, adapter-missing, isolated, and destructive
-classification are verified by `smoke.matrix-catalog` in
+classification are verified by the catalog applicability validation in
 `ns-el2-00001783974632697437-31100`.
 
 Evidence states are deliberately strict:
@@ -37,12 +37,12 @@ Evidence states are deliberately strict:
 
 ## Translation and inspection capabilities
 
-| Capability | Minimal smoke evidence | Current state |
+| Capability | Minimal catalog evidence | Current state |
 |---|---|---|
-| Create root | Allocate aligned zeroed root, install, reset scope | verified in active-format smokes |
+| Create root | Allocate aligned zeroed root, install, reset scope | verified in active-format tests |
 | Map page | Active access through page descriptor | verified: active 4 KiB |
 | Map block | Active access through block descriptor | a live L2 block returns exact typed kind/level/output and hardware AT/PAR resolves a nonzero block offset before typed unmap; the surrounding translation cycle restores and passes (`ns-el2-00001783998349282560-17100`) |
-| Map range | Exact normalized range/walk results plus cross-page active reads/writes and post-unmap faults | verified through stable API: `smoke.live-range-mapping`, `ns-el2-00001783944671234473-18804` |
+| Map range | Exact normalized range/walk results plus cross-page active reads/writes and post-unmap faults | verified through stable API: `mapper.live-range`, `ns-el2-00001783944671234473-18804` |
 | Create intermediate tables | Grow walk and inspect path | verified by active mapping; boundary-growth evidence incomplete |
 | Remap | Observe new output after required invalidation; rejected replacement restores old mapping | verified for EL2-owned translation in `ns-el2-00001783944784622771-25432` and RMM-owned REC translation in `realm-stage2-00001783972792306798-29180`; typed TLBI breadth incomplete |
 | Protect | Read succeeds, write faults, restore | verified for EL2-owned translation in `ns-el2-00001783944784622771-25432` and REC-owned stage 2 in `realm-stage2-00001783973693132319-28616` |
@@ -56,30 +56,30 @@ Evidence states are deliberately strict:
 | Install translation | Active hardware observation | verified across current/lower/S2; combined performs a real typed lower-EL load through mixed-format/mixed-granule stages, exact S2 permission/translation faults, live remap, and complete restoration in `ns-el2-00001784002095602554-6956`; public semantic construction is wrapped offline and live and passes encode/install/inspect/decode/restore plus every following NS case in `ns-el2-00001784003436354671-13700` |
 | Mutate installed translation | Access changes while installed through stable API with no raw live mapper exposure | verified for VMSA64, AF/HD, execute permissions, reclaim, and recursive tables in `ns-el2-00001783945931510375-27644`; D128 stage-1 evidence is `ns-el2-00001783997397100091-28552`, and D128 stage-2 protect/remap/unmap plus exact S2 faults is `ns-el2-00001784000240914246-628` |
 | Restore translation | Exact saved controls and following test | verified in sequential NS, Secure, Realm EL2, Root boots |
-| Offline construction | Construct/inspect without installation | verified by mapper-format smokes |
+| Offline construction | Construct/inspect without installation | verified by mapper-format tests |
 | Raw malformed construction | Explicit affine offline descriptor replacement plus recoverable candidate fault | final-level reserved type encoding faults under an active 16 KiB candidate and restores through the sandbox (`ns-el2-00001783987716834632-12536`); reserved D128 rejection is also verified at Root and typed page/contiguous/root/table allocation injection in `ns-el2-00001783946675570564-25284`; remaining negative-category breadth is tracked in the implementation checklist |
 
 ## Access, control, and maintenance capabilities
 
-| Capability | Minimal smoke evidence | Current state |
+| Capability | Minimal catalog evidence | Current state |
 |---|---|---|
-| Byte/half/word/double | Exact values plus alignment faults | verified: `smoke.access-widths` |
-| Pair access | Exact two-register read/write | verified: `smoke.pair-access` |
-| Ordered access | Acquire/release observation | verified: `smoke.ordered-atomic-access` |
-| Atomic access | Swap and exclusive update | verified: `smoke.ordered-atomic-access` |
+| Byte/half/word/double | Exact values plus alignment faults | verified: `access.widths-and-alignment` |
+| Pair access | Exact two-register read/write | verified: `access.pair` |
+| Ordered access | Acquire/release observation | verified: `access.ordered-and-atomic` |
+| Atomic access | Swap and exclusive update | verified: `access.ordered-and-atomic` |
 | Indirect execution | Execute mapped function and return | implemented; dedicated evidence incomplete |
-| Generated execution | D-cache clean, I-cache invalidate, execute | verified: `smoke.generated-execution` |
+| Generated execution | D-cache clean, I-cache invalidate, execute | verified: `invalidation.generated-code-coherency` |
 | AT/PAR | Success and fault at current/lower regimes | verified across four security environments; R-EL1 exact IPA semantics before/after S2 unmap in `realm-stage2-00001783973375086139-7320` (combined S1+S2 AT is EL2-only) |
-| ASID | Affine independent roots, opaque root IDs, transactional reuse | verified: `smoke.asid-isolation`, `ns-el2-00001783945504078341-16288` |
-| VMID | Independent stage-2 identities | verified: `smoke.vmid-isolation` |
+| ASID | Affine independent roots, opaque root IDs, transactional reuse | verified: `invalidation.asid-isolation`, `ns-el2-00001783945504078341-16288` |
+| VMID | Independent stage-2 identities | verified: `invalidation.vmid-isolation` |
 | Address widths | Maximum input/output validation and active walk | implemented; boundary evidence incomplete |
 | Starting lookup level | Valid growth and invalid-level rejection | implemented; negative evidence incomplete |
 | TCR/TCR2 | Typed install and exact restore | active VMSA64/LPA2/D128 verified; failure injection incomplete |
 | 64-bit TTBR | Typed install and restore | verified |
 | 128-bit TTBR | MRRS/MSRR active walk and restore | verified for TTBR0_EL1 and VTTBR_EL2; D128 S2 evidence `ns-el2-00001784000240914246-628` |
 | MAIR/MAIR2 | Typed semantic attribute slots and exact restore | D128 slot 8 is encoded through `Stage1MemoryControls`, read by active lower-EL hardware, and MAIR2 is restored transactionally (`ns-el2-00001784006041086405-28536`) |
-| HA/HD | Hardware updates reflected in descriptor | verified: `smoke.hardware-access-dirty` |
-| Permission indirection | D128 PI decode and active RX/RW separation | verified: active D128 and Root PI smoke |
+| HA/HD | Hardware updates reflected in descriptor | verified: `permissions.hardware-af-dirty` |
+| Permission indirection | D128 PI decode and active RX/RW separation | verified: active D128 and Root PI tests |
 | Permission overlay | Typed encode/decode and active permission result | implemented; active evidence incomplete |
 | Stage-2 memory controls | Typed VTCR/HCR and effective attributes | combined mode, every FWB encoding, MTE-gated encodings, and exact wrong-mode errors pass through the stable semantic mapper (`ns-el2-00001784005229606967-31968`) |
 | Shareability/cacheability | Semantic construction/decode plus coherent access | source-reviewed semantic coverage is complete; active VMSA64 and D128 mappings exercise configured MAIR/MAIR2 values |
@@ -88,12 +88,12 @@ Evidence states are deliberately strict:
 
 ## Fault and recovery capabilities
 
-| Capability | Minimal smoke evidence | Current state |
+| Capability | Minimal catalog evidence | Current state |
 |---|---|---|
 | Normalized fault | Exact class/status/access/stage/level/FAR/IPA | translation, permission, address-size, alignment, and Realm GPC paths implemented; full matrix incomplete |
 | Exact fault matcher | Typed semantic fields plus optional exact class/FAR/IPA | two architectural alignment faults match DataAbort/write/stage1/exact FAR/no IPA (`ns-el2-00001783978422394930-4152`); internal FSC table breadth passes in `ns-el2-00001783978317494410-13588` |
 | Guarded expected fault | Returns `AccessResult::Fault` and next test passes | verified across NS/Secure/Realm/Root |
-| Unexpected exception | Harness failure, artifact retention, boot stop | verified during bring-up; deliberate final smoke incomplete |
+| Unexpected exception | Harness failure, artifact retention, boot stop | verified during bring-up; deliberate final destructive case incomplete |
 | Transition sandbox | Candidate-independent code/stack/mailbox/vector and emergency restore | independently owned recovery root, stack, mailbox, and vector are active across candidate VMSA64 4/16/64 KiB and LPA2 state; a malformed 16 KiB candidate abort is normalized and restored (`ns-el2-00001783987716834632-12536`); exception-driven emergency register restoration and the remaining destructive breadth remain gaps |
 | Emergency restoration | Runner restores independently of explicit restoration | injected explicit-restoration failure is recovered by the consumed guard's independent Drop path, followed by a fresh install/restore (`ns-el2-00001783975922598639-28636`); runner-level emergency-injection breadth remains incomplete |
 | Secondary cleanup recovery | Explicit shutdown failure cannot strand a PE | injected shutdown is recovered by session Drop, followed by a fresh rendezvous/access/stop (`ns-el2-00001783975922598639-28636`) |
@@ -102,13 +102,18 @@ Evidence states are deliberately strict:
 | Typed TLBI selection | VA/IPA/ASID/VMID and local/inner-shareable requests cannot target the wrong regime or identifier | stage-1 cycle, EL1 ASID isolation, and stage-2 VMID isolation pass sequentially with negative checks (`ns-el2-00001783976472815860-30080`; 33/33) |
 | Combined TLBI | Combined guard routes stage-specific invalidations and orders whole invalidation stage 2 before stage 1 | wrong-stage negative plus local VA, ASID, IPA, VMID, and whole-combined operations (`ns-el2-00001783976594057704-31940`) |
 | Cache maintenance | Typed instruction coherency, data clean/invalidate, table visibility, and multi-PE visibility | generated execution and mutation pass after the complete maintenance sequence (`ns-el2-00001783978044754521-29568`); secondary PE observes published data/table state and cleans up (`ns-el2-00001783978121542138-21608`) |
+
+The sole observational exemption is the model's internal cache residency and
+replacement choice. Attribute encoding/decoding, instruction coherency, data
+integrity, table visibility, and multi-PE publication remain required catalog
+observations and are not covered by that exemption.
 | Typed walk path | Live/offline inspection returns bounded level/index/kind/raw/next/output steps | effective L1→L2→L3 VMSA64 page path and exact PA (`ns-el2-00001783977180855032-21060`) |
 | Format/granule walk inspection | Offline path inspection precedes active hardware installation | all five formats/geometries inspect/access/restore; VMSA64 4/16/64 KiB and LPA2 additionally inspect through candidate-active table access (`ns-el2-00001783977755338883-3004`), while lower-EL D128 candidate-context inspection awaits the independent sandbox |
 | Corrupted state | Stop later tests in boot and preserve independent boots | implemented at runner outcome level; explicit adapter state machine gap |
 
 ## Resource and infrastructure capabilities
 
-| Capability | Minimal smoke evidence | Current state |
+| Capability | Minimal catalog evidence | Current state |
 |---|---|---|
 | Memory scope | Alignment, zeroing, overlap prevention, reset, leak detection | basic allocation/reset verified; misuse/boundary breadth incomplete |
 | Arena capacity | Maximum contiguous allocation, exact exhaustion, scope recovery | exact remaining capacity is consumed and the next page reports exhaustion; all following NS cases pass after reset (`ns-el2-00001783978915286853-6096`; 33/33) |

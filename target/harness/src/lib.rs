@@ -53,7 +53,7 @@ pub mod adapter {
 
     /// Deliberately suppresses a live guard's `Drop` path so the runner's
     /// independent emergency restoration can be exercised by infrastructure
-    /// smoke logic. This is not part of the test-author facade.
+    /// payload adapter logic. This is not part of the test-author facade.
     pub fn force_runner_emergency_restoration<E: Environment>(
         translation: crate::LiveTranslation<'_, E>,
     ) {
@@ -82,13 +82,15 @@ pub use test::{
 pub use translation::{
     AddressBits, Asid, AttributeError, D128HardwareManagedAttributes, D128HardwareUpdateInspection,
     D128MappingPermissions, DescriptorBits, Granule, HardwareManagedAttributes,
-    HardwareUpdateInspection, IsolatedMalformedTable, LookupLevel, MapRangeResult,
-    MappingAttributes, MappingInspection, MemoryAttributeSlot, PhysicalAddress, RegimeAttributes,
-    Stage1MemoryControls, TestMapper, TlbiOperation, TlbiScope, TranslationControls,
-    TranslationFormat, TranslationSetup, TranslationStage, UnmapResult, Vmid,
-    WalkDescriptorInspection, WalkDescriptorKind, WalkInspection, d128_el1_stage1_controls_4k,
-    d128_el2_stage1_controls_4k, d128_stage2_controls_4k, lpa2_el1_stage1_controls,
-    lpa2_el1_stage1_controls_4k, lpa2_el2_stage1_controls_4k, stage1_start_level,
+    HardwareUpdateInspection, IsolatedMalformedTable, LookupLevel, MapLeafResult, MapRangeResult,
+    MapperConstructionError, MapperOperationError, MappingAttributes, MappingInspection,
+    MemoryAttributeSlot, PhysicalAddress, RegimeAttributes, Stage1MemoryControls, TestGranule,
+    TestMapper, TlbiOperation, TlbiScope, TranslationControls, TranslationFormat, TranslationSetup,
+    TranslationStage, UnmapResult, Vmid, WalkDescriptorInspection, WalkDescriptorKind,
+    WalkInspection, d128_el1_stage1_controls, d128_el1_stage1_controls_4k,
+    d128_el2_stage1_controls_4k, d128_stage2_controls, d128_stage2_controls_4k,
+    lpa2_el1_stage1_controls, lpa2_el1_stage1_controls_4k, lpa2_el2_stage1_controls,
+    lpa2_el2_stage1_controls_4k, lpa2_stage2_controls, lpa2_stage2_controls_4k, stage1_start_level,
     vmsa64_el1_stage1_controls, vmsa64_el1_stage1_controls_4k, vmsa64_el2_stage1_controls,
-    vmsa64_stage2_controls_4k,
+    vmsa64_stage2_controls, vmsa64_stage2_controls_4k,
 };

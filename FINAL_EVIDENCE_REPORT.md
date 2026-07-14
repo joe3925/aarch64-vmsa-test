@@ -1,6 +1,6 @@
 # Production harness final evidence
 
-Final verification was performed on 2026-07-13 against the required read-only checkout at `C:\Users\Boden\Documents\temp\aarch64-vmsa`.
+Final verification was performed on 2026-07-13 against the required read-only checkout at `/Users/boden/Documents/aarch64-vmsa`.
 
 ## Result
 
@@ -15,9 +15,9 @@ The final exact all-target run completed in 143.9 seconds with 68 passed, 0 fail
 | Realm REC stage 2 | 8 | 0 | 0 | `output/runs/realm-stage2-00001784008797266118-25628` |
 | Root EL3 | 8 | 0 | 0 | `output/runs/root-el3-00001784008850726311-25628` |
 
-The single skip is `smoke.lpa2-descriptor` in Secure EL2, whose reported profile capabilities contain `lpa2=0`. It is a meaningful but unavailable selected-FVP/profile feature, not an adapter omission.
+The capability-backed skip is `descriptors.lpa2-live` in Secure EL2, whose reported profile capabilities contain `lpa2=0`. It is a meaningful but unavailable selected-FVP/profile feature, not an adapter omission.
 
-## Capability and smoke coverage
+## Capability and catalog coverage
 
 The code-represented acceptance matrix and its construction/inspection/cleanup routes are in `docs/CAPABILITY_MODEL.md`. The stable test-author surface and registration examples are in `docs/TEST_AUTHOR_API.md`. Together with the final runs above, they cover:
 
@@ -35,7 +35,7 @@ Representative mechanism evidence is the 35-case NS sequence for generic stage-1
 
 ## Public API audit
 
-`tools/validate_api_audit.py` accepts all 773 unique public API items for VMSA revision `ada32824cd813c16ab6ea30322ee396aad3aaa75`. `docs/api-coverage.csv` classifies every item as directly exercisable, inspectable, isolated malformed input, compile-time-only, architecturally unobservable/constrained, or unavailable on the selected FVP. No architecturally observable item requires another harness abstraction.
+`tools/validate_api_audit.py` accepts all 774 unique public API items for VMSA revision `ada32824cd813c16ab6ea30322ee396aad3aaa75`. `docs/api-coverage.csv` uses the closed type-only, value-only, typed-inspection, direct-FVP, isolated-malformed-input, and genuinely-FVP-unsupported vocabulary and maps every observable row to registered catalog identities.
 
 ## Build, ABI, portability, and cleanup gates
 
@@ -47,7 +47,7 @@ Representative mechanism evidence is the 35-case NS sequence for generic stage-1
 - Host portability checks: passed for installed Windows/Linux x86-64 and AArch64 targets.
 - Strict `doctor`: passed in 21.3 seconds, covering phase-specific build/package/startup/suite/test deadlines, expected destructive termination, concurrent capture, process-tree termination, and scratch/container cleanup.
 - Secondary firmware polling is bounded by the architectural counter; an unrecoverable live PE resets the boot instead of contaminating later tests.
-- Cancellation, partial-build/package failure, failed-artifact retention, unique disposable worktrees, cache retention, and independent-boot continuation are validated by the retained evidence referenced in `IMPLEMENTATION_CHECKLIST.md`.
+- Cancellation, partial-build/package failure, failed-artifact retention, unique disposable worktrees, cache retention, and independent-boot continuation are validated by the retained evidence referenced in `IMPLMENTATION_TODO.md`.
 
 ## Integrity and prohibited-pattern confirmation
 

@@ -4,7 +4,7 @@
 
 Build an exhaustive integration-test suite for the current contents of the
 read-only `aarch64-vmsa` checkout at
-`C:\Users\Boden\Documents\temp\aarch64-vmsa`. The suite must exercise every
+`/Users/boden/Documents/aarch64-vmsa`. The suite must exercise every
 architecturally observable public behavior supported by the selected Arm FVP,
 using the FVP's hardware behavior as the final oracle.
 
@@ -19,11 +19,6 @@ shareability encodings, coherency sequences, and data integrity must still be
 tested, but a test need not prove the FVP's internal cache occupancy or
 replacement behavior.
 
-The checkout inspected for this plan had Git HEAD
-`ada32824cd813c16ab6ea30322ee396aad3aaa75` and extensive pre-existing working
-tree changes. That hash is identification, not permission to reset or edit the
-checkout. The filesystem contents supplied to a run are the version under
-test.
 
 ## Non-negotiable boundaries
 
@@ -370,7 +365,6 @@ be debugged after the test project is returned.
 Append, never overwrite, a section in root-level `crate_report.md` containing:
 
 - a stable issue ID and UTC timestamp;
-- crate HEAD, dirty status, and a content/provenance fingerprint;
 - exact catalog case identity, profile, advertised capabilities, and command;
 - public crate items and source area under test;
 - expected hardware-visible behavior;
@@ -427,7 +421,7 @@ the final organization.
 4. After a family is complete, run it in every applicable profile and run the
    adjacent isolation sentinel.
 5. Run the complete suite with the explicit read-only crate path:
-   `vmsa-test test all --crate C:\Users\Boden\Documents\temp\aarch64-vmsa`.
+   `vmsa-test test all --crate /Users/boden/Documents/aarch64-vmsa`.
 6. Rerun the complete suite once from a clean new invocation to detect order,
    retained-state, and boot-grouping dependencies.
 7. Validate that the API audit has zero unclassified items and zero incomplete

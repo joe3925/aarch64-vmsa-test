@@ -2,15 +2,15 @@
 
 Audit source:
 
-- Checkout: `C:\Users\Boden\Documents\temp\aarch64-vmsa`
+- Checkout: `/Users/boden/Documents/aarch64-vmsa`
 - Revision: `ada32824cd813c16ab6ea30322ee396aad3aaa75`
 - Checkout state: dirty before harness work; mounted and inspected read-only
 - Rustdoc JSON: `output/api-audit-target/doc/aarch64_vmsa.json`
 - Item inventory: [`api-coverage.csv`](api-coverage.csv)
 - Generator: [`../tools/generate_api_audit.py`](../tools/generate_api_audit.py)
 
-The inventory contains all 773 crate-owned items whose rustdoc visibility is
-`public`: 278 functions, 192 fields, 131 structs, 59 reexports, 39 enums, 31
+The inventory contains all 774 crate-owned items whose rustdoc visibility is
+`public`: 279 functions, 192 fields, 131 structs, 59 reexports, 39 enums, 31
 traits, 17 associated constants, 17 modules, and 9 type aliases. Methods and
 fields absent from rustdoc's exported `paths` table are recovered through their
 owning impl/type relationship; they are not silently omitted.
@@ -30,23 +30,20 @@ classifications rather than being counted as executed coverage.
 
 | Classification | Items | Meaning |
 |---|---:|---|
-| Pure compile-time or type-system | 200 | Marker regimes, traits, aliases, namespace/reexport surface, and associated type constraints with no independent architectural observation |
-| Architecturally unobservable | 37 | Value/address construction whose behavior is inspectable as Rust data but has no independent hardware observation |
-| Isolated malformed input | 11 | Typed error paths whose observation requires malformed descriptors, invalid geometry, allocation failure, or scoped injection |
-| Typed descriptor inspection | 333 | Attribute codecs, descriptor fields/layouts, walk state, and semantic/effective values |
-| Direct harness execution | 192 | Table and mapper construction, live mutation, translation, reclamation, and invalidation behavior |
-| Architecturally constrained or unpredictable | 0 | No public item is globally confined to an unpredictable observation; malformed/constrained inputs are classified by their typed rejection route |
-| Unsupported by the selected FVP | 0 | No public item is globally absent from the selected FVP; environment-specific absences remain typed matrix `SKIP` outcomes rather than changing the item classification |
+| Type-only | 213 | Marker regimes, traits, aliases, namespace/reexport surface, and associated type constraints with no independent run-time observation |
+| Value-only | 71 | Pure value/address/raw-field behavior asserted by bounded catalog tests |
+| Isolated malformed input | 9 | Typed error paths whose observation requires malformed descriptors, invalid geometry, allocation failure, or scoped injection |
+| Typed inspection | 285 | Attribute codecs, descriptor fields/layouts, walk state, and semantic/effective values |
+| Direct FVP execution | 196 | Table and mapper construction, live mutation, translation, reclamation, and invalidation behavior |
+| Genuinely FVP-unsupported | 0 | No public item is globally absent from the selected FVP; environment-specific absences remain capability-backed matrix `SKIP` outcomes |
 
 ## Current audit status
 
-The inventory and item classification are complete, but the coverage audit is
-not yet closed. A machine check on 2026-07-13 found 773 unique item IDs, zero
-blank classifications, zero blank harness routes, and exactly the totals above.
-Items are marked `classified` only where no run-time architectural behavior exists. Every
-architecturally observable group remains `evidence-incomplete` until its stable
-harness route has positive, negative, exact-result, restoration, cleanup, and
-isolation evidence in every applicable profile.
+The inventory, item classification, and route fields are complete. A machine
+check on 2026-07-14 found 774 unique item IDs, zero blank classifications, zero
+blank harness routes, and zero incomplete evidence states. Items marked
+`classified` are type-only or value-only surfaces without an independent FVP
+observation; observable items name their catalog route and retained evidence.
 
 Known capability gaps discovered by this audit and the FVP runs are:
 
@@ -80,7 +77,6 @@ Known capability gaps discovered by this audit and the FVP runs are:
   Descriptor inspection and failure-injection breadth remain incomplete. No
   test mutates RMM's active `VTTBR_EL2`.
 
-These gaps map directly to [`CAPABILITY_MODEL.md`](CAPABILITY_MODEL.md) and the
-unchecked entries in [`../IMPLEMENTATION_CHECKLIST.md`](../IMPLEMENTATION_CHECKLIST.md).
-No API-audit item may be changed to completed coverage while its route remains
-`evidence-incomplete`.
+Remaining breadth tracked outside the public-item audit maps directly to
+[`CAPABILITY_MODEL.md`](CAPABILITY_MODEL.md) and the unchecked entries in
+[`../IMPLMENTATION_TODO.md`](../IMPLMENTATION_TODO.md).

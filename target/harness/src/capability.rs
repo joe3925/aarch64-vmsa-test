@@ -2,10 +2,19 @@ use vmsa_test_architecture::registers;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Capabilities {
+    pub el2: bool,
+    pub el3: bool,
+    pub el2_and0: bool,
     pub rme: bool,
     pub sel2: bool,
+    pub stage2: bool,
+    pub xnx: bool,
     pub lpa2: bool,
     pub d128: bool,
+    pub d128_stage2: bool,
+    pub extended_input_address: bool,
+    pub extended_output_address: bool,
+    pub security_states: u8,
     pub granule_4k: bool,
     pub granule_16k: bool,
     pub granule_64k: bool,
@@ -35,11 +44,37 @@ impl Capabilities {
             _ => 0,
         };
         let varange = field(mmfr2, 16);
+        let mmfr1 = registers::id_aa64mmfr1_el1();
+        let el2 = matches!(field(pfr0, 8), 1 | 2);
+        let el3 = matches!(field(pfr0, 12), 1 | 2);
+        let sel2 = field(pfr0, 36) == 1;
+        let rme = matches!(field(pfr0, 52), 1..=3);
+        let d128 = field(mmfr3, 32) == 1;
+        let d128_stage2 = field(mmfr3, 36) == 1;
+        let mut security_states = 1;
+        if sel2 || (!rme && el3) {
+            security_states |= 1 << 1;
+        }
+        if rme {
+            security_states |= 1 << 2;
+            if el3 {
+                security_states |= 1 << 3;
+            }
+        }
         Self {
-            rme: field(pfr0, 52) == 1,
-            sel2: field(pfr0, 36) == 1,
+            el2,
+            el3,
+            el2_and0: field(mmfr1, 8) == 1,
+            rme,
+            sel2,
+            stage2: el2,
+            xnx: field(mmfr1, 28) == 1,
             lpa2,
-            d128: field(mmfr3, 32) == 1,
+            d128,
+            d128_stage2,
+            extended_input_address: matches!(varange, 1 | 2) || lpa2 || d128 || d128_stage2,
+            extended_output_address: matches!(field(mmfr0, 0), 6 | 7) || d128 || d128_stage2,
+            security_states,
             granule_4k,
             granule_16k,
             granule_64k,
@@ -69,6 +104,14 @@ impl Requirements {
     pub const GRANULE_4K: Self = Self::new(1 << 4, 0, 0);
     pub const GRANULE_16K: Self = Self::new(1 << 5, 0, 0);
     pub const GRANULE_64K: Self = Self::new(1 << 6, 0, 0);
+    pub const EL2: Self = Self::new(1 << 7, 0, 0);
+    pub const EL3: Self = Self::new(1 << 8, 0, 0);
+    pub const EL2_AND0: Self = Self::new(1 << 9, 0, 0);
+    pub const STAGE2: Self = Self::new(1 << 10, 0, 0);
+    pub const XNX: Self = Self::new(1 << 11, 0, 0);
+    pub const D128_STAGE2: Self = Self::new(1 << 12, 0, 0);
+    pub const EXTENDED_INPUT_ADDRESS: Self = Self::new(1 << 13, 0, 0);
+    pub const EXTENDED_OUTPUT_ADDRESS: Self = Self::new(1 << 14, 0, 0);
 
     const fn new(features: u16, min_pa_bits: u8, min_va_bits: u8) -> Self {
         Self {
@@ -109,6 +152,14 @@ impl Requirements {
             && (!self.has(4) || capabilities.granule_4k)
             && (!self.has(5) || capabilities.granule_16k)
             && (!self.has(6) || capabilities.granule_64k)
+            && (!self.has(7) || capabilities.el2)
+            && (!self.has(8) || capabilities.el3)
+            && (!self.has(9) || capabilities.el2_and0)
+            && (!self.has(10) || capabilities.stage2)
+            && (!self.has(11) || capabilities.xnx)
+            && (!self.has(12) || capabilities.d128_stage2)
+            && (!self.has(13) || capabilities.extended_input_address)
+            && (!self.has(14) || capabilities.extended_output_address)
             && capabilities.pa_bits >= self.min_pa_bits
             && capabilities.va_bits >= self.min_va_bits
     }

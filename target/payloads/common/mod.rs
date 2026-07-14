@@ -296,6 +296,20 @@ pub enum AdapterError {
     InvalidTransition,
 }
 
+impl AdapterError {
+    pub(crate) const fn code(self) -> u64 {
+        match self {
+            Self::InvalidContext => 1,
+            Self::TranslationAlreadyInstalled => 2,
+            Self::TranslationTokenMismatch => 3,
+            Self::UnsupportedStage => 4,
+            Self::ArchitecturalState => 5,
+            Self::RestorationFailed => 6,
+            Self::InvalidTransition => 7,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AdapterState {
     Uninitialized,
@@ -980,6 +994,7 @@ impl AdapterCore {
                         asid,
                         setup.start_level.ok_or(AdapterError::ArchitecturalState)?,
                         setup.input_bits,
+                        setup.granule,
                     )?;
                     // SAFETY: The transition sandbox mappings supplied by the
                     // payload cover the MMU-off interval and this adapter owns
@@ -1045,6 +1060,7 @@ impl AdapterCore {
                         vmid,
                         setup.start_level.ok_or(AdapterError::ArchitecturalState)?,
                         setup.input_bits,
+                        setup.granule,
                     )?;
                     // Entries 0..3 match the typed D128 stage-2 mapper's
                     // RW, RO, RO+execute, and RW+execute permission indices.
@@ -1239,6 +1255,33 @@ impl AdapterCore {
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
             >,
+        aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
+                aarch64_vmsa::regime::StageOf<R>,
+                aarch64_vmsa::address::Granule16KiB,
+            > + aarch64_vmsa::descriptor::HasLayout<
+                aarch64_vmsa::regime::StageOf<R>,
+                aarch64_vmsa::address::Granule64KiB,
+            >,
+        <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+            aarch64_vmsa::regime::StageOf<R>,
+            aarch64_vmsa::address::Granule16KiB,
+        >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
+                aarch64_vmsa::descriptor::Vmsa128,
+                aarch64_vmsa::regime::StageOf<R>,
+                aarch64_vmsa::address::Granule16KiB,
+                LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
+                TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
+            >,
+        <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+            aarch64_vmsa::regime::StageOf<R>,
+            aarch64_vmsa::address::Granule64KiB,
+        >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
+                aarch64_vmsa::descriptor::Vmsa128,
+                aarch64_vmsa::regime::StageOf<R>,
+                aarch64_vmsa::address::Granule64KiB,
+                LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
+                TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
+            >,
     {
         if !matches!(
             self.state,
@@ -1310,13 +1353,35 @@ impl AdapterCore {
             if setup.format == vmsa_test_harness::TranslationFormat::Vmsa128 {
                 let lower_runtime_state =
                     vmsa_test_architecture::exception::runtime_state_address();
-                prepare_lower_runtime_d128::<R>(
-                    &mut self.memory,
-                    setup,
-                    self.lower_el_entry,
-                    lower_stack,
-                    lower_runtime_state,
-                )
+                match setup.granule {
+                    vmsa_test_harness::Granule::Size4KiB => {
+                        prepare_lower_runtime_d128::<R, aarch64_vmsa::address::Granule4KiB>(
+                            &mut self.memory,
+                            setup,
+                            self.lower_el_entry,
+                            lower_stack,
+                            lower_runtime_state,
+                        )
+                    }
+                    vmsa_test_harness::Granule::Size16KiB => {
+                        prepare_lower_runtime_d128::<R, aarch64_vmsa::address::Granule16KiB>(
+                            &mut self.memory,
+                            setup,
+                            self.lower_el_entry,
+                            lower_stack,
+                            lower_runtime_state,
+                        )
+                    }
+                    vmsa_test_harness::Granule::Size64KiB => {
+                        prepare_lower_runtime_d128::<R, aarch64_vmsa::address::Granule64KiB>(
+                            &mut self.memory,
+                            setup,
+                            self.lower_el_entry,
+                            lower_stack,
+                            lower_runtime_state,
+                        )
+                    }
+                }
                 .map_err(|_| AdapterError::ArchitecturalState)?;
             } else {
                 prepare_lower_runtime::<R>(
@@ -1336,6 +1401,7 @@ impl AdapterCore {
                 asid,
                 setup.start_level.ok_or(AdapterError::ArchitecturalState)?,
                 setup.input_bits,
+                setup.granule,
             )?;
             // SAFETY: The inactive EL1 context and D128 register bank are
             // exclusively owned by this guard until restoration.
@@ -1533,11 +1599,6 @@ impl AdapterCore {
             vmsa_test_harness::TranslationFormat::Vmsa64Lpa2 if self.capabilities.lpa2 => {}
             vmsa_test_harness::TranslationFormat::Vmsa128 if self.capabilities.d128 => {}
             _ => return Err(AdapterError::UnsupportedStage),
-        }
-        if setup.format == vmsa_test_harness::TranslationFormat::Vmsa128
-            && setup.granule != vmsa_test_harness::Granule::Size4KiB
-        {
-            return Err(AdapterError::UnsupportedStage);
         }
         let (granule_supported, root_alignment, base_minimum_level) = match setup.granule {
             vmsa_test_harness::Granule::Size4KiB => (self.capabilities.granule_4k, 4096, 0),
@@ -2050,15 +2111,21 @@ fn encode_d128_table_base(
     identifier: u16,
     root_level: LookupLevel,
     input_bits: AddressBits,
+    granule: vmsa_test_harness::Granule,
 ) -> Result<(u64, u64), AdapterError> {
     if root & 0x1f != 0 || root >> 56 != 0 {
         return Err(AdapterError::ArchitecturalState);
     }
+    let (offset_bits, stride_bits) = match granule {
+        vmsa_test_harness::Granule::Size4KiB => (12u8, 8u8),
+        vmsa_test_harness::Granule::Size16KiB => (14u8, 10u8),
+        vmsa_test_harness::Granule::Size64KiB => (16u8, 12u8),
+    };
     let table_bits = input_bits
         .get()
-        .checked_sub(12)
+        .checked_sub(offset_bits)
         .ok_or(AdapterError::ArchitecturalState)?;
-    let levels = table_bits.div_ceil(8) as i8;
+    let levels = table_bits.div_ceil(stride_bits) as i8;
     let regular_start = 4i8
         .checked_sub(levels)
         .ok_or(AdapterError::ArchitecturalState)?;
@@ -2329,6 +2396,10 @@ macro_rules! define_environment {
 
         impl vmsa_test_harness::adapter::Environment for $name {
             type Error = $crate::common::AdapterError;
+
+            fn error_code(error: &Self::Error) -> u64 {
+                error.code()
+            }
 
             fn begin_test_scope(&mut self) -> Result<(), Self::Error> {
                 self.core.begin_test_scope()

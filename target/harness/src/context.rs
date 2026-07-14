@@ -18,20 +18,175 @@ use vmsa_test_architecture::AccessWidth;
 
 struct CleanupState(UnsafeCell<bool>);
 
+#[derive(Clone, Copy)]
+struct WalkerProbeFormat;
+
+#[derive(Clone, Copy)]
+struct WalkerProbeLayout;
+
+impl aarch64_vmsa::descriptor::DescriptorFormat for WalkerProbeFormat {
+    type Raw = u64;
+    const DESCRIPTOR_BYTES: usize = 8;
+    const DESCRIPTOR_SHIFT: u8 = 3;
+    const OUTPUT_ADDRESS_BITS: u8 = 64;
+    const BASE_LOWEST_ROOT_LEVEL: aarch64_vmsa::address::Level = aarch64_vmsa::address::Level::L0;
+    const EXTENDED_LOWEST_ROOT_LEVEL: aarch64_vmsa::address::Level =
+        aarch64_vmsa::address::Level::new(-20);
+    const REQUIRED_FEATURES: aarch64_vmsa::arch::FeatureRequirements =
+        aarch64_vmsa::arch::FeatureRequirements::NONE;
+
+    fn invalid() -> Self::Raw {
+        0
+    }
+
+    fn supports_leaf_level<G: aarch64_vmsa::address::TranslationGranule>(
+        _: aarch64_vmsa::address::Level,
+    ) -> bool {
+        true
+    }
+
+    unsafe fn read_descriptor(ptr: *const Self::Raw) -> Self::Raw {
+        unsafe { ptr.read_volatile() }
+    }
+
+    unsafe fn write_descriptor(ptr: *mut Self::Raw, raw: Self::Raw) {
+        unsafe { ptr.write_volatile(raw) }
+    }
+}
+
+impl
+    aarch64_vmsa::descriptor::HasLayout<
+        aarch64_vmsa::translation::Stage1,
+        aarch64_vmsa::address::Granule4KiB,
+    > for WalkerProbeFormat
+{
+    type Layout = WalkerProbeLayout;
+}
+
+impl
+    aarch64_vmsa::descriptor::DescriptorLayout<
+        WalkerProbeFormat,
+        aarch64_vmsa::translation::Stage1,
+        aarch64_vmsa::address::Granule4KiB,
+    > for WalkerProbeLayout
+{
+    type LeafFields = ();
+    type TableFields = ();
+    const ADDRESS_FIELD_MASK: u128 = u64::MAX as u128;
+
+    fn kind(raw: u64, _: aarch64_vmsa::address::Level) -> aarch64_vmsa::descriptor::DescriptorKind {
+        match raw {
+            1 => aarch64_vmsa::descriptor::DescriptorKind::Table,
+            2 => aarch64_vmsa::descriptor::DescriptorKind::Block,
+            _ => aarch64_vmsa::descriptor::DescriptorKind::Invalid,
+        }
+    }
+
+    fn decode_leaf_fields(_: u64, _: aarch64_vmsa::address::Level) {}
+    fn decode_table_fields(_: u64, _: aarch64_vmsa::address::Level) {}
+
+    fn leaf_descriptor(
+        _: aarch64_vmsa::address::PhysAddr,
+        _: aarch64_vmsa::address::Level,
+        _: (),
+    ) -> Result<u64, aarch64_vmsa::descriptor::DescriptorError> {
+        Ok(2)
+    }
+
+    fn table_descriptor(
+        _: aarch64_vmsa::address::PhysAddr,
+        _: aarch64_vmsa::table::TableTransition<
+            WalkerProbeFormat,
+            aarch64_vmsa::address::Granule4KiB,
+        >,
+        _: (),
+    ) -> Result<u64, aarch64_vmsa::descriptor::DescriptorError> {
+        Ok(1)
+    }
+
+    fn output_address(_: u64, _: aarch64_vmsa::address::Level) -> aarch64_vmsa::address::PhysAddr {
+        aarch64_vmsa::address::PhysAddr(u64::MAX)
+    }
+
+    fn next_table(
+        _: u64,
+        level: aarch64_vmsa::address::Level,
+    ) -> Option<aarch64_vmsa::descriptor::NextTableDescriptor> {
+        Some(aarch64_vmsa::descriptor::NextTableDescriptor {
+            address: aarch64_vmsa::address::PhysAddr(1),
+            level: level.next(),
+            stride_count: 1,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WalkerProbeAccessError {
+    Rejected,
+}
+
+struct WalkerProbeAccess {
+    base: NonNull<u64>,
+    shape: aarch64_vmsa::table::TableShape<WalkerProbeFormat, aarch64_vmsa::address::Granule4KiB>,
+    reject: bool,
+}
+
+unsafe impl aarch64_vmsa::table::TableAccess<WalkerProbeFormat, aarch64_vmsa::address::Granule4KiB>
+    for WalkerProbeAccess
+{
+    type Error = WalkerProbeAccessError;
+
+    fn table_at<'a>(
+        &'a self,
+        _: aarch64_vmsa::table::TableAccessLocation<
+            WalkerProbeFormat,
+            aarch64_vmsa::address::Granule4KiB,
+        >,
+    ) -> Result<
+        aarch64_vmsa::table::TranslationTable<
+            'a,
+            WalkerProbeFormat,
+            aarch64_vmsa::address::Granule4KiB,
+        >,
+        Self::Error,
+    > {
+        if self.reject {
+            return Err(WalkerProbeAccessError::Rejected);
+        }
+        // SAFETY: Every probe keeps its arena-owned 4 KiB root alive. Probe
+        // shapes have at most 512 entries, and out-of-range cases fail before
+        // a descriptor pointer is formed.
+        Ok(unsafe { aarch64_vmsa::table::TranslationTable::from_ptr(self.base, self.shape) })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HarnessFailurePoint {
     Map,
     Remap,
     Protect,
     Unmap,
+    Invalidation,
+    Barrier,
+    Tlbi,
     TranslationInstallation,
     PartialCombinedInstallation,
     LowerElEntry,
+    LowerElAction,
+    LowerElReturn,
     SecondaryPeStartup,
+    SecondaryPeRendezvous,
+    SecondaryPeAction,
+    SecondaryPeTimeout,
+    SecondaryPeStop,
     GranuleDelegation,
     RealmCreation,
     RecCreation,
     RecEntry,
+    RealmMap,
+    RealmMutation,
+    RealmDestruction,
+    GranuleUndelegation,
     FirmwareCallback,
     TranslationRestoration,
     Cleanup,
@@ -272,6 +427,526 @@ impl<'a, E: Environment> TestContext<'a, E> {
         self.allocate_root_in(self.native_pas(), crate::Granule::Size64KiB)
     }
 
+    pub fn verify_translation_table_read_write(&self) -> bool {
+        use aarch64_vmsa::address::{Granule4KiB, Level, VirtAddr};
+        use aarch64_vmsa::descriptor::Vmsa64;
+        use aarch64_vmsa::table::{TableError, TableShape, TranslationTableMut};
+
+        let Ok(root) = self.allocate_root() else {
+            return false;
+        };
+        let Some(pointer) = NonNull::new(root.virtual_address().cast::<u64>()) else {
+            return false;
+        };
+        let shape = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0);
+        // SAFETY: `root` owns a live, aligned 4 KiB VMSA64 table for the whole
+        // lifetime of this bounded verification method.
+        let mut table = unsafe { TranslationTableMut::from_ptr(pointer, shape) };
+        let entries = table.entries();
+        let last = entries - 1;
+        let value = 0xfeed_face_cafe_beefu64;
+        if table.level() != Level::L0
+            || table.stride_count().raw() != 1
+            || table.shape() != shape
+            || table.base() != pointer
+            || entries != 512
+            || table.index_bits() != 9
+            || table.index_mask() != 0x1ff
+            || table.level_shift() != 39
+            || table.index_for_va(VirtAddr((last as u64) << 39)) != Some(last)
+            || table.read(last) != Some(0)
+            || table.entry_ptr(last).is_none()
+            || table.entry_ptr(entries).is_some()
+            || table.read(entries).is_some()
+            || table.write(entries, value)
+                != Err(TableError::EntryIndexOutOfRange {
+                    index: entries,
+                    entries,
+                })
+            || table.write(last, value).is_err()
+            || table.read(last) != Some(value)
+            || table.as_table().read(last) != Some(value)
+        {
+            return false;
+        }
+        // SAFETY: `last` is in bounds of the live root allocation.
+        unsafe { pointer.as_ptr().add(last).read_volatile() == value }
+    }
+
+    pub fn verify_walker_access_error(&self) -> bool {
+        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
+        use aarch64_vmsa::table::{TablePhysAddr, TableShape};
+        use aarch64_vmsa::translation::Stage1Walk;
+        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
+
+        let Ok(root) = self.allocate_root() else {
+            return false;
+        };
+        let Some(base) = NonNull::new(root.virtual_address().cast::<u64>()) else {
+            return false;
+        };
+        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+            return false;
+        };
+        let access = WalkerProbeAccess {
+            base,
+            shape: TableShape::root(Level::L0),
+            reject: true,
+        };
+        let Ok(walker) = Walker::<WalkerProbeFormat, Stage1Walk, Granule4KiB, _>::new(
+            root_addr,
+            Level::L0,
+            access,
+        ) else {
+            return false;
+        };
+        let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
+            return false;
+        };
+        matches!(
+            walker.step(cursor),
+            Err(WalkError::Access(WalkerProbeAccessError::Rejected))
+        )
+    }
+
+    pub fn verify_walker_access_location_error(&self) -> bool {
+        use aarch64_vmsa::address::Level;
+        use aarch64_vmsa::table::AccessError;
+        use aarch64_vmsa::translation::walk::WalkError;
+
+        let source = AccessError::InvalidTableLevel {
+            root_level: Level::L0,
+            level: Level::new(4),
+            final_level: Level::L3,
+        };
+        WalkError::<WalkerProbeAccessError>::from(source) == WalkError::AccessLocation(source)
+    }
+
+    pub fn verify_walker_cursor_error(&self) -> bool {
+        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
+        use aarch64_vmsa::table::{TablePhysAddr, TableShape};
+        use aarch64_vmsa::translation::Stage1Walk;
+        use aarch64_vmsa::translation::walk::{WalkCursorError, WalkError, WalkInputAddr, Walker};
+
+        let Ok(root) = self.allocate_root() else {
+            return false;
+        };
+        let Some(base) = NonNull::new(root.virtual_address().cast::<u64>()) else {
+            return false;
+        };
+        let root_level = Level::new(-20);
+        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+            return false;
+        };
+        let access = WalkerProbeAccess {
+            base,
+            shape: TableShape::root(root_level),
+            reject: false,
+        };
+        let Ok(walker) = Walker::<WalkerProbeFormat, Stage1Walk, Granule4KiB, _>::new(
+            root_addr, root_level, access,
+        ) else {
+            return false;
+        };
+        let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
+            return false;
+        };
+        matches!(
+            walker.step(cursor),
+            Err(WalkError::Cursor(WalkCursorError::InvalidLevel { level }))
+                if level == root_level
+        )
+    }
+
+    pub fn verify_walker_invalid_table_address_error(&self) -> bool {
+        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
+        use aarch64_vmsa::table::{TableAddressError, TablePhysAddr, TableShape};
+        use aarch64_vmsa::translation::Stage1Walk;
+        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
+
+        let Ok(root) = self.allocate_root() else {
+            return false;
+        };
+        let Some(base) = NonNull::new(root.virtual_address().cast::<u64>()) else {
+            return false;
+        };
+        // SAFETY: index zero is inside the live root allocation.
+        unsafe { base.as_ptr().write_volatile(1) };
+        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+            return false;
+        };
+        let access = WalkerProbeAccess {
+            base,
+            shape: TableShape::root(Level::L0),
+            reject: false,
+        };
+        let Ok(walker) = Walker::<WalkerProbeFormat, Stage1Walk, Granule4KiB, _>::new(
+            root_addr,
+            Level::L0,
+            access,
+        ) else {
+            return false;
+        };
+        let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
+            return false;
+        };
+        matches!(
+            walker.step(cursor),
+            Err(WalkError::InvalidTableAddress(
+                TableAddressError::Unaligned {
+                    addr: PhysAddr(1),
+                    align: 4096,
+                }
+            ))
+        )
+    }
+
+    pub fn verify_walker_entry_index_error(&self) -> bool {
+        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
+        use aarch64_vmsa::table::{NextTable, TablePhysAddr, TableShape};
+        use aarch64_vmsa::translation::Stage1Walk;
+        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
+
+        let Ok(root) = self.allocate_root() else {
+            return false;
+        };
+        let Some(base) = NonNull::new(root.virtual_address().cast::<u64>()) else {
+            return false;
+        };
+        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+            return false;
+        };
+        let access = WalkerProbeAccess {
+            base,
+            shape: TableShape::root(Level::L3),
+            reject: false,
+        };
+        let Ok(walker) = Walker::<WalkerProbeFormat, Stage1Walk, Granule4KiB, _>::new(
+            root_addr,
+            Level::NEG1,
+            access,
+        ) else {
+            return false;
+        };
+        let Ok(cursor) = walker.cursor(WalkInputAddr::new(512 << 12)) else {
+            return false;
+        };
+        let Ok(zero) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(0)) else {
+            return false;
+        };
+        let Ok(next) = NextTable::<WalkerProbeFormat, Granule4KiB>::new(zero, Level::L3, 4) else {
+            return false;
+        };
+        let Ok(cursor) = cursor.next_table(0, next) else {
+            return false;
+        };
+        matches!(
+            walker.step(cursor),
+            Err(WalkError::EntryIndexOutOfRange {
+                index: 512,
+                entries: 512,
+            })
+        )
+    }
+
+    pub fn verify_walker_final_table_error(&self) -> bool {
+        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
+        use aarch64_vmsa::table::{TablePhysAddr, TableShape};
+        use aarch64_vmsa::translation::Stage1Walk;
+        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
+
+        let Ok(root) = self.allocate_root() else {
+            return false;
+        };
+        let Some(base) = NonNull::new(root.virtual_address().cast::<u64>()) else {
+            return false;
+        };
+        // SAFETY: index zero is inside the live root allocation.
+        unsafe { base.as_ptr().write_volatile(1) };
+        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+            return false;
+        };
+        let access = WalkerProbeAccess {
+            base,
+            shape: TableShape::root(Level::L3),
+            reject: false,
+        };
+        let Ok(walker) = Walker::<WalkerProbeFormat, Stage1Walk, Granule4KiB, _>::new(
+            root_addr,
+            Level::L3,
+            access,
+        ) else {
+            return false;
+        };
+        let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
+            return false;
+        };
+        matches!(
+            walker.step(cursor),
+            Err(WalkError::TableDescriptorAtFinalLevel { level: Level::L3 })
+        )
+    }
+
+    pub fn verify_walker_output_overflow_error(&self) -> bool {
+        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
+        use aarch64_vmsa::table::{TablePhysAddr, TableShape};
+        use aarch64_vmsa::translation::Stage1Walk;
+        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
+
+        let Ok(root) = self.allocate_root() else {
+            return false;
+        };
+        let Some(base) = NonNull::new(root.virtual_address().cast::<u64>()) else {
+            return false;
+        };
+        // SAFETY: index zero is inside the live root allocation.
+        unsafe { base.as_ptr().write_volatile(2) };
+        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+            return false;
+        };
+        let access = WalkerProbeAccess {
+            base,
+            shape: TableShape::root(Level::L1),
+            reject: false,
+        };
+        let Ok(walker) = Walker::<WalkerProbeFormat, Stage1Walk, Granule4KiB, _>::new(
+            root_addr,
+            Level::L1,
+            access,
+        ) else {
+            return false;
+        };
+        let Ok(cursor) = walker.cursor(WalkInputAddr::new(1)) else {
+            return false;
+        };
+        matches!(
+            walker.step(cursor),
+            Err(WalkError::OutputAddressOverflow {
+                base: PhysAddr(u64::MAX),
+                offset: 1,
+            })
+        )
+    }
+
+    pub fn verify_recursive_index_error(&self) -> bool {
+        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr, VirtAddr};
+        use aarch64_vmsa::descriptor::Vmsa64;
+        use aarch64_vmsa::table::{AccessError, RecursiveTableAccess, TablePhysAddr};
+
+        let Ok(root) = self.allocate_root() else {
+            return false;
+        };
+        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+            return false;
+        };
+        // SAFETY: This rejection probe cannot construct an access object: the
+        // recursive index is checked before any mapping assumption is used.
+        matches!(
+            unsafe {
+                RecursiveTableAccess::<Vmsa64, Granule4KiB>::new(
+                    512,
+                    VirtAddr(0x1000),
+                    root_addr,
+                    Level::L0,
+                )
+            },
+            Err(AccessError::RecursiveIndexOutOfRange {
+                index: 512,
+                entries: 512,
+            })
+        )
+    }
+
+    pub fn verify_recursive_base_errors(&self) -> bool {
+        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr, VirtAddr};
+        use aarch64_vmsa::descriptor::Vmsa64;
+        use aarch64_vmsa::table::{AccessError, RecursiveTableAccess, TablePhysAddr};
+
+        let Ok(root) = self.allocate_root() else {
+            return false;
+        };
+        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+            return false;
+        };
+        // SAFETY: Each malformed base is rejected by constructor validation;
+        // none of these calls yields an access object or dereferences a VA.
+        let zero = unsafe {
+            RecursiveTableAccess::<Vmsa64, Granule4KiB>::new(1, VirtAddr(0), root_addr, Level::L0)
+        };
+        let unaligned = unsafe {
+            RecursiveTableAccess::<Vmsa64, Granule4KiB>::new(1, VirtAddr(1), root_addr, Level::L0)
+        };
+        let wrong_index = unsafe {
+            RecursiveTableAccess::<Vmsa64, Granule4KiB>::new(
+                1,
+                VirtAddr(2 << 39 | 2 << 30 | 2 << 21 | 2 << 12),
+                root_addr,
+                Level::L0,
+            )
+        };
+        matches!(
+            zero,
+            Err(AccessError::InvalidRecursiveBase { base: VirtAddr(0) })
+        ) && matches!(
+            unaligned,
+            Err(AccessError::InvalidRecursiveBase { base: VirtAddr(1) })
+        ) && matches!(
+            wrong_index,
+            Err(AccessError::InvalidRecursiveBase { base })
+                if base == VirtAddr(2 << 39 | 2 << 30 | 2 << 21 | 2 << 12)
+        )
+    }
+
+    pub fn verify_recursive_level_error(&self) -> bool {
+        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr, VirtAddr};
+        use aarch64_vmsa::descriptor::Vmsa64;
+        use aarch64_vmsa::table::{AccessError, RecursiveTableAccess, TablePhysAddr};
+
+        let Ok(root) = self.allocate_root() else {
+            return false;
+        };
+        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+            return false;
+        };
+        // SAFETY: The level is rejected before the recursive mapping is used.
+        matches!(
+            unsafe {
+                RecursiveTableAccess::<Vmsa64, Granule4KiB>::new(
+                    1,
+                    VirtAddr(0x1000),
+                    root_addr,
+                    Level::new(4),
+                )
+            },
+            Err(AccessError::RecursiveLevelMismatch)
+        )
+    }
+
+    pub fn verify_recursive_path_errors(&self) -> bool {
+        use aarch64_vmsa::address::{Granule4KiB, Level};
+        use aarch64_vmsa::descriptor::Vmsa64;
+        use aarch64_vmsa::table::{AccessError, TableShape, TableWalkPath};
+
+        let parent = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0);
+        let child = TableShape::<Vmsa64, Granule4KiB>::root(Level::L1);
+        let mut index_path = TableWalkPath::<Vmsa64, Granule4KiB>::root();
+        let index_error = index_path.push(Level::L0, parent, child, 512);
+
+        let mut terminal_path = TableWalkPath::<Vmsa64, Granule4KiB>::root();
+        if terminal_path.push(Level::L0, parent, child, 0).is_err() {
+            return false;
+        }
+        let terminal_error = terminal_path.push(Level::L0, parent, child, 0);
+        index_error
+            == Err(AccessError::TablePathIndexOutOfRange {
+                index: 512,
+                entries: 512,
+            })
+            && terminal_error
+                == Err(AccessError::TablePathTerminalLevelMismatch {
+                    expected: Level::L0,
+                    actual: Level::L1,
+                })
+    }
+
+    pub fn verify_recursive_overflow_error(&self) -> bool {
+        use aarch64_vmsa::address::{Granule64KiB, Level, PhysAddr, VirtAddr};
+        use aarch64_vmsa::descriptor::Vmsa64;
+        use aarch64_vmsa::table::{
+            AccessError, NextTable, RecursiveTableAccess, TableAccess, TableCursor, TablePhysAddr,
+        };
+
+        let Ok(root) = self.allocate_root_64k() else {
+            return false;
+        };
+        let Ok(root_addr) = TablePhysAddr::<Granule64KiB>::new(PhysAddr(root.phys_addr())) else {
+            return false;
+        };
+        let recursive_base = (1 << 55) | (1 << 42) | (1 << 29) | (1 << 16);
+        // SAFETY: The repeated index geometry is valid. The deliberately wide
+        // path below returns AddressOverflow before producing or dereferencing
+        // a recursive virtual pointer.
+        let Ok(access) = (unsafe {
+            RecursiveTableAccess::<Vmsa64, Granule64KiB>::new(
+                1,
+                VirtAddr(recursive_base),
+                root_addr,
+                Level::L0,
+            )
+        }) else {
+            return false;
+        };
+        let Ok(zero) = TablePhysAddr::<Granule64KiB>::new(PhysAddr(0)) else {
+            return false;
+        };
+        let cursor = TableCursor::<Vmsa64, Granule64KiB>::root(root_addr, Level::L0);
+        let Ok(cursor) = cursor.next_table(
+            0,
+            NextTable::new(zero, Level::L1, 4).expect("zero satisfies the wide alignment"),
+        ) else {
+            return false;
+        };
+        let Ok(cursor) = cursor.next_table(
+            0,
+            NextTable::new(zero, Level::L2, 1).expect("zero satisfies table alignment"),
+        ) else {
+            return false;
+        };
+        let Ok(location) = cursor.location() else {
+            return false;
+        };
+        matches!(access.table_at(location), Err(AccessError::AddressOverflow))
+    }
+
+    pub fn verify_recursive_null_mapping_error(&self) -> bool {
+        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr, VirtAddr};
+        use aarch64_vmsa::descriptor::Vmsa64;
+        use aarch64_vmsa::table::{
+            AccessError, NextTable, RecursiveTableAccess, TableAccess, TableCursor, TablePhysAddr,
+        };
+
+        let Ok(root) = self.allocate_root() else {
+            return false;
+        };
+        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+            return false;
+        };
+        let recursive_base = (1 << 39) | (1 << 30) | (1 << 21) | (1 << 12);
+        // SAFETY: The repeated index geometry is valid. The path below clears
+        // every populated VA field and returns NullMapping before a table is
+        // created or any recursive virtual address is dereferenced.
+        let Ok(access) = (unsafe {
+            RecursiveTableAccess::<Vmsa64, Granule4KiB>::new(
+                1,
+                VirtAddr(recursive_base),
+                root_addr,
+                Level::L0,
+            )
+        }) else {
+            return false;
+        };
+        let Ok(zero) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(0)) else {
+            return false;
+        };
+        let cursor = TableCursor::<Vmsa64, Granule4KiB>::root(root_addr, Level::L0);
+        let Ok(cursor) = cursor.next_table(
+            0,
+            NextTable::new(zero, Level::L1, 4).expect("zero satisfies the wide alignment"),
+        ) else {
+            return false;
+        };
+        let Ok(cursor) = cursor.next_table(
+            0,
+            NextTable::new(zero, Level::L2, 1).expect("zero satisfies table alignment"),
+        ) else {
+            return false;
+        };
+        let Ok(location) = cursor.location() else {
+            return false;
+        };
+        matches!(access.table_at(location), Err(AccessError::NullMapping))
+    }
+
     pub fn verify_arena_exhaustion_boundary(&self) -> bool {
         self.with_environment(|environment| {
             let memory = environment.memory();
@@ -280,6 +955,10 @@ impl<'a, E: Environment> TestContext<'a, E> {
                 && memory.allocate_pages(pages).is_ok()
                 && memory.allocate_page() == Err(crate::MemoryError::Exhausted)
         })
+    }
+
+    pub fn arena_allocation_count(&self) -> usize {
+        self.with_environment(|environment| environment.memory().allocation_count())
     }
 
     pub fn with_table_allocation_failure<T>(
@@ -441,6 +1120,54 @@ impl<'a, E: Environment> TestContext<'a, E> {
             TestMapper::new(
                 NonNull::from(environment.memory()),
                 root,
+                start_level,
+                input_bits,
+                output_bits,
+            )
+        })
+    }
+
+    pub fn validate_offline_mapper_geometry<R, G, F>(
+        &self,
+        root: &RootTableMemory,
+        start_level: aarch64_vmsa::address::Level,
+        input_bits: u8,
+        output_bits: u8,
+    ) -> Result<(), crate::MapperConstructionError>
+    where
+        R: aarch64_vmsa::regime::TranslationRegime,
+        G: TestGranule,
+        F: aarch64_vmsa::descriptor::DescriptorFormat
+            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+    {
+        self.with_environment(|environment| {
+            TestMapper::<R, G, F>::validate_new(
+                NonNull::from(environment.memory()),
+                root,
+                start_level,
+                input_bits,
+                output_bits,
+            )
+        })
+    }
+
+    pub fn validate_offline_mapper_geometry_at<R, G, F>(
+        &self,
+        root_address: u64,
+        start_level: aarch64_vmsa::address::Level,
+        input_bits: u8,
+        output_bits: u8,
+    ) -> Result<(), crate::MapperConstructionError>
+    where
+        R: aarch64_vmsa::regime::TranslationRegime,
+        G: TestGranule,
+        F: aarch64_vmsa::descriptor::DescriptorFormat
+            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+    {
+        self.with_environment(|environment| {
+            TestMapper::<R, G, F>::validate_new_at(
+                NonNull::from(environment.memory()),
+                root_address,
                 start_level,
                 input_bits,
                 output_bits,
@@ -878,8 +1605,6 @@ impl<'a, E: Environment> TestContext<'a, E> {
         transition_stack: Option<crate::translation::TransitionStack>,
     ) -> Result<LiveTranslation<'_, E>, HarnessError> {
         if root.phys_addr() & (setup.granule.bytes() - 1) != 0
-            || (setup.format == crate::TranslationFormat::Vmsa128
-                && setup.granule != crate::Granule::Size4KiB)
             || match setup.stage {
                 crate::TranslationStage::Stage1 => setup.vmid.is_some(),
                 crate::TranslationStage::Stage2 => setup.asid.is_some(),
@@ -909,7 +1634,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
                     environment.install_translation(setup, transition_stack)
                 }
             })
-            .map_err(|_| HarnessError::Environment)?;
+            .map_err(|error| HarnessError::EnvironmentDetail(E::error_code(&error)))?;
         let setup = installed.setup();
         Ok(LiveTranslation {
             environment: self.environment,
@@ -976,6 +1701,20 @@ impl<'a, E: Environment> TestContext<'a, E> {
             .check(HarnessFailurePoint::SecondaryPeStartup)?;
         self.with_environment(Environment::begin_secondary_session)
             .map_err(|_| HarnessError::Environment)?;
+        if let Err(error) = self
+            .failures
+            .check(HarnessFailurePoint::SecondaryPeRendezvous)
+        {
+            if self
+                .with_environment(Environment::end_secondary_session)
+                .is_err()
+            {
+                // SAFETY: CleanupState is single-threaded and owned by this context.
+                unsafe { *self.cleanup.0.get() = true };
+                return Err(HarnessError::Cleanup);
+            }
+            return Err(error);
+        }
         Ok(SecondaryPeSession {
             environment: self.environment,
             state: SecondaryPeSessionState::Rendezvous,
@@ -1108,6 +1847,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
     }
 
     pub fn maintain_cache(&self, operation: CacheMaintenanceOperation) -> Result<(), HarnessError> {
+        self.failures.check(HarnessFailurePoint::Barrier)?;
         let completed = match operation {
             CacheMaintenanceOperation::InstructionCoherency { address, bytes } => {
                 vmsa_test_architecture::barriers::synchronize_instruction_range(address, bytes)
@@ -1167,7 +1907,14 @@ impl<'a, E: Environment> TestContext<'a, E> {
         if let Err(error) = self.failures.check(HarnessFailurePoint::LowerElEntry) {
             return AccessResult::HarnessFailure(error);
         }
-        self.with_environment(|environment| environment.run_lower_el(request))
+        if let Err(error) = self.failures.check(HarnessFailurePoint::LowerElAction) {
+            return AccessResult::HarnessFailure(error);
+        }
+        let result = self.with_environment(|environment| environment.run_lower_el(request));
+        if let Err(error) = self.failures.check(HarnessFailurePoint::LowerElReturn) {
+            return AccessResult::HarnessFailure(error);
+        }
+        result
     }
     pub fn lower_read_u64(&self, address: u64) -> AccessResult {
         self.lower_el(LowerElRequest::read(address, AccessWidth::Double))
@@ -1231,6 +1978,12 @@ impl<'a, E: Environment> TestContext<'a, E> {
     }
     pub(crate) const fn memory_scope(&self) -> MemoryScope {
         self.memory_scope
+    }
+
+    /// Exercises the same last-resort restoration hook used by the catalog
+    /// runner after a test releases its normal ownership guard.
+    pub fn emergency_restore_for_test(&self) {
+        self.with_environment(Environment::emergency_restore);
     }
 
     fn environment(&self) -> &E {
@@ -1533,6 +2286,7 @@ impl<E: Environment> RealmRecStage2Translation<'_, E> {
         if self.mapped || self.finished {
             return Err(HarnessError::InvalidState);
         }
+        self.failures.check(HarnessFailurePoint::RealmMap)?;
         self.failures.check(HarnessFailurePoint::FirmwareCallback)?;
         self.with_environment(|environment| {
             environment.mutate_realm_stage2(RealmStage2Mutation::MapUnprotected)
@@ -1546,6 +2300,7 @@ impl<E: Environment> RealmRecStage2Translation<'_, E> {
         if !self.mapped || !self.writable || self.finished {
             return Err(HarnessError::InvalidState);
         }
+        self.failures.check(HarnessFailurePoint::RealmMutation)?;
         self.failures.check(HarnessFailurePoint::FirmwareCallback)?;
         self.with_environment(|environment| {
             environment.mutate_realm_stage2(RealmStage2Mutation::ProtectReadOnly)
@@ -1558,6 +2313,7 @@ impl<E: Environment> RealmRecStage2Translation<'_, E> {
         if !self.mapped || self.writable || self.finished {
             return Err(HarnessError::InvalidState);
         }
+        self.failures.check(HarnessFailurePoint::RealmMutation)?;
         self.failures.check(HarnessFailurePoint::FirmwareCallback)?;
         self.with_environment(|environment| {
             environment.mutate_realm_stage2(RealmStage2Mutation::ProtectReadWrite)
@@ -1570,6 +2326,7 @@ impl<E: Environment> RealmRecStage2Translation<'_, E> {
         if !self.mapped || self.finished {
             return Err(HarnessError::InvalidState);
         }
+        self.failures.check(HarnessFailurePoint::RealmMutation)?;
         self.failures.check(HarnessFailurePoint::FirmwareCallback)?;
         self.with_environment(|environment| {
             environment.mutate_realm_stage2(RealmStage2Mutation::UnmapUnprotected)
@@ -1587,6 +2344,9 @@ impl<E: Environment> RealmRecStage2Translation<'_, E> {
         if self.finished || self.mapped {
             return Err(HarnessError::InvalidState);
         }
+        self.failures.check(HarnessFailurePoint::RealmDestruction)?;
+        self.failures
+            .check(HarnessFailurePoint::GranuleUndelegation)?;
         self.failures.check(HarnessFailurePoint::Cleanup)?;
         self.with_environment(Environment::end_realm_stage2_session)?;
         self.finished = true;
@@ -1637,7 +2397,14 @@ impl<E: Environment> SecondaryPeSession<'_, E> {
         if self.state != SecondaryPeSessionState::Rendezvous {
             return AccessResult::HarnessFailure(HarnessError::InvalidState);
         }
+        if let Err(error) = self.failures.check(HarnessFailurePoint::SecondaryPeAction) {
+            return AccessResult::HarnessFailure(error);
+        }
         self.state = SecondaryPeSessionState::IssueAction;
+        if let Err(error) = self.failures.check(HarnessFailurePoint::SecondaryPeTimeout) {
+            self.state = SecondaryPeSessionState::Rendezvous;
+            return AccessResult::HarnessFailure(error);
+        }
         // SAFETY: The owning context serializes adapter access for this session.
         let result = unsafe { &mut *self.environment.as_ptr() }.perform_secondary_access(request);
         self.state = SecondaryPeSessionState::Observe;
@@ -1648,6 +2415,7 @@ impl<E: Environment> SecondaryPeSession<'_, E> {
     }
 
     pub fn stop(mut self) -> Result<(), HarnessError> {
+        self.failures.check(HarnessFailurePoint::SecondaryPeStop)?;
         self.failures.check(HarnessFailurePoint::Cleanup)?;
         self.stop_inner()
     }
@@ -2217,6 +2985,7 @@ where
         >: Copy,
     {
         self.failures.check(HarnessFailurePoint::Remap)?;
+        self.failures.check(HarnessFailurePoint::Invalidation)?;
         self.with_mapper::<F, G, _>(|mapper| {
             crate::translation::replace_live_mapping(
                 mapper,
@@ -2305,6 +3074,7 @@ where
         aarch64_vmsa::regime::TableFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
     {
         self.failures.check(HarnessFailurePoint::Remap)?;
+        self.failures.check(HarnessFailurePoint::Invalidation)?;
         self.with_mapper_for::<R, F, G, _>(|mapper| {
             crate::translation::replace_live_mapping(
                 mapper,
@@ -2829,6 +3599,7 @@ impl<E: Environment> LiveTranslation<'_, E> {
         if self.installed.is_none() {
             return Err(HarnessError::InvalidState);
         }
+        self.failures.check(HarnessFailurePoint::Tlbi)?;
         crate::translation::explicit_tlbi(self.setup, self.lower, scope, operation)
     }
 

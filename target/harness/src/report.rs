@@ -16,6 +16,8 @@ pub enum ReportEvent {
     Fail {
         name: &'static str,
         reason: &'static str,
+        expected: u64,
+        actual: u64,
     },
     Skip {
         name: &'static str,
@@ -51,8 +53,16 @@ impl<S: ByteSink> ProtocolWriter<S> {
             ReportEvent::Capability { name, value } => writeln!(self, "@@VMSA CAP {name}={value}"),
             ReportEvent::Run { name } => writeln!(self, "@@VMSA RUN {name}"),
             ReportEvent::Pass { name } => writeln!(self, "@@VMSA PASS {name}"),
-            ReportEvent::Fail { name, reason } => {
-                writeln!(self, "@@VMSA FAIL {name} reason={reason}")
+            ReportEvent::Fail {
+                name,
+                reason,
+                expected,
+                actual,
+            } => {
+                writeln!(
+                    self,
+                    "@@VMSA FAIL {name} reason={reason} expected={expected} actual={actual}"
+                )
             }
             ReportEvent::Skip { name, reason } => {
                 writeln!(self, "@@VMSA SKIP {name} reason={reason}")

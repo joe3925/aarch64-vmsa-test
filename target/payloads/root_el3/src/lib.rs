@@ -1,8 +1,29 @@
 #![no_std]
+#[path = "../../common/access.rs"]
+#[allow(dead_code)]
+mod access;
+#[path = "../../common/address_translation.rs"]
+#[allow(dead_code)]
+mod address_translation;
 #[path = "../../common/mod.rs"]
 mod common;
-#[path = "../../common/smoke.rs"]
-pub mod smoke;
+#[path = "../../common/faults.rs"]
+#[allow(dead_code)]
+mod faults;
+#[path = "../../common/features.rs"]
+#[allow(dead_code)]
+mod features;
+#[path = "../../common/invalidation.rs"]
+#[allow(dead_code)]
+mod invalidation;
+#[path = "../../common/mapper_live.rs"]
+#[allow(dead_code)]
+mod mapper_live;
+#[path = "../../common/root_cases.rs"]
+mod root_cases;
+#[path = "../../common/runtime_support.rs"]
+#[allow(dead_code)]
+mod runtime_support;
 use common::{BootContext, REGIME_ROOT, define_environment, outcome_code};
 use vmsa_test_harness::adapter::{RunOptions, run_catalog_tests};
 use vmsa_test_harness::{LogicalTest, Requirements, SecurityEnvironment, TestContext, TestResult};
@@ -10,151 +31,59 @@ define_environment!(RootEl3Environment, aarch64_vmsa::regime::RootEl3Stage1);
 pub type CurrentEnvironment = RootEl3Environment;
 pub type CurrentRegime = aarch64_vmsa::regime::RootEl3Stage1;
 pub type LowerRegime = aarch64_vmsa::regime::RootEl3Stage1;
+fn feature_snapshot_agreement(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::live_snapshot_agreement(context.capabilities())
+}
+fn security_state_membership(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::security_state_membership(
+        context.capabilities(),
+        aarch64_vmsa::arch::SecurityStates::ROOT,
+    )
+}
+fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    let current = aarch64_vmsa::arch::VmsaFeatures::current();
+    features::regime_result(matches!(
+        aarch64_vmsa::regime::validate_regime::<aarch64_vmsa::regime::RootEl3Stage1>(&current),
+        Err(aarch64_vmsa::regime::RegimeValidationError::UnsupportedFeaturesOrSecurityState)
+    ))
+}
+fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    use aarch64_vmsa::address::{Granule4KiB, Granule16KiB, Granule64KiB};
+    use aarch64_vmsa::descriptor::{Vmsa64, Vmsa64Lpa2, Vmsa128};
+    use aarch64_vmsa::regime::{RootEl3Stage1, validate_regime_format};
+    let current = &aarch64_vmsa::arch::VmsaFeatures::current();
+    let unsupported = validate_regime_format::<Vmsa64, RootEl3Stage1, Granule4KiB>(current)
+        .is_err()
+        && validate_regime_format::<Vmsa64, RootEl3Stage1, Granule16KiB>(current).is_err()
+        && validate_regime_format::<Vmsa64, RootEl3Stage1, Granule64KiB>(current).is_err()
+        && validate_regime_format::<Vmsa64Lpa2, RootEl3Stage1, Granule4KiB>(current).is_err()
+        && validate_regime_format::<Vmsa64Lpa2, RootEl3Stage1, Granule16KiB>(current).is_err()
+        && validate_regime_format::<Vmsa64Lpa2, RootEl3Stage1, Granule64KiB>(current).is_err()
+        && validate_regime_format::<Vmsa128, RootEl3Stage1, Granule4KiB>(current).is_err()
+        && validate_regime_format::<Vmsa128, RootEl3Stage1, Granule16KiB>(current).is_err()
+        && validate_regime_format::<Vmsa128, RootEl3Stage1, Granule64KiB>(current).is_err();
+    features::regime_result(unsupported)
+}
 fn current_access(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    smoke::current_access(c)
+    access::current_access(c)
 }
 fn current_fault(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    smoke::current_fault(c)
+    faults::current_fault(c)
 }
 fn address_translation(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    smoke::address_translation(c)
+    address_translation::address_translation(c)
 }
 fn d128_mapper(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    smoke::mapper_d128(c)
+    mapper_live::mapper_d128(c)
 }
 fn d128_reserved_rejection(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout, Vmsa128};
-    use aarch64_vmsa::low_level::raw::{
-        FourBit, PermissionIndices, RawShareability, RawVmsa128Stage1LeafAttrs, Stage1NotDirty,
-        TenBit,
-    };
-    type Layout = <Vmsa128 as HasLayout<
-        aarch64_vmsa::translation::Stage1,
-        aarch64_vmsa::address::Granule4KiB,
-    >>::Layout;
-    let zero4 = FourBit::new(0).map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?;
-    let fields = RawVmsa128Stage1LeafAttrs {
-        attr_index: zero4,
-        bbm_nt: true,
-        not_dirty: Stage1NotDirty::new(false),
-        shareability: RawShareability::from_bits(0)
-            .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?,
-        access_flag: true,
-        alias_bit: false,
-        contiguous: false,
-        guarded: false,
-        protected: false,
-        permissions: PermissionIndices {
-            pi: zero4,
-            po: zero4,
-        },
-        ns: false,
-        software: TenBit::new(0).map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?,
-    };
-    match <Layout as DescriptorLayout<
-        Vmsa128,
-        aarch64_vmsa::translation::Stage1,
-        aarch64_vmsa::address::Granule4KiB,
-    >>::leaf_descriptor(
-        aarch64_vmsa::address::PhysAddr(0x4000),
-        aarch64_vmsa::address::Level::L3,
-        fields,
-    ) {
-        Err(DescriptorError::InvalidNtBbmCombination { .. }) => TestResult::Pass,
-        _ => vmsa_test_harness::HarnessError::InvalidState.into(),
-    }
+    root_cases::d128_reserved_rejection()
 }
 fn d128_permission_indirection(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    use aarch64_vmsa::attrs::{
-        Cacheability, D128Stage1AliasKind, DataAccess, DirtyState, LiveVmsaConfig,
-        MemoryAttributes, RootExtendedPa, SemanticStage1LeafAttrs,
-        SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs, Shareability,
-        SoftwareMetadata, Stage1EffectivePermissions, Stage1PermissionRegisterPair,
-        Stage1PermissionRegisters, Stage2MemoryMode, VmsaAttributeCodec,
-    };
-    let permissions = Stage1EffectivePermissions {
-        privileged_data: DataAccess::ReadOnly,
-        unprivileged_data: DataAccess::None,
-        privileged_execute: false,
-        unprivileged_execute: false,
-        privileged_gcs: false,
-        unprivileged_gcs: false,
-    };
-    let config = LiveVmsaConfig {
-        mair: 0x0000_0000_0000_0044,
-        mair2: None,
-        stage1_permissions: Some(Stage1PermissionRegisters {
-            privileged: Stage1PermissionRegisterPair {
-                base: 0x5555_5555_5555_5555,
-                overlay: Some(0x1111_1111_1111_1111),
-            },
-            unprivileged: None,
-            gcs_implemented: false,
-        }),
-        stage2_permissions: None,
-        stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
-        d128_stage1_alias: D128Stage1AliasKind::NonSecureExtension,
-        shareability: Shareability::InnerShareable,
-        output_pas: (),
-    };
-    let attributes = |pas| SemanticStage1LeafAttrs {
-        memory: MemoryAttributes::Normal {
-            inner: Cacheability::NonCacheable,
-            outer: Cacheability::NonCacheable,
-        },
-        permissions,
-        pas,
-        controls: SemanticVmsa128Stage1LeafControls {
-            bbm_nt: false,
-            dirty_state: DirtyState::Dirty,
-            shareability: Shareability::InnerShareable,
-            access_flag: true,
-            global: true,
-            contiguous: false,
-            guarded: false,
-            protected: false,
-            software: SoftwareMetadata::new(0),
-        },
-    };
-    const ADDRESS: u64 = 0x4000;
-    let output = context.allocate_contiguous(4)?;
-    let mut root = context.allocate_root()?;
-    let input_bits = vmsa_test_harness::AddressBits::new(52)
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let start_level = vmsa_test_harness::LookupLevel::new(-2)
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let mut mapper =
-        context.offline_mapper_d128_4k(&mut root, start_level, input_bits, input_bits)?;
-    for (index, pas) in [
-        RootExtendedPa::Secure,
-        RootExtendedPa::NonSecure,
-        RootExtendedPa::Root,
-        RootExtendedPa::Realm,
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let address = ADDRESS + index as u64 * 4096;
-        mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
-            &config,
-            address,
-            output.phys_addr() + index as u64 * 4096,
-            vmsa_test_harness::LookupLevel::new(3)
-                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-            attributes(pas),
-            SemanticVmsa128Stage1TableAttrs::default(),
-        )?;
-        let decoded = mapper
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &config)?
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-        if decoded.permissions != permissions || decoded.pas != pas {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
-        }
-    }
-    TestResult::Pass
+    root_cases::d128_permission_indirection(context)
 }
 fn translation_cycle(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    smoke::stage1_translation_cycle(c, vmsa_test_harness::RegimeAttributes::Root)
+    invalidation::stage1_translation_cycle(c, vmsa_test_harness::RegimeAttributes::Root)
 }
 macro_rules! dispatch_handler {
     ($context:ident, (none)) => {

@@ -103,6 +103,8 @@ where
             environment.report(ReportEvent::Fail {
                 name,
                 reason: "cleanup",
+                expected: 0,
+                actual: 0,
             });
             failed = failed.saturating_add(1);
             corrupted = true;
@@ -112,6 +114,8 @@ where
             environment.report(ReportEvent::Fail {
                 name,
                 reason: "adapter-missing",
+                expected: 0,
+                actual: 0,
             });
             failed = failed.saturating_add(1);
             environment.mark_corrupted();
@@ -127,13 +131,10 @@ where
                 environment.report(ReportEvent::Fail {
                     name,
                     reason: failure_reason(failure),
+                    expected: failure.expected,
+                    actual: failure.actual,
                 });
                 failed = failed.saturating_add(1);
-                if failure.kind == FailureKind::Harness {
-                    environment.mark_corrupted();
-                    corrupted = true;
-                    break;
-                }
             }
             TestResult::Skip(reason) => {
                 environment.report(ReportEvent::Skip {
@@ -215,10 +216,25 @@ const fn failure_reason(failure: crate::TestFailure) -> &'static str {
 
 fn report_capabilities<E: Environment>(environment: &mut E, capabilities: crate::Capabilities) {
     for (name, value) in [
+        ("el2", capabilities.el2 as u64),
+        ("el3", capabilities.el3 as u64),
+        ("el2_and0", capabilities.el2_and0 as u64),
         ("rme", capabilities.rme as u64),
         ("sel2", capabilities.sel2 as u64),
+        ("stage2", capabilities.stage2 as u64),
+        ("xnx", capabilities.xnx as u64),
         ("lpa2", capabilities.lpa2 as u64),
         ("d128", capabilities.d128 as u64),
+        ("d128_stage2", capabilities.d128_stage2 as u64),
+        (
+            "extended_input_address",
+            capabilities.extended_input_address as u64,
+        ),
+        (
+            "extended_output_address",
+            capabilities.extended_output_address as u64,
+        ),
+        ("security_states", capabilities.security_states as u64),
         ("granule_4k", capabilities.granule_4k as u64),
         ("granule_16k", capabilities.granule_16k as u64),
         ("granule_64k", capabilities.granule_64k as u64),

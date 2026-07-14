@@ -11,12 +11,29 @@ pub struct Counts {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Event {
-    Begin { target: String },
-    Capability { name: String, value: u64 },
-    Run { name: String },
-    Pass { name: String },
-    Fail { name: String, reason: String },
-    Skip { name: String, reason: String },
+    Begin {
+        target: String,
+    },
+    Capability {
+        name: String,
+        value: u64,
+    },
+    Run {
+        name: String,
+    },
+    Pass {
+        name: String,
+    },
+    Fail {
+        name: String,
+        reason: String,
+        expected: u64,
+        actual: u64,
+    },
+    Skip {
+        name: String,
+        reason: String,
+    },
     End(Counts),
 }
 
@@ -123,14 +140,19 @@ impl Parser {
             }
             "FAIL" => {
                 let name = completion_name_first(self, &mut words)?;
-                let reason = required_reason(words)?;
+                let (reason, expected, actual) = failure_fields(words)?;
                 finish_completion(self, &name)?;
                 self.counts.failed = self
                     .counts
                     .failed
                     .checked_add(1)
                     .ok_or("fail counter overflow")?;
-                Event::Fail { name, reason }
+                Event::Fail {
+                    name,
+                    reason,
+                    expected,
+                    actual,
+                }
             }
             "SKIP" => {
                 ensure_idle(self)?;
@@ -318,6 +340,34 @@ where
     }
     no_more(words)?;
     Ok(value.into())
+}
+
+fn failure_fields<'a, I>(mut words: I) -> Result<(String, u64, u64), String>
+where
+    I: Iterator<Item = &'a str>,
+{
+    let raw = words.next().ok_or("missing reason field")?;
+    let (key, value) = split_field(raw)?;
+    if key != "reason" || value.is_empty() {
+        return Err("expected non-empty reason field".into());
+    }
+    let Some(expected_field) = words.next() else {
+        return Ok((value.into(), 0, 0));
+    };
+    let (expected_key, expected_value) = split_field(expected_field)?;
+    let actual_field = words.next().ok_or("missing actual field")?;
+    let (actual_key, actual_value) = split_field(actual_field)?;
+    no_more(words)?;
+    if expected_key != "expected" || actual_key != "actual" {
+        return Err("expected failure value fields".into());
+    }
+    let expected = expected_value
+        .parse::<u64>()
+        .map_err(|_| "invalid expected failure value")?;
+    let actual = actual_value
+        .parse::<u64>()
+        .map_err(|_| "invalid actual failure value")?;
+    Ok((value.into(), expected, actual))
 }
 
 fn numeric_field<'a, I>(words: &mut I, key: &str) -> Result<u32, String>
