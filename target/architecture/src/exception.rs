@@ -1,4 +1,5 @@
 use core::cell::UnsafeCell;
+use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use crate::{registers, transition};
@@ -21,7 +22,7 @@ unsafe impl Sync for FaultSlot {}
 // runtime code. D128 tests install 4/16/64 KiB stage-1 mappings with distinct
 // execute and writable permission indices, so align and contain the state at the
 // largest supported granule boundary independent of final firmware layout.
-#[repr(C, align(65536))]
+#[repr(C)]
 struct ExceptionRuntimeState {
     guard_active: AtomicBool,
     recovery: AtomicU64,
@@ -30,14 +31,16 @@ struct ExceptionRuntimeState {
     fatal_handler: AtomicUsize,
 }
 
+#[repr(C, align(65536))]
+struct ExceptionRuntimeStorage(UnsafeCell<MaybeUninit<ExceptionRuntimeState>>);
+
+// SAFETY: Guard activation serializes access and payload execution is single-core.
+unsafe impl Sync for ExceptionRuntimeStorage {}
+
 #[unsafe(no_mangle)]
-static VMSA_EXCEPTION_RUNTIME_STATE: ExceptionRuntimeState = ExceptionRuntimeState {
-    guard_active: AtomicBool::new(false),
-    recovery: AtomicU64::new(0),
-    fault: FaultSlot(UnsafeCell::new(None)),
-    unexpected_fault: FaultSlot(UnsafeCell::new(None)),
-    fatal_handler: AtomicUsize::new(0),
-};
+#[unsafe(link_section = ".bss.vmsa_exception_runtime_state")]
+static VMSA_EXCEPTION_RUNTIME_STATE: ExceptionRuntimeStorage =
+    ExceptionRuntimeStorage(UnsafeCell::new(MaybeUninit::uninit()));
 
 unsafe extern "C" {
     static vmsa_exception_vectors: u8;
@@ -66,12 +69,39 @@ pub fn runtime_state_address() -> u64 {
 }
 
 fn runtime_state() -> &'static ExceptionRuntimeState {
-    &VMSA_EXCEPTION_RUNTIME_STATE
+    // SAFETY: Adapter initialization constructs the state before payload code can
+    // install a guard or exception handler, and it remains live for the boot.
+    unsafe {
+        &*VMSA_EXCEPTION_RUNTIME_STATE
+            .0
+            .get()
+            .cast::<ExceptionRuntimeState>()
+    }
+}
+
+/// Initializes the payload-owned guarded-exception state before the catalog
+/// begins so every boot profile starts from the same guard lifecycle state.
+#[doc(hidden)]
+pub fn initialize_runtime_state() {
+    // SAFETY: Adapter initialization runs once before any guarded access and
+    // owns the payload's dedicated runtime-state storage.
+    unsafe {
+        VMSA_EXCEPTION_RUNTIME_STATE
+            .0
+            .get()
+            .write(MaybeUninit::new(ExceptionRuntimeState {
+                guard_active: AtomicBool::new(false),
+                recovery: AtomicU64::new(0),
+                fault: FaultSlot(UnsafeCell::new(None)),
+                unexpected_fault: FaultSlot(UnsafeCell::new(None)),
+                fatal_handler: AtomicUsize::new(0),
+            }));
+    }
 }
 
 fn passed_runtime_state(address: u64) -> Option<&'static ExceptionRuntimeState> {
     if address == 0
-        || !(address as usize).is_multiple_of(core::mem::align_of::<ExceptionRuntimeState>())
+        || !(address as usize).is_multiple_of(core::mem::align_of::<ExceptionRuntimeStorage>())
     {
         return None;
     }

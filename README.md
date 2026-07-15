@@ -49,4 +49,4 @@ are deliberately separate workspaces.
 
 The typed test-author acceptance contract and current FVP evidence are tracked
 in [`docs/CAPABILITY_MODEL.md`](docs/CAPABILITY_MODEL.md). Completion progress is
-recorded item by item in [`IMPLMENTATION_TODO.md`](IMPLMENTATION_TODO.md).
+recorded item by item in [`IMPLEMENTATION_TODO.md`](IMPLEMENTATION_TODO.md).

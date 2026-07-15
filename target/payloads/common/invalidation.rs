@@ -264,21 +264,11 @@ where
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let controls = vmsa_test_harness::vmsa64_el1_stage1_controls_4k(input_bits, output_bits)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let cacheability = aarch64_vmsa::attrs::Cacheability::Cacheable {
-        policy: aarch64_vmsa::attrs::CachePolicy::WriteBack,
-        transience: aarch64_vmsa::attrs::MemoryTransience::NonTransient,
-        allocation: aarch64_vmsa::attrs::AllocationHints::ReadWriteAllocate,
-    };
-    let stage1_memory = vmsa_test_harness::Stage1MemoryControls::DEFAULT
-        .with_attribute(
-            vmsa_test_harness::MemoryAttributeSlot::new(0)
-                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-            aarch64_vmsa::attrs::MemoryAttributes::Normal {
-                inner: cacheability,
-                outer: cacheability,
-            },
-        )
-        .map_err(vmsa_test_harness::HarnessError::Attribute)?;
+    let stage1_memory = vmsa_test_harness::Stage1MemoryControls::DEFAULT.with_raw_attribute(
+        vmsa_test_harness::MemoryAttributeSlot::new(0)
+            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+        0xff,
+    );
     let mut first_effective_setup = None;
     let mut roots = [Some(first_root), Some(second_root)];
     for (index, page, asid) in [(0, first_page, Asid(11)), (1, second_page, Asid(12))] {

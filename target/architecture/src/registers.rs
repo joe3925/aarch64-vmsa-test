@@ -341,6 +341,48 @@ pub struct LowerHardwareUpdateState {
     tcr_el1: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Stage2HardwareUpdateState {
+    vtcr_el2: u64,
+}
+
+/// Enables stage-2 hardware access-flag and optional dirty-state updates.
+///
+/// # Safety
+///
+/// The caller must exclusively own the EL2 stage-2 translation state until
+/// the returned state is restored.
+pub unsafe fn enable_stage2_hardware_updates(dirty: bool) -> Option<Stage2HardwareUpdateState> {
+    if current_el() != 2 {
+        return None;
+    }
+    let vtcr_el2: u64;
+    // SAFETY: The EL2 adapter owns VTCR_EL2 and changes only HA/HD while
+    // retaining the installed stage-2 geometry and descriptor format.
+    unsafe {
+        asm!("mrs {0}, VTCR_EL2", out(reg) vtcr_el2, options(nomem, nostack, preserves_flags));
+        let updated = ((vtcr_el2 | (1 << 21)) & !(1 << 22)) | ((dirty as u64) << 22);
+        asm!("msr VTCR_EL2, {0}", "isb", in(reg) updated, options(nostack, preserves_flags));
+    }
+    Some(Stage2HardwareUpdateState { vtcr_el2 })
+}
+
+/// Restores a stage-2 hardware-update state.
+///
+/// # Safety
+///
+/// `state` must come from the paired enable operation on this PE.
+pub unsafe fn restore_stage2_hardware_updates(state: Stage2HardwareUpdateState) -> bool {
+    if current_el() != 2 {
+        return false;
+    }
+    // SAFETY: The paired guard still owns VTCR_EL2.
+    unsafe {
+        asm!("msr VTCR_EL2, {0}", "isb", in(reg) state.vtcr_el2, options(nostack, preserves_flags));
+    }
+    true
+}
+
 /// Enables hardware access-flag and optional dirty-state updates in the
 /// inactive EL1 translation regime owned by the EL2 harness.
 ///

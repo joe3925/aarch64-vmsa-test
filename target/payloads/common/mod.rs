@@ -29,7 +29,7 @@ pub const REGIME_NORMAL: u8 = 0;
 pub const REGIME_SECURE: u8 = 1;
 pub const REGIME_REALM: u8 = 2;
 pub const REGIME_ROOT: u8 = 3;
-pub const BOOT_CONTEXT_ABI_VERSION: u32 = 3;
+pub const BOOT_CONTEXT_ABI_VERSION: u32 = 4;
 
 pub fn panic_callback_address() -> u64 {
     core::ptr::addr_of!(PANIC_CALLBACK) as u64
@@ -54,11 +54,15 @@ pub struct BootContext {
             argument: *mut u8,
         ) -> i32,
     >,
+    pub pas_page_acquire: Option<
+        unsafe extern "C" fn(pas: u32, virtual_address: *mut u64, physical: *mut u64) -> i32,
+    >,
+    pub pas_page_release: Option<unsafe extern "C" fn(pas: u32, physical: u64) -> i32>,
     pub reserved: [u64; 2],
 }
 
 const _: () = {
-    assert!(core::mem::size_of::<BootContext>() == 96);
+    assert!(core::mem::size_of::<BootContext>() == 112);
     assert!(core::mem::align_of::<BootContext>() == 8);
 };
 
@@ -241,6 +245,7 @@ impl BootContext {
                 && self.lower_el_stack & 0xf == 0);
         regime <= REGIME_ROOT
             && self.uart_write.is_some()
+            && self.pas_page_acquire.is_some() == self.pas_page_release.is_some()
             && lower_pair_valid
             && virtual_start.checked_add(self.memory_bytes).is_some()
             && self
@@ -487,6 +492,10 @@ pub struct AdapterCore {
     realm_stage2_region: Option<vmsa_test_harness::RealmStage2Region>,
     realm_stage2_mutation: Option<unsafe extern "C" fn(u64) -> u32>,
     realm_stage2_mapped: bool,
+    pas_page_acquire:
+        Option<unsafe extern "C" fn(u32, *mut u64, *mut u64) -> i32>,
+    pas_page_release: Option<unsafe extern "C" fn(u32, u64) -> i32>,
+    scoped_pas_page: Option<(vmsa_test_harness::PhysicalAddressSpace, u64)>,
 }
 
 impl AdapterCore {
@@ -547,7 +556,11 @@ impl AdapterCore {
             realm_stage2_region: None,
             realm_stage2_mutation: None,
             realm_stage2_mapped: false,
+            pas_page_acquire: context.pas_page_acquire,
+            pas_page_release: context.pas_page_release,
+            scoped_pas_page: None,
         };
+        vmsa_test_architecture::exception::initialize_runtime_state();
         core.initialize()?;
         Ok((core, filter))
     }
@@ -689,6 +702,8 @@ impl AdapterCore {
             filter: core::ptr::null(),
             filter_bytes: 0,
             run_on_secondary: self.run_on_secondary,
+            pas_page_acquire: self.pas_page_acquire,
+            pas_page_release: self.pas_page_release,
             reserved: [0; 2],
         };
         if !valid.header_valid() || !valid.fields_valid(self.regime) {
@@ -900,6 +915,13 @@ impl AdapterCore {
         {
             return Err(AdapterError::InvalidTransition);
         }
+        if let Some((pas, physical)) = self.scoped_pas_page.take() {
+            let release = self.pas_page_release.ok_or(AdapterError::InvalidTransition)?;
+            // SAFETY: The callback pair came from the validated live boot context.
+            if unsafe { release(pas as u32, physical) } != 0 {
+                return Err(AdapterError::RestorationFailed);
+            }
+        }
         self.state = AdapterState::Ready;
         Ok(())
     }
@@ -915,6 +937,32 @@ impl AdapterCore {
     }
     pub fn memory(&mut self) -> &mut TestMemory {
         &mut self.memory
+    }
+    pub fn allocate_page_in(
+        &mut self,
+        pas: vmsa_test_harness::PhysicalAddressSpace,
+    ) -> Result<vmsa_test_harness::Page, vmsa_test_harness::HarnessError> {
+        if pas == self.memory_pas() {
+            return self.memory.allocate_page().map_err(|_| HarnessError::Memory);
+        }
+        if self.state != AdapterState::TestScoped || self.scoped_pas_page.is_some() {
+            return Err(HarnessError::InvalidState);
+        }
+        let acquire = self.pas_page_acquire.ok_or(HarnessError::InvalidState)?;
+        let mut virtual_address = 0u64;
+        let mut physical = 0u64;
+        // SAFETY: The callback pair came from the validated live boot context and
+        // writes only the two provided output words.
+        if unsafe { acquire(pas as u32, &mut virtual_address, &mut physical) } != 0 {
+            return Err(HarnessError::InvalidState);
+        }
+        // SAFETY: A successful firmware callback promises one owned aligned page.
+        let page = unsafe {
+            vmsa_test_harness::Page::from_firmware(physical, virtual_address as *mut u8)
+        }
+        .ok_or(HarnessError::Environment)?;
+        self.scoped_pas_page = Some((pas, physical));
+        Ok(page)
     }
     pub fn report(&mut self, event: ReportEvent) {
         self.reporter.emit(event);
@@ -1832,6 +1880,14 @@ impl AdapterCore {
             Ok(page) => page,
             Err(_) => return AccessResult::HarnessFailure(HarnessError::Memory),
         };
+        let exception_stack_page = match self.memory.allocate_page() {
+            Ok(page) => page,
+            Err(_) => return AccessResult::HarnessFailure(HarnessError::Memory),
+        };
+        let exception_stack = match exception_stack_page.phys_addr().checked_add(4096) {
+            Some(top) => top,
+            None => return AccessResult::HarnessFailure(HarnessError::Memory),
+        };
         let mailbox_pointer = mailbox_page.virtual_address().cast::<LowerElMailbox>();
         let mailbox = lower_el_mailbox(
             request,
@@ -1911,6 +1967,7 @@ impl AdapterCore {
         let transition_outcome = vmsa_test_architecture::transition::enter_lower_el(
             self.lower_el_entry,
             lower_stack,
+            exception_stack,
             mailbox_page.phys_addr(),
             lower_stage1,
             self.lower_el_return,
@@ -2431,6 +2488,13 @@ macro_rules! define_environment {
 
             fn memory(&mut self) -> &mut vmsa_test_harness::adapter::TestMemory {
                 self.core.memory()
+            }
+
+            fn allocate_page_in(
+                &mut self,
+                pas: vmsa_test_harness::PhysicalAddressSpace,
+            ) -> Result<vmsa_test_harness::Page, vmsa_test_harness::HarnessError> {
+                self.core.allocate_page_in(pas)
             }
 
             fn install_translation(

@@ -288,6 +288,10 @@ def build_root_el3(repositories: dict[str, Path], filter_value: str | None, log:
         repositories["tf-a"], log,
         [
             "CTX_INCLUDE_AARCH32_REGS=0",
+            "FVP_TRUSTED_SRAM_SIZE=512",
+            "ENABLE_RME=1",
+            "ARM_ARCH_MAJOR=9",
+            "ARM_ARCH_MINOR=2",
             f"BL33={tftf}",
             f"VMSA_ROOT_LIB={payload}",
             f"VMSA_TEST_INCLUDE={repositories['tf-a']}",

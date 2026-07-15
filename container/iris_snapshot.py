@@ -12,7 +12,7 @@ from iris.debug.Model import NewNetworkModel
 
 
 def main() -> int:
-    test_name = os.environ.get("VMSA_IRIS_TEST", "smoke.active-d128")
+    test_name = os.environ.get("VMSA_IRIS_TEST", "formats.d128-stage1-active")
     command = [
         "FVP_Base_RevC-2xAEMvA",
         "-I",

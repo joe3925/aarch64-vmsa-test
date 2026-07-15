@@ -31,6 +31,7 @@ unsafe extern "C" {
         spsr: u64,
         stage1: u64,
         target_el0: u64,
+        exception_stack: u64,
     ) -> u64;
     fn vmsa_lower_el1_return();
 }
@@ -97,6 +98,7 @@ pub enum TransitionError {
 pub fn enter_lower_el(
     entry: u64,
     stack: u64,
+    exception_stack: u64,
     mailbox: u64,
     stage1: LowerElStage1Mode,
     return_conduit: LowerElReturnConduit,
@@ -106,7 +108,14 @@ pub fn enter_lower_el(
     if registers::current_el() != 2 {
         return Err(TransitionError::WrongExceptionLevel);
     }
-    if entry & 0x3 != 0 || stack & 0xf != 0 || entry == 0 || stack == 0 || mailbox == 0 {
+    if entry & 0x3 != 0
+        || stack & 0xf != 0
+        || exception_stack & 0xf != 0
+        || entry == 0
+        || stack == 0
+        || exception_stack == 0
+        || mailbox == 0
+    {
         return Err(TransitionError::InvalidAddress);
     }
     if host_el0_translation.is_some() && target != LowerElTarget::El2El0 {
@@ -164,8 +173,17 @@ pub fn enter_lower_el(
         LowerElTarget::El0 => (0x3c0, 1),
         LowerElTarget::El2El0 => (0x3c0, 2),
     };
-    let status =
-        unsafe { vmsa_enter_lower_el_asm(entry, stack, mailbox, spsr, stage1 as u64, target_el0) };
+    let status = unsafe {
+        vmsa_enter_lower_el_asm(
+            entry,
+            stack,
+            mailbox,
+            spsr,
+            stage1 as u64,
+            target_el0,
+            exception_stack,
+        )
+    };
 
     LOWER_RETURN_EXCEPTION_CLASS.store(0, Ordering::Release);
     LOWER_TARGET_EL0.store(false, Ordering::Release);

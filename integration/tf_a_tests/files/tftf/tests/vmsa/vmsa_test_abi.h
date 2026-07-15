@@ -7,7 +7,10 @@
 typedef void (*vmsa_uart_write_t)(uint8_t byte);
 typedef void (*vmsa_secondary_entry_t)(void *argument);
 typedef int32_t (*vmsa_run_on_secondary_t)(vmsa_secondary_entry_t entry, void *argument);
-#define VMSA_BOOT_CONTEXT_ABI_VERSION UINT32_C(3)
+typedef int32_t (*vmsa_pas_page_acquire_t)(uint32_t pas, uint64_t *virtual_address,
+					  uint64_t *physical);
+typedef int32_t (*vmsa_pas_page_release_t)(uint32_t pas, uint64_t physical);
+#define VMSA_BOOT_CONTEXT_ABI_VERSION UINT32_C(4)
 
 typedef struct vmsa_boot_context {
 	uint32_t abi_version;
@@ -21,10 +24,12 @@ typedef struct vmsa_boot_context {
 	const uint8_t *filter;
 	size_t filter_bytes;
 	vmsa_run_on_secondary_t run_on_secondary;
+	vmsa_pas_page_acquire_t pas_page_acquire;
+	vmsa_pas_page_release_t pas_page_release;
 	uint64_t reserved[2];
 } vmsa_boot_context_t;
 
-_Static_assert(sizeof(vmsa_boot_context_t) == 96U, "vmsa boot ABI size");
+_Static_assert(sizeof(vmsa_boot_context_t) == 112U, "vmsa boot ABI size");
 _Static_assert(_Alignof(vmsa_boot_context_t) == 8U, "vmsa boot ABI alignment");
 
 #endif

@@ -184,8 +184,29 @@ fn current_access(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResu
         return vmsa_test_harness::HarnessError::InvalidState.into();
     }
     let mut execution = context.execution(vmsa_test_harness::ExecutionContext::RealmRec)?;
-    let initial =
-        vmsa_test_harness::expect_value(execution.read_u64(address), 0x5245_432d_5332_2d4d);
+    let initial = match execution.read_u64(address) {
+        vmsa_test_harness::AccessResult::Completed { value } if value == 0x5245_432d_5332_2d4d => {
+            TestResult::Pass
+        }
+        vmsa_test_harness::AccessResult::Completed { value } => {
+            TestResult::Fail(vmsa_test_harness::TestFailure {
+                kind: vmsa_test_harness::FailureKind::WrongValue,
+                expected: 0x5245_432d_5332_2d4d,
+                actual: value,
+            })
+        }
+        vmsa_test_harness::AccessResult::Fault(fault) => {
+            TestResult::Fail(vmsa_test_harness::TestFailure {
+                kind: vmsa_test_harness::FailureKind::WrongFault,
+                expected: 0,
+                actual: fault.status_code(),
+            })
+        }
+        vmsa_test_harness::AccessResult::HarnessFailure(error) => error.into(),
+        vmsa_test_harness::AccessResult::CompletedPair { .. } => {
+            vmsa_test_harness::HarnessError::InvalidState.into()
+        }
+    };
     if !matches!(initial, TestResult::Pass) {
         return initial;
     }
@@ -325,6 +346,68 @@ fn live_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult 
 
 fn pas_semantics(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     pas::realm_semantics(context)
+}
+
+fn fixed_realm_ipa_stage1_semantic_access(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    use aarch64_vmsa::address::{Granule4KiB, Level};
+    use aarch64_vmsa::attrs::{
+        AttributeCodec, Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement,
+        LiveVmsaConfig, MemoryAttributes, SemanticStage1LeafAttrs,
+        SemanticVmsa64Stage1LeafControls, Shareability, SoftwareMetadata, Stage2MemoryMode,
+        TwoPrivilegeLeafPermissions, VmsaAttributeCodec,
+    };
+    let config = LiveVmsaConfig {
+        mair: 0x44,
+        mair2: None,
+        stage1_permissions: None,
+        stage2_permissions: None,
+        stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
+        d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
+        shareability: Shareability::InnerShareable,
+        output_pas: (),
+    };
+    let leaf = SemanticStage1LeafAttrs {
+        memory: MemoryAttributes::Normal {
+            inner: Cacheability::NonCacheable,
+            outer: Cacheability::NonCacheable,
+        },
+        permissions: TwoPrivilegeLeafPermissions {
+            privileged_data: DataAccess::ReadWrite,
+            unprivileged_data: DataAccess::ReadWrite,
+            privileged_execute: false,
+            unprivileged_execute: false,
+        },
+        pas: (),
+        controls: SemanticVmsa64Stage1LeafControls {
+            shareability: Shareability::InnerShareable,
+            access_flag: true,
+            global: true,
+            dirty_management: DirtyBitManagement::SoftwareManaged,
+            contiguous: false,
+            guarded: false,
+            software: SoftwareMetadata::new(0),
+        },
+    };
+    let decoded = <VmsaAttributeCodec as AttributeCodec<
+        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::regime::RealmEl1Stage1,
+        Granule4KiB,
+        _,
+    >>::resolve_leaf(&config, Level::L3, leaf)
+    .and_then(|raw| {
+        <VmsaAttributeCodec as AttributeCodec<
+            aarch64_vmsa::descriptor::Vmsa64,
+            aarch64_vmsa::regime::RealmEl1Stage1,
+            Granule4KiB,
+            _,
+        >>::decode_leaf(&config, Level::L3, raw)
+    });
+    if decoded != Ok(leaf) {
+        return vmsa_test_harness::HarnessError::InvalidState.into();
+    }
+    current_access(context)
 }
 
 fn realm_fresh_sentinel(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {

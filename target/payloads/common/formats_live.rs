@@ -362,11 +362,16 @@ where
                 (),
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
+            SemanticTable = aarch64_vmsa::attrs::SemanticStage1TableAttrs<
+                aarch64_vmsa::attrs::SinglePrivilegeTablePermissionLimits,
+                (),
+                aarch64_vmsa::attrs::SemanticVmsa64Stage1TableControls,
+            >,
             RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, CurrentRegime, G>,
             RawTable = aarch64_vmsa::regime::TableFieldsOf<F, CurrentRegime, G>,
         >,
 {
-    use vmsa_test_harness::{AddressBits, LookupLevel, MappingAttributes, PhysicalAddress};
+    use vmsa_test_harness::{AddressBits, LookupLevel, PhysicalAddress};
 
     const ADDRESS: u64 = 0x6a00_0000;
     const FAULT_ADDRESS: u64 = 0x6d00_0000;
@@ -383,6 +388,46 @@ where
     let level = LookupLevel::new(geometry.start_level.as_i8())
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let leaf_level = LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    let memory = aarch64_vmsa::attrs::MemoryAttributes::Normal {
+        inner: aarch64_vmsa::attrs::Cacheability::NonCacheable,
+        outer: aarch64_vmsa::attrs::Cacheability::NonCacheable,
+    };
+    let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
+        mair: 0x0000_ff44,
+        mair2: None,
+        stage1_permissions: None,
+        stage2_permissions: None,
+        stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
+        d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
+        shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
+        output_pas: (),
+    };
+    let semantic_leaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs {
+        memory,
+        permissions: aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions {
+            data: aarch64_vmsa::attrs::DataAccess::ReadWrite,
+            execute: false,
+        },
+        pas: (),
+        controls: aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls {
+            shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
+            access_flag: true,
+            global: true,
+            dirty_management: aarch64_vmsa::attrs::DirtyBitManagement::SoftwareManaged,
+            contiguous: false,
+            guarded: false,
+            software: aarch64_vmsa::attrs::SoftwareMetadata::new(0),
+        },
+    };
+    let semantic_table = aarch64_vmsa::attrs::SemanticStage1TableAttrs {
+        permission_limits: aarch64_vmsa::attrs::SinglePrivilegeTablePermissionLimits {
+            data_limit: aarch64_vmsa::attrs::DataAccess::ReadWrite,
+            execute_limit: true,
+        },
+        pas: (),
+        controls: aarch64_vmsa::attrs::SemanticVmsa64Stage1TableControls::default(),
+    };
+    let offline_semantic;
     let sandbox;
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<CurrentRegime, G, F>(
@@ -391,11 +436,13 @@ where
             input_bits.get(),
             output_bits.get(),
         )?;
-        mapper.map_attributes_leaf(
+        mapper.map_semantic_leaf::<aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
+            &semantic_config,
             ADDRESS,
             page.phys_addr(),
             leaf_level,
-            MappingAttributes::READ_WRITE,
+            semantic_leaf,
+            semantic_table,
         )?;
         sandbox = context
             .prepare_transition_runtime(&mut mapper, active_granule::<F, G> as *const () as u64)?;
@@ -411,6 +458,12 @@ where
         {
             return vmsa_test_harness::HarnessError::InvalidState.into();
         }
+        offline_semantic = mapper
+            .inspect_semantic_leaf::<aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
+                ADDRESS,
+                &semantic_config,
+            )?
+            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if malformed_terminal {
             let Some(mut replacement) = leaf.raw else {
                 return vmsa_test_harness::HarnessError::InvalidState.into();
@@ -490,35 +543,46 @@ where
     {
         return vmsa_test_harness::HarnessError::InvalidState.into();
     }
-    let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
-        mair: 0x0000_ff44,
-        mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
-        stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
-        d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
-        shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
-        output_pas: (),
-    };
     let semantic = translation
         .inspect_semantic_for::<CurrentRegime, F, G, aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
             ADDRESS,
             &semantic_config,
         )?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if semantic.permissions.data != aarch64_vmsa::attrs::DataAccess::ReadWrite
-        || semantic.permissions.execute
-        || !semantic.controls.access_flag
-        || semantic.controls.shareability != aarch64_vmsa::attrs::Shareability::InnerShareable
+    if semantic != offline_semantic
+        || semantic.memory != memory
+        || semantic.permissions.data != aarch64_vmsa::attrs::DataAccess::ReadWrite
     {
         return vmsa_test_harness::HarnessError::InvalidState.into();
     }
     let result = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE);
+    if !matches!(result, TestResult::Pass) {
+        return result;
+    }
+    translation.protect::<F, G>(
+        ADDRESS,
+        vmsa_test_harness::MappingAttributes::READ_ONLY,
+    )?;
+    let write_fault = vmsa_test_harness::expect_matching_fault(
+        context.write_u64(ADDRESS, VALUE.wrapping_add(1)),
+        vmsa_test_harness::FaultMatcher::new(
+            vmsa_test_harness::ExpectedFault::permission_write(),
+        )
+        .at_address(ADDRESS),
+    );
+    if !matches!(write_fault, TestResult::Pass) {
+        return write_fault;
+    }
+    translation.protect::<F, G>(
+        ADDRESS,
+        vmsa_test_harness::MappingAttributes::READ_WRITE,
+    )?;
+    let restored = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE);
     drop(translation);
     if !context.transition_sandbox_restored(&sandbox) {
         return vmsa_test_harness::HarnessError::InvalidState.into();
     }
-    result
+    restored
 }
 
 pub(super) fn active_16k(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
@@ -874,19 +938,18 @@ where
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let controls = vmsa_test_harness::lpa2_el2_stage1_controls(granule, bits, bits)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let start_level = vmsa_test_harness::stage1_start_level(
-        vmsa_test_harness::TranslationFormat::Vmsa64Lpa2,
-        granule,
-        bits,
-    )
-    .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    let start_level = match granule {
+        vmsa_test_harness::Granule::Size4KiB => aarch64_vmsa::address::Level::NEG1,
+        vmsa_test_harness::Granule::Size16KiB => aarch64_vmsa::address::Level::L0,
+        vmsa_test_harness::Granule::Size64KiB => aarch64_vmsa::address::Level::L1,
+    };
     active_stage1_leaf_case::<aarch64_vmsa::descriptor::Vmsa64Lpa2, G>(
         context,
         root,
         ActiveGeometry {
             granule,
             format: vmsa_test_harness::TranslationFormat::Vmsa64Lpa2,
-            start_level: aarch64_vmsa::address::Level::new(start_level.get()),
+            start_level,
             input_width: 52,
             output_width: 52,
             controls,
@@ -1396,7 +1459,7 @@ pub(super) fn active_d128(context: &mut TestContext<'_, CurrentEnvironment>) -> 
         outer: aarch64_vmsa::attrs::Cacheability::NonCacheable,
     };
     let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
-        mair: 0x0000_44ff,
+        mair: 0x0000_00ff,
         mair2: Some(0x44),
         stage1_permissions: Some(aarch64_vmsa::attrs::Stage1PermissionRegisters {
             privileged: d128_permissions,
@@ -1409,13 +1472,17 @@ pub(super) fn active_d128(context: &mut TestContext<'_, CurrentEnvironment>) -> 
         shareability: aarch64_vmsa::attrs::Shareability::NonShareable,
         output_pas: (),
     };
-    let stage1_memory = vmsa_test_harness::Stage1MemoryControls::DEFAULT
-        .with_attribute(
+    let stage1_memory = vmsa_test_harness::Stage1MemoryControls::empty()
+        .with_raw_attribute(
+            vmsa_test_harness::MemoryAttributeSlot::new(0)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            0xff,
+        )
+        .with_raw_attribute(
             vmsa_test_harness::MemoryAttributeSlot::new(8)
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-            mair2_memory,
-        )
-        .map_err(vmsa_test_harness::HarnessError::Attribute)?;
+            0x44,
+        );
     let mut root = context.allocate_root()?;
     {
         let mut mapper = context.offline_mapper_d128_4k(&mut root, start, bits, bits)?;
@@ -1588,12 +1655,7 @@ pub(super) fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironmen
     let stage1_input = AddressBits::new(52).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let stage1_output = stage1_input;
     let d128_bits = AddressBits::new(52).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let stage1_start = vmsa_test_harness::stage1_start_level(
-        TranslationFormat::Vmsa64Lpa2,
-        Granule::Size16KiB,
-        stage1_input,
-    )
-    .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    let stage1_start = LookupLevel::new(0).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let d128_start = LookupLevel::new(-1).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let leaf = LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let block = LookupLevel::new(1).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -1601,6 +1663,19 @@ pub(super) fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironmen
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let stage2_controls = d128_stage2_controls_4k(d128_bits, d128_bits)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
+        mair: 0,
+        mair2: None,
+        stage1_permissions: None,
+        stage2_permissions: Some(aarch64_vmsa::attrs::Stage2PermissionRegisters {
+            s2pir_el2: 0x0000_0000_0000_fb8c,
+            s2por_el1: None,
+        }),
+        stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
+        d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
+        shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
+        output_pas: (),
+    };
 
     let invalid_root = context.allocate_root_16k()?;
     let invalid_root_address = PhysicalAddress::new(invalid_root.phys_addr());
@@ -1647,6 +1722,7 @@ pub(super) fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironmen
     let physical_region = stage1_root.phys_addr() & !0x3fff_ffff;
     let target_region = physical_region ^ 0x4000_0000;
     let target_ipa = target_region | (page.phys_addr() - physical_region);
+    let offline_semantic;
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             LowerRegime,
@@ -1683,7 +1759,41 @@ pub(super) fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironmen
         };
         mapper.map_stage2_leaf(physical_region, physical_region, block, recovery)?;
         mapper.map_stage2_leaf(0, 0, block, recovery)?;
-        mapper.map_stage2_page(target_ipa, page.phys_addr(), MappingAttributes::READ_WRITE)?;
+        let memory = aarch64_vmsa::attrs::MemoryAttributes::Normal {
+            inner: aarch64_vmsa::attrs::Cacheability::NonCacheable,
+            outer: aarch64_vmsa::attrs::Cacheability::NonCacheable,
+        };
+        mapper.map_semantic_leaf::<aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
+            &semantic_config,
+            target_ipa,
+            page.phys_addr(),
+            leaf,
+            aarch64_vmsa::attrs::SemanticStage2LeafAttrs {
+                memory: aarch64_vmsa::attrs::Stage2MemoryAttributes::Combined(memory),
+                permissions: aarch64_vmsa::attrs::Stage2Permission::ReadWrite {
+                    privileged_execute: false,
+                    unprivileged_execute: false,
+                },
+                output_address_space: (),
+                controls: aarch64_vmsa::attrs::SemanticVmsa128Stage2LeafControls {
+                    bbm_nt: false,
+                    dirty_state: aarch64_vmsa::attrs::DirtyState::Clean,
+                    shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
+                    access_flag: true,
+                    force_no_execute: false,
+                    contiguous: false,
+                    assured_only: false,
+                    software: aarch64_vmsa::attrs::SoftwareMetadata::new(0),
+                },
+            },
+            aarch64_vmsa::attrs::SemanticVmsa128Stage2TableAttrs::default(),
+        )?;
+        offline_semantic = mapper
+            .inspect_semantic_leaf::<aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
+                target_ipa,
+                &semantic_config,
+            )?
+            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     }
     let stage1_setup = TranslationSetup {
         root: PhysicalAddress::new(stage1_root.phys_addr()),
@@ -1727,20 +1837,7 @@ pub(super) fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironmen
     if walk.leaf().and_then(|entry| entry.output) != Some(page.phys_addr()) {
         return vmsa_test_harness::HarnessError::InvalidState.into();
     }
-    let config = aarch64_vmsa::attrs::LiveVmsaConfig {
-        mair: 0,
-        mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: Some(aarch64_vmsa::attrs::Stage2PermissionRegisters {
-            s2pir_el2: 0x0000_0000_0000_fb8c,
-            s2por_el1: None,
-        }),
-        stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
-        d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
-        shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
-        output_pas: (),
-    };
-    if combined
+    let installed_semantic = combined
         .stage2_mut()?
         .inspect_semantic_for::<
             Stage2Regime,
@@ -1748,9 +1845,9 @@ pub(super) fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironmen
             aarch64_vmsa::address::Granule4KiB,
             aarch64_vmsa::attrs::VmsaAttributeCodec,
             _,
-        >(target_ipa, &config)?
-        .is_none()
-    {
+        >(target_ipa, &semantic_config)?
+        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    if installed_semantic != offline_semantic {
         return vmsa_test_harness::HarnessError::InvalidState.into();
     }
     combined

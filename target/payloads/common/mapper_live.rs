@@ -355,6 +355,46 @@ pub fn frame_provider_error(
     TestResult::Pass
 }
 
+macro_rules! provider_probe_case {
+    ($name:ident, $method:ident) => {
+        pub fn $name(
+            context: &mut TestContext<'_, crate::CurrentEnvironment>,
+        ) -> TestResult {
+            if context.$method() {
+                TestResult::Pass
+            } else {
+                vmsa_test_harness::HarnessError::InvalidState.into()
+            }
+        }
+    };
+}
+
+provider_probe_case!(table_access_provider_error, verify_mapper_table_access_error);
+provider_probe_case!(descriptor_write_provider_error, verify_mapper_descriptor_write_error);
+provider_probe_case!(frame_allocate_provider_error, verify_mapper_frame_allocate_error);
+provider_probe_case!(frame_free_provider_error, verify_mapper_frame_free_error);
+
+pub fn break_before_make_ordering(
+    context: &mut TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    let mut root = context.allocate_root()?;
+    let mapper = context.offline_mapper_for_format_with_geometry::<
+        crate::CurrentRegime,
+        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::descriptor::Vmsa64,
+    >(
+        &mut root,
+        aarch64_vmsa::address::Level::L0,
+        32,
+        32,
+    )?;
+    if mapper.verify_break_before_make_ordering() {
+        TestResult::Pass
+    } else {
+        vmsa_test_harness::HarnessError::InvalidState.into()
+    }
+}
+
 pub fn range_partial_prefix_postcondition(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {

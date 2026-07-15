@@ -1,0 +1,52 @@
+source_file,lines,decision_sites,audit_section
+address/addr.rs,7,0,2
+address/granule.rs,199,7,2
+address/mod.rs,5,0,2
+arch/features.rs,394,26,1
+arch/mod.rs,3,0,1
+attrs/mod.rs,42,0,3-6
+attrs/pas.rs,135,18,4
+attrs/permissions.rs,152,6,5
+attrs/raw.rs,306,8,2
+attrs/resolve/codec.rs,320,18,3-6
+attrs/resolve/memory.rs,269,44,3-6
+attrs/resolve/mod.rs,167,12,3-6
+attrs/resolve/pas.rs,211,21,3-6
+attrs/resolve/stage1_permissions.rs,508,35,3-6
+attrs/resolve/stage2_permissions.rs,308,26,3-6
+attrs/resolve/vmsa128.rs,516,45,3-6
+attrs/resolve/vmsa64.rs,549,48,3-6
+attrs/semantic.rs,259,6,3-5
+descriptor/format/mod.rs,236,9,7
+descriptor/format/vmsa128.rs,373,29,7
+descriptor/format/vmsa64.rs,213,19,7
+descriptor/format/vmsa64_family.rs,64,1,7
+descriptor/format/vmsa64_lpa2.rs,288,32,7
+descriptor/layout/common.rs,39,1,7
+descriptor/layout/mod.rs,6,0,7
+descriptor/layout/vmsa128.rs,199,1,7
+descriptor/layout/vmsa64.rs,170,1,7
+descriptor/layout/vmsa64_lpa2.rs,134,0,7
+descriptor/mod.rs,4,0,7
+lib.rs,20,0,1-12
+mapper/error.rs,142,6,9-10
+mapper/invalidation.rs,182,4,9-10
+mapper/mod.rs,605,72,9-10
+mapper/plan.rs,210,11,9-10
+mapper/reclaim.rs,112,14,9-10
+mapper/semantic.rs,94,2,9-10
+mapper/types.rs,166,0,9-10
+mapper/validate.rs,164,16,9-10
+regime.rs,236,6,1 and 6
+table/access.rs,776,57,2 and 8
+table/addr.rs,50,1,2 and 8
+table/error.rs,82,2,2 and 8
+table/frame.rs,42,1,2 and 8
+table/geometry.rs,117,13,2 and 8
+table/mod.rs,19,0,2 and 8
+table/offset.rs,71,5,2 and 8
+table/recursive.rs,190,17,2 and 8
+table/root.rs,56,0,2 and 8
+table/table_ref.rs,169,3,2 and 8
+translation/mod.rs,3,0,8
+translation/walk.rs,614,28,8

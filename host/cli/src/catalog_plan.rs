@@ -176,6 +176,8 @@ fn applicable_targets(builder: &str) -> Result<[bool; 5], String> {
     }
     if builder.contains("BootProfile::RealmRecStage2") {
         targets = [false, false, false, true, false];
+    } else if builder.contains("BootProfile::RealmEl2") {
+        targets = [false, false, true, false, false];
     }
     Ok(targets)
 }

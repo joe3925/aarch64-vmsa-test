@@ -4,6 +4,8 @@
 mod access;
 #[path = "../../common/address_translation.rs"]
 mod address_translation;
+#[path = "../../common/alias_controls.rs"]
+mod alias_controls;
 #[path = "../../common/attributes.rs"]
 mod attributes;
 #[path = "../../common/attributes_live.rs"]
@@ -26,6 +28,8 @@ mod formats_live;
 mod geometry;
 #[path = "../../common/hardware_updates.rs"]
 mod hardware_updates;
+#[path = "../../common/infrastructure.rs"]
+mod infrastructure;
 #[path = "../../common/invalidation.rs"]
 mod invalidation;
 #[path = "../../common/malformed_descriptors.rs"]
@@ -36,6 +40,10 @@ mod mapper_live;
 mod mapper_plans;
 #[path = "../../common/metadata.rs"]
 mod metadata;
+#[path = "../../common/pas_nonsecure.rs"]
+mod pas_nonsecure;
+#[path = "../../common/permission_active.rs"]
+mod permission_active;
 #[path = "../../common/permission_semantic_cases.rs"]
 mod permission_semantic_cases;
 #[path = "../../common/permissions.rs"]
@@ -512,9 +520,6 @@ fn d128_stage1_effective_semantic_mapper(
 ) -> TestResult {
     permission_semantic_cases::d128_stage1_effective_semantic_mapper(context)
 }
-fn hardware_access_dirty(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    hardware_updates::hardware_access_dirty(context)
-}
 fn recursive_table_access(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     table_live::recursive_table_access(context)
 }
@@ -927,6 +932,18 @@ fn malformed_lpa2_64k_res0(context: &mut TestContext<'_, CurrentEnvironment>) ->
 fn malformed_lpa2_64k_res1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     malformed_descriptors::lpa2_64k_res1(context)
 }
+fn malformed_d128_valid_res1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    malformed_descriptors::d128_valid_res1(context)
+}
+fn malformed_d128_skl(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    malformed_descriptors::d128_skl(context)
+}
+fn malformed_d128_address(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    malformed_descriptors::d128_address(context)
+}
+fn malformed_d128_res0(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    malformed_descriptors::d128_res0(context)
+}
 fn active_4k(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     formats_live::active_4k(context)
 }
@@ -941,6 +958,16 @@ fn active_d128(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult 
 }
 fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     formats_live::active_d128_stage2(context)
+}
+fn infrastructure_d128_stage1_register_restoration(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    infrastructure::d128_stage1_register_restoration(context)
+}
+fn infrastructure_following_stage1_access(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    infrastructure::following_stage1_access(context)
 }
 macro_rules! dispatch_handler {
     ($context:ident, (none)) => {

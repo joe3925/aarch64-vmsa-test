@@ -21,6 +21,15 @@ pub trait Environment {
     fn memory_pas(&self) -> crate::PhysicalAddressSpace;
     fn transition_runtime_data(&self) -> [u64; 2];
     fn memory(&mut self) -> &mut TestMemory;
+    fn allocate_page_in(
+        &mut self,
+        pas: crate::PhysicalAddressSpace,
+    ) -> Result<crate::Page, HarnessError> {
+        if pas != self.memory_pas() {
+            return Err(HarnessError::InvalidState);
+        }
+        self.memory().allocate_page().map_err(|_| HarnessError::Memory)
+    }
     fn install_translation(
         &mut self,
         setup: TranslationSetup,

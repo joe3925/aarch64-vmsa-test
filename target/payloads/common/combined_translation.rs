@@ -21,28 +21,26 @@ pub(super) fn combined_stage1_stage2(
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let stage2_controls = vmsa64_stage2_controls_4k(input_bits, output_bits, start_level)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let cacheability = aarch64_vmsa::attrs::Cacheability::Cacheable {
-        policy: aarch64_vmsa::attrs::CachePolicy::WriteBack,
-        transience: aarch64_vmsa::attrs::MemoryTransience::NonTransient,
-        allocation: aarch64_vmsa::attrs::AllocationHints::ReadWriteAllocate,
-    };
-    let stage1_memory = vmsa_test_harness::Stage1MemoryControls::DEFAULT
-        .with_attribute(
-            vmsa_test_harness::MemoryAttributeSlot::new(0)
-                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-            aarch64_vmsa::attrs::MemoryAttributes::Normal {
-                inner: cacheability,
-                outer: cacheability,
-            },
-        )
-        .map_err(vmsa_test_harness::HarnessError::Attribute)?;
+    let stage1_memory = vmsa_test_harness::Stage1MemoryControls::DEFAULT.with_raw_attribute(
+        vmsa_test_harness::MemoryAttributeSlot::new(0)
+            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+        0xff,
+    );
 
     for mode in 1u16..3 {
         let omit_target = mode == 2;
         let data_page = context.allocate_page()?;
+        let replacement_page = context.allocate_page()?;
         const DATA_VALUE: u64 = 0x434f_4d42_494e_4544;
+        const REPLACEMENT_VALUE: u64 = 0x5245_504c_4143_4544;
         if !matches!(
             context.write_u64(data_page.virtual_address() as u64, DATA_VALUE),
+            vmsa_test_harness::AccessResult::Completed { .. }
+        ) {
+            return vmsa_test_harness::HarnessError::InvalidState.into();
+        }
+        if !matches!(
+            context.write_u64(replacement_page.virtual_address() as u64, REPLACEMENT_VALUE),
             vmsa_test_harness::AccessResult::Completed { .. }
         ) {
             return vmsa_test_harness::HarnessError::InvalidState.into();
@@ -52,6 +50,8 @@ pub(super) fn combined_stage1_stage2(
         let table_walk_region = stage1_root.phys_addr() & !0x3fff_ffff;
         let target_region = table_walk_region ^ 0x4000_0000;
         let target_ipa = target_region | (data_page.phys_addr() - table_walk_region);
+        let replacement_ipa =
+            target_region | (replacement_page.phys_addr() - table_walk_region);
         {
             let mut mapper = context.offline_mapper_for_format_with_geometry::<
                 LowerRegime,
@@ -103,10 +103,11 @@ pub(super) fn combined_stage1_stage2(
             // while stage 2 is active so a candidate-target fault can return.
             mapper.map_leaf(0, 0, start_level, recovery_attributes)?;
             if !omit_target {
+                mapper.map_leaf(target_ipa, data_page.phys_addr(), level3, MappingAttributes::READ_WRITE)?;
                 mapper.map_leaf(
-                    target_region,
-                    table_walk_region,
-                    start_level,
+                    replacement_ipa,
+                    replacement_page.phys_addr(),
+                    level3,
                     MappingAttributes::READ_WRITE,
                 )?;
             }
@@ -209,7 +210,7 @@ pub(super) fn combined_stage1_stage2(
                     aarch64_vmsa::address::Granule4KiB,
                     aarch64_vmsa::attrs::VmsaAttributeCodec,
                     _,
-                >(target_region, &semantic_config)?
+                >(target_ipa, &semantic_config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if semantic.permissions.data != aarch64_vmsa::attrs::DataAccess::ReadWrite
                 || semantic.controls.shareability
@@ -317,7 +318,7 @@ pub(super) fn combined_stage1_stage2(
                 Stage2Regime,
                 aarch64_vmsa::descriptor::Vmsa64,
                 aarch64_vmsa::address::Granule4KiB,
-            >(target_region, MappingAttributes::READ_ONLY)?;
+            >(target_ipa, MappingAttributes::READ_ONLY)?;
             match combined.write_u64(VIRTUAL_ADDRESS, DATA_VALUE + 4) {
                 vmsa_test_harness::AccessResult::Fault(fault)
                     if fault.stage == vmsa_test_harness::FaultStage::Stage2 => {}
@@ -327,11 +328,117 @@ pub(super) fn combined_stage1_stage2(
                 Stage2Regime,
                 aarch64_vmsa::descriptor::Vmsa64,
                 aarch64_vmsa::address::Granule4KiB,
-            >(target_region, MappingAttributes::READ_WRITE)?;
+            >(target_ipa, MappingAttributes::READ_WRITE)?;
             if !matches!(
                 combined.read_u64(VIRTUAL_ADDRESS),
                 vmsa_test_harness::AccessResult::Completed { value } if value == DATA_VALUE
             ) {
+                return vmsa_test_harness::HarnessError::InvalidState.into();
+            }
+
+            combined.stage1_mut()?.remap_for::<
+                LowerRegime,
+                aarch64_vmsa::descriptor::Vmsa64,
+                aarch64_vmsa::address::Granule4KiB,
+            >(VIRTUAL_ADDRESS, replacement_ipa, MappingAttributes {
+                writable: true,
+                executable: false,
+                user_accessible: true,
+            })?;
+            combined.tlbi(
+                vmsa_test_harness::TlbiScope::InnerShareable,
+                vmsa_test_harness::CombinedTlbiOperation::Stage1(
+                    vmsa_test_harness::TlbiOperation::VirtualAddress(VIRTUAL_ADDRESS),
+                ),
+            )?;
+            if !matches!(combined.read_u64(VIRTUAL_ADDRESS),
+                vmsa_test_harness::AccessResult::Completed { value } if value == REPLACEMENT_VALUE)
+            {
+                return vmsa_test_harness::HarnessError::InvalidState.into();
+            }
+
+            combined.stage1_mut()?.unmap_for::<
+                LowerRegime,
+                aarch64_vmsa::descriptor::Vmsa64,
+                aarch64_vmsa::address::Granule4KiB,
+            >(VIRTUAL_ADDRESS)?;
+            combined.tlbi(
+                vmsa_test_harness::TlbiScope::InnerShareable,
+                vmsa_test_harness::CombinedTlbiOperation::Stage1(
+                    vmsa_test_harness::TlbiOperation::VirtualAddress(VIRTUAL_ADDRESS),
+                ),
+            )?;
+            let stage1_fault = vmsa_test_harness::expect_matching_fault(
+                combined.read_u64(VIRTUAL_ADDRESS),
+                vmsa_test_harness::FaultMatcher::new(
+                    vmsa_test_harness::ExpectedFault::translation_read_stage1(),
+                )
+                .at_address(VIRTUAL_ADDRESS),
+            );
+            if !matches!(stage1_fault, TestResult::Pass) {
+                return stage1_fault;
+            }
+            combined.stage1_mut()?.map_for::<
+                LowerRegime,
+                aarch64_vmsa::descriptor::Vmsa64,
+                aarch64_vmsa::address::Granule4KiB,
+            >(VIRTUAL_ADDRESS, replacement_ipa, level3, MappingAttributes {
+                writable: true,
+                executable: false,
+                user_accessible: true,
+            })?;
+
+            combined.stage2_mut()?.remap_for::<
+                Stage2Regime,
+                aarch64_vmsa::descriptor::Vmsa64,
+                aarch64_vmsa::address::Granule4KiB,
+            >(replacement_ipa, data_page.phys_addr(), MappingAttributes::READ_WRITE)?;
+            combined.tlbi(
+                vmsa_test_harness::TlbiScope::InnerShareable,
+                vmsa_test_harness::CombinedTlbiOperation::Stage2(
+                    vmsa_test_harness::TlbiOperation::IntermediatePhysicalAddress(replacement_ipa),
+                ),
+            )?;
+            if !matches!(combined.read_u64(VIRTUAL_ADDRESS),
+                vmsa_test_harness::AccessResult::Completed { value } if value == DATA_VALUE)
+            {
+                return vmsa_test_harness::HarnessError::InvalidState.into();
+            }
+            combined.stage2_mut()?.unmap_for::<
+                Stage2Regime,
+                aarch64_vmsa::descriptor::Vmsa64,
+                aarch64_vmsa::address::Granule4KiB,
+            >(replacement_ipa)?;
+            combined.tlbi(
+                vmsa_test_harness::TlbiScope::InnerShareable,
+                vmsa_test_harness::CombinedTlbiOperation::Stage2(
+                    vmsa_test_harness::TlbiOperation::IntermediatePhysicalAddress(replacement_ipa),
+                ),
+            )?;
+            let stage2_fault = vmsa_test_harness::expect_matching_fault(
+                combined.read_u64(VIRTUAL_ADDRESS),
+                vmsa_test_harness::FaultMatcher::new(
+                    vmsa_test_harness::ExpectedFault::translation_read_stage2(),
+                )
+                .at_address(VIRTUAL_ADDRESS),
+            );
+            if !matches!(stage2_fault, TestResult::Pass) {
+                return stage2_fault;
+            }
+            combined.stage2_mut()?.map_for::<
+                Stage2Regime,
+                aarch64_vmsa::descriptor::Vmsa64,
+                aarch64_vmsa::address::Granule4KiB,
+            >(replacement_ipa, replacement_page.phys_addr(), level3, MappingAttributes::READ_WRITE)?;
+            combined.tlbi(
+                vmsa_test_harness::TlbiScope::InnerShareable,
+                vmsa_test_harness::CombinedTlbiOperation::Stage2(
+                    vmsa_test_harness::TlbiOperation::IntermediatePhysicalAddress(replacement_ipa),
+                ),
+            )?;
+            if !matches!(combined.read_u64(VIRTUAL_ADDRESS),
+                vmsa_test_harness::AccessResult::Completed { value } if value == REPLACEMENT_VALUE)
+            {
                 return vmsa_test_harness::HarnessError::InvalidState.into();
             }
         }

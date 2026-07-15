@@ -246,6 +246,28 @@ impl HarnessFailureState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InfrastructureStage1Snapshot {
+    pub ttbr0: u64,
+    pub tcr: u64,
+    pub mair: u64,
+    pub sctlr: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InfrastructureD128Stage1Snapshot {
+    pub ttbr0_low: u64,
+    pub ttbr0_high: u64,
+    pub tcr: u64,
+    pub mair: u64,
+    pub mair2: u64,
+    pub sctlr: u64,
+    pub tcr2: u64,
+    pub pir: u64,
+    pub pire0: u64,
+    pub hcrx: u64,
+}
+
 pub struct TestContext<'a, E: Environment> {
     environment: NonNull<E>,
     memory_scope: MemoryScope,
@@ -306,6 +328,37 @@ impl<'a, E: Environment> TestContext<'a, E> {
 
     pub fn capabilities(&self) -> Capabilities {
         self.environment().capabilities()
+    }
+    /// Captures current-EL stage-1 registers for explicit infrastructure tests.
+    ///
+    /// This is not a crate-behavior oracle.
+    pub fn infrastructure_current_stage1_snapshot(&self) -> Option<InfrastructureStage1Snapshot> {
+        let state = vmsa_test_architecture::registers::current_stage1_state()?;
+        Some(InfrastructureStage1Snapshot {
+            ttbr0: state.ttbr0,
+            tcr: state.tcr,
+            mair: state.mair,
+            sctlr: state.sctlr,
+        })
+    }
+
+    /// Captures inactive-EL1 D128 controls for explicit infrastructure tests.
+    ///
+    /// This is not a crate-behavior oracle.
+    pub fn infrastructure_lower_d128_snapshot(&self) -> Option<InfrastructureD128Stage1Snapshot> {
+        let state = vmsa_test_architecture::registers::current_el1_d128_controls()?;
+        Some(InfrastructureD128Stage1Snapshot {
+            ttbr0_low: state.ttbr0_low,
+            ttbr0_high: state.ttbr0_high,
+            tcr: state.tcr,
+            mair: state.mair,
+            mair2: state.mair2,
+            sctlr: state.sctlr,
+            tcr2: state.tcr2,
+            pir: state.pir,
+            pire0: state.pire0,
+            hcrx: state.hcrx,
+        })
     }
     pub fn native_pas(&self) -> crate::PhysicalAddressSpace {
         self.environment().memory_pas()
@@ -376,11 +429,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         self.allocate_page_in(self.native_pas())
     }
     pub fn allocate_page_in(&self, pas: crate::PhysicalAddressSpace) -> Result<Page, HarnessError> {
-        if pas != self.native_pas() {
-            return Err(HarnessError::InvalidState);
-        }
-        self.with_environment(|environment| environment.memory().allocate_page())
-            .map_err(|_| HarnessError::Memory)
+        self.with_environment(|environment| environment.allocate_page_in(pas))
     }
     pub fn allocate_contiguous(&self, pages: usize) -> Result<Page, HarnessError> {
         self.allocate_contiguous_in(self.native_pas(), pages)
@@ -959,6 +1008,33 @@ impl<'a, E: Environment> TestContext<'a, E> {
 
     pub fn arena_allocation_count(&self) -> usize {
         self.with_environment(|environment| environment.memory().allocation_count())
+    }
+
+    fn verify_mapper_provider_probe(
+        &self,
+        probe: crate::translation::MapperProviderProbe,
+    ) -> bool {
+        let Ok(mut root) = self.allocate_root() else {
+            return false;
+        };
+        let memory = self.with_environment(|environment| NonNull::from(environment.memory()));
+        crate::translation::verify_mapper_provider_probe(memory, &mut root, probe)
+    }
+
+    pub fn verify_mapper_table_access_error(&self) -> bool {
+        self.verify_mapper_provider_probe(crate::translation::MapperProviderProbe::TableRead)
+    }
+
+    pub fn verify_mapper_descriptor_write_error(&self) -> bool {
+        self.verify_mapper_provider_probe(crate::translation::MapperProviderProbe::DescriptorWrite)
+    }
+
+    pub fn verify_mapper_frame_allocate_error(&self) -> bool {
+        self.verify_mapper_provider_probe(crate::translation::MapperProviderProbe::FrameAllocate)
+    }
+
+    pub fn verify_mapper_frame_free_error(&self) -> bool {
+        self.verify_mapper_provider_probe(crate::translation::MapperProviderProbe::FrameFree)
     }
 
     pub fn with_table_allocation_failure<T>(
@@ -1615,7 +1691,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         if setup.stage == crate::TranslationStage::Stage1
             && !setup.controls.preserves_current()
             && setup.start_level
-                != crate::translation::stage1_start_level(
+                != crate::translation::infrastructure_stage1_start_level(
                     setup.format,
                     setup.granule,
                     setup.input_bits,
@@ -1899,6 +1975,20 @@ impl<'a, E: Environment> TestContext<'a, E> {
             unsafe { vmsa_test_architecture::registers::enable_lower_el1_hardware_updates(dirty) }
                 .ok_or(HarnessError::InvalidState)?;
         Ok(LowerHardwareUpdateGuard {
+            state: Some(state),
+            cleanup: &self.cleanup,
+        })
+    }
+    pub fn enable_stage2_hardware_updates(
+        &self,
+        dirty: bool,
+    ) -> Result<Stage2HardwareUpdateGuard<'_>, HarnessError> {
+        // SAFETY: The test owns the installed stage-2 translation until both
+        // the returned guard and its live combined translation are restored.
+        let state =
+            unsafe { vmsa_test_architecture::registers::enable_stage2_hardware_updates(dirty) }
+                .ok_or(HarnessError::InvalidState)?;
+        Ok(Stage2HardwareUpdateGuard {
             state: Some(state),
             cleanup: &self.cleanup,
         })
@@ -2450,6 +2540,27 @@ pub struct HardwareUpdateGuard<'a> {
 pub struct LowerHardwareUpdateGuard<'a> {
     state: Option<vmsa_test_architecture::registers::LowerHardwareUpdateState>,
     cleanup: &'a CleanupState,
+}
+
+pub struct Stage2HardwareUpdateGuard<'a> {
+    state: Option<vmsa_test_architecture::registers::Stage2HardwareUpdateState>,
+    cleanup: &'a CleanupState,
+}
+
+impl Drop for Stage2HardwareUpdateGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(state) = self.state.take() {
+            // SAFETY: This guard uniquely owns the EL2 stage-2 HA/HD state.
+            let restored = unsafe {
+                vmsa_test_architecture::registers::restore_stage2_hardware_updates(state)
+            };
+            if !restored {
+                // SAFETY: The runner reads this single-threaded cleanup flag
+                // only after all test-owned guards have been dropped.
+                unsafe { *self.cleanup.0.get() = true };
+            }
+        }
+    }
 }
 
 impl Drop for LowerHardwareUpdateGuard<'_> {
@@ -3827,6 +3938,10 @@ impl<'a, E: Environment> CombinedTranslation<'a, E> {
 
     pub fn execute(&mut self, address: u64) -> AccessResult {
         self.access(LowerElRequest::execute(address))
+    }
+
+    pub fn el0_execute(&mut self, address: u64) -> AccessResult {
+        self.access(LowerElRequest::execute(address).at_el0())
     }
 
     pub fn translate(

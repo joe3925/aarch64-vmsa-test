@@ -88,26 +88,12 @@ This is recorded as an FVP/architectural-observation discrepancy rather than a c
 Retained evidence:
 
 - `output/runs/ns-el2-00001784028236447132-37484/` (complete active-geometry-correlated `formats.` batch: 94 passes, 20 independently reported AT discrepancies, no timeout or suppressed later case)
-- `output/runs/ns-el2-00001784029236954897-40402/` (complete `walk.` batch: 11 passes covering isolated invalid/block/table/page agreement and every exact walker error)
-- `output/runs/ns-el2-00001784029386286290-40707/` (complete `tables.` batch: 8 passes covering live recursive access, safe table mediation, and isolated recursive rejection paths)
-- `output/runs/ns-el2-00001784029739593312-41993/` (three end-to-end `map_leaf_with_plan` planner identities passed with exact outcomes and walk paths)
-- `output/runs/ns-el2-00001784029957099365-42828/` (18 isolated offline mapper construction/accessor/`into_parts` identities passed across both stages, all formats, and all granules)
-- `output/runs/ns-el2-00001784030080465290-43112/` (18 isolated live mapper construction/accessor/invalidation/`into_parts` identities passed across both stages, all formats, and all granules)
-- `output/runs/ns-el2-00001784030247132311-43532/` (D128 descriptor batch passed both stages' final BBM/NT and table-NT/SKL=0 exact errors plus the live descriptor sentinel)
-- `output/runs/ns-el2-00001784030370158827-43923/` (seven isolated allocator identities passed: arena exhaustion, page/contiguous/root injection, and all three 4 KiB table-growth failure boundaries with retry)
-- `output/runs/ns-el2-00001784030459584657-44241/` (all three partial table-growth boundaries passed exact pre/post allocation counts, no-leaf inspection, retry, full reclaim, and root-empty cleanup)
-- `output/runs/ns-el2-00001784030539295379-44517/` (`map_range` failure postcondition: a successfully mapped prefix remains visible when a later frame allocation fails; resuming at the first unmapped page completes the range, and reverse reclaim restores the allocation baseline. This matches the source-visible non-transactional loop.)
-- `output/runs/ns-el2-00001784030714098443-45129/` (six isolated live mapper injection identities passed for map, range, remap, protect, unmap, and reclaim; every case verified preserved pre-failure state, retry, and the appropriate access/fault result)
-- `output/runs/ns-el2-00001784027991967310-36598/` (complete strengthened `formats.` batch: 94 passes, 20 independently reported AT discrepancies, no timeout or suppressed later case)
-- `output/runs/ns-el2-00001784027753751944-35737/` (complete `formats.` batch: 94 passes, 20 independently reported AT discrepancies, no timeout or suppressed later case)
-- `output/runs/ns-el2-00001784027732021019-35473/` (stage 1, all granules, after 64 KiB runtime-layout isolation hardening)
-- `output/runs/ns-el2-00001784027169499995-33916/` (stage 1, all granules)
-- `output/runs/ns-el2-00001784027367029885-34264/` (stage 2, all granules)
+- `output/runs/ns-el2-00001784075534013536-69381/` (latest full Normal run; all twenty D128 AT assertions failed independently with physical address `0x8`)
 
-## AVMSA-DESC-001 — VMSA64 stage-1 leaf RES0 bit 48 is accepted by the typed walk and hardware
+## AVMSA-DESC-001 — VMSA64, LPA2, and D128 malformed leaf fields are accepted
 
 - Reference crate revision: `ada32824cd813c16ab6ea30322ee396aad3aaa75`
-- Catalog case: `descriptors.malformed-vmsa64-res0`
+- Catalog cases: `descriptors.malformed-vmsa64-res0`, `descriptors.malformed-lpa2-ds-res0`, and `descriptors.malformed-lpa2-64k-res0`
 - Classification: crate/platform descriptor-validation discrepancy; assertion remains enabled
 
 The VMSA64 stage-1 leaf layout classifies bit 48 as RES0. The isolated malformed-table case first
@@ -124,110 +110,41 @@ missing fault, and the later RES1 identity still ran. The RES0 case took twice t
 of the neighboring cases because it completed restoration, emergency restoration, and its fresh
 mapping sentinel before returning the retained missing-fault result.
 
+The LPA2 DS case independently sets stage-1 leaf RES0 bit 59, while the 64 KiB non-DS case sets
+RES0 bit 48. Both loads likewise complete with the mapped value. Their reserved-type and
+cleared-RES1 neighbors fault and recover exactly. The DS batch is retained at
+`output/runs/ns-el2-00001784033606763186-56747`; the corrected 64 KiB batch is retained at
+`output/runs/ns-el2-00001784073901891888-63693`.
+
+D128 independently shows the same validation gap. Clearing the valid/RES1 bit and setting illegal
+terminal SKL are rejected exactly, while setting configured-output address bit 52 or RES0 bit 1 is
+accepted by the crate mapper. All four cases then restore the exact original descriptor, invoke
+emergency restoration, install the restored lower-EL translation, and read the expected value
+before returning their observation. The batch is retained at
+`output/runs/ns-el2-00001784074608364376-65655` (2 passes, 2 missing-rejection failures).
+
 The reserved-type mutation is applied to the terminal L3 descriptor, exercising the malformed
 final-level block/type encoding. VMSA64 uses the same `0b11` encoding for a page at the final level
 and a table at non-final levels, so a distinct raw "final table" encoding does not exist; the typed
 table-transition constructor's final-level rejection is covered separately by the exact descriptor
 error cases.
 
-- `output/runs/ns-el2-00001784022358626675-16850/`
-- `output/runs/ns-el2-00001784022358626675-16850/results.log`
-- `output/runs/ns-el2-00001784022358626675-16850/uart.log`
-- `output/runs/ns-el2-00001784022358626675-16850/provenance.txt`
-- `output/runs/ns-el2-00001784023411212722-20153/`
-- `output/runs/ns-el2-00001784023411212722-20153/results.log`
-- `output/runs/ns-el2-00001784023411212722-20153/uart.log`
-- `output/runs/ns-el2-00001784023411212722-20153/provenance.txt`
-- `output/runs/ns-el2-00001784024306696943-22170/`
-- `output/runs/ns-el2-00001784024306696943-22170/results.log`
-- `output/runs/ns-el2-00001784024306696943-22170/uart.log`
-- `output/runs/ns-el2-00001784024306696943-22170/provenance.txt`
-- `output/runs/ns-el2-00001784024392736885-22482/`
-- `output/runs/ns-el2-00001784025762264141-29035/`
-- `output/runs/ns-el2-00001784025762264141-29035/results.log`
-- `output/runs/ns-el2-00001784025762264141-29035/uart.log`
-- `output/runs/ns-el2-00001784025762264141-29035/provenance.txt`
-- `output/runs/ns-el2-00001784025982274751-29332/`
-- `output/runs/ns-el2-00001784025982274751-29332/results.log`
-- `output/runs/ns-el2-00001784025982274751-29332/uart.log`
-- `output/runs/ns-el2-00001784025982274751-29332/provenance.txt`
-Independent installation recovery coverage is registered as `recovery.install-current`,
-`recovery.install-lower`, and `recovery.install-combined-partial`. Each identity verifies the
-exact injected failure, performs a clean retry and explicit restoration, and then installs a
-fresh current translation to complete a mapped-access sentinel. The three-case FVP run passed in
-`output/runs/ns-el2-00001784030934709486-45720`.
+## AVMSA-FVP-002 — LPA2 high output-address probes terminate FVP before an architectural fault
 
-Lower-context recovery is split into `recovery.lower-entry`, `recovery.lower-action`, and
-`recovery.lower-return`; all three passed with retry and a fresh mapping sentinel in
-`output/runs/ns-el2-00001784031046523440-46091`. Secondary-PE recovery is independently covered
-by `recovery.secondary-start`, `recovery.secondary-rendezvous`, `recovery.secondary-action`,
-`recovery.secondary-timeout`, and `recovery.secondary-stop`. The five-case batch passed in
-`output/runs/ns-el2-00001784031217718576-46964`, including rendezvous rollback and Drop-mediated
-stop cleanup.
+- Reference crate revision: `ada32824cd813c16ab6ea30322ee396aad3aaa75`
+- Catalog cases: `descriptors.malformed-lpa2-ds-address` and `descriptors.malformed-lpa2-64k-address`
+- Classification: destructive FVP/platform boundary; assertions remain enabled in separate boots
 
-Invalidation, barrier, and explicit TLBI failure boundaries are registered separately as
-`recovery.invalidation`, `recovery.barrier`, and `recovery.tlbi`. The invalidation and TLBI cases
-confirm the old live mapping remains usable before retry; every case restores and completes a
-fresh mapping sentinel. They passed together with all 24 earlier recovery identities in
-`output/runs/ns-el2-00001784031296326099-47234` (27 passed, 0 failed).
+Each address identity starts from a viable 52-bit LPA2 leaf and changes only an encoded high output
+address bit so the access targets an unavailable physical region. Instead of reporting a guarded
+Data Abort, FVP exits with status 1 before the protocol can emit `END`. The DS evidence is retained
+at `output/runs/ns-el2-00001784058930721911-59699`; the corrected 64 KiB evidence is retained at
+`output/runs/ns-el2-00001784073930329001-63966`. These two identities are marked destructive and
+run in separate boots, so this platform-wide termination cannot suppress any other malformed case.
+All non-address LPA2 malformed identities perform explicit restoration, emergency restoration,
+and a valid sibling mapping in the same test before returning their observation.
 
-Restoration ownership paths are isolated as `recovery.restore-explicit`,
-`recovery.restore-drop`, and `recovery.restore-emergency`. The explicit case injects a restore
-failure and verifies the consumed guard's Drop fallback; the emergency case deliberately forgets
-the guard, invokes the same last-resort environment restoration used by the runner, and proves a
-new translation can be installed in the same test. All three passed in
-`output/runs/ns-el2-00001784031377717343-47534`.
-
-Realm lifecycle recovery uses ten isolated `realm-rec.recovery-*` identities for delegation,
-Realm creation, REC creation and entry, mapping, read-only and read-write mutation, unmapping,
-destruction, and undelegation. Phase-specific harness injection replaced the former generic
-firmware/cleanup ambiguity, and every identity retries through a fresh Realm session. The Realm
-REC FVP batch passed 10/10 in
-`output/runs/realm-stage2-00001784031509410995-47840`.
-
-All recoverable failure identities now inspect the relevant post-failure state, retry, explicitly
-restore or reclaim ownership, and install a fresh mapping (or fresh Realm session) before passing.
-The full Normal recovery batch continued through an intentionally observed assertion failure and
-ran every later identity in `output/runs/ns-el2-00001784031605461631-48147`; after tightening the
-remaining cases, the sole scope-terminal arena exhaustion boundary passed independently in
-`output/runs/ns-el2-00001784031640240012-48411`. Whole-arena exhaustion is not a recoverable
-in-scope injection: it deliberately consumes the bump arena and is restored by the runner's
-mandatory scope reset. Its page, contiguous, root, and table failure counterparts are recoverable
-and do pass fresh mappings in the same test.
-
-The Normal invalidation batch passed 7/7 in
-`output/runs/ns-el2-00001784032187492066-52283`. It covers live leaf and table insertion,
-removal/reclaim synchronization, local and inner-shareable invalidation observed across primary
-and secondary PEs, and independent ASID roots with value switching and transactional reuse.
-`recovery.mapper-remap` independently proves an injected failed remap preserves the old output and
-a retry selects a distinct new output.
-
-TLBI coverage now includes VA, IPA, VA-range, IPA-range, ASID, VMID, and all-entry operations.
-Stage-2 wrong-stage operations, zero-page and unaligned ranges, plus wrong ASID/VMID identifiers
-return exact `HarnessError::InvalidState`; the expanded stage-2 case passed in
-`output/runs/ns-el2-00001784032264824822-52564`. `TlbiScope` is a closed two-variant typed API
-(`Local` and `InnerShareable`), so an invalid scope cannot be constructed through the public
-harness interface; both representable scopes are exercised.
-
-`invalidation.vmid-isolation` now populates two independent stage-2 roots at the same IPA with
-distinct outputs, installs and inspects them under VMIDs `0x15` and `0x2a`, restores both, and
-reinstalls the first root/VMID pair to prove transactional reuse. It passed in
-`output/runs/ns-el2-00001784032348976292-52845`.
-
-`formats.d128-stage2-active` combines a 52-bit LPA2 stage-1 translation using 16 KiB tables with
-a 52-bit D128 stage-2 translation using 4 KiB tables. It corroborates combined access, raw walk,
-and semantic inspection before stage-2 protect/remap/unmap/fault/TLBI and reverse restoration; the
-case passed in `output/runs/ns-el2-00001784032408400162-53129`.
-
-Every active format leaf matrix now compares the complete typed offline `WalkInspection` and
-semantic leaf decode with inspection of the installed tables before performing its access or AT
-observation. These equalities include the descriptor raw value and width, normalized kind,
-level/index path, next-table target, offset-adjusted output, and every decoded semantic field. The
-bulk run retained at `output/runs/ns-el2-00001784033001474335-54749` passed all 94 access-backed
-VMSA64, LPA2, and D128 stage-1/stage-2 cases. The 20 D128 AT identities independently reported the
-already documented `AVMSA-FVP-001` discrepancy, and later identities continued to execute.
-
-Repository quality checks pass: host and target `cargo fmt --check`, host clippy with
-`-D warnings`, and the complete target workspace clippy with `-D warnings` inside the pinned Linux
-build image. The target lint mounted `/Users/boden/Documents/aarch64-vmsa` read-only; no dependency
-path remains in `target/external`. The 774-item API audit validator and `git diff --check` also pass.
+For the two destructive LPA2 address probes, FVP terminates before target code can execute any
+post-fault assertion. Their separate-boot isolation is therefore the platform-enforced emergency
+recovery boundary; every following boot begins from restored architectural state and all remaining
+malformed identities execute. No test treats the missing cleanup callback as a pass.

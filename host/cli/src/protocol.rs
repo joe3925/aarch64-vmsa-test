@@ -234,9 +234,9 @@ pub fn validate_parser() -> Result<(), String> {
     for line in [
         "@@VMSA BEGIN protocol=1 target=self-check",
         "@@VMSA CAP rme=1",
-        "@@VMSA RUN smoke.pass",
-        "@@VMSA PASS smoke.pass",
-        "@@VMSA SKIP smoke.skip reason=unsupported",
+        "@@VMSA RUN host.pass",
+        "@@VMSA PASS host.pass",
+        "@@VMSA SKIP host.skip reason=unsupported",
         "@@VMSA END passed=1 failed=0 skipped=1",
     ] {
         valid.parse_line(line)?;
@@ -244,24 +244,24 @@ pub fn validate_parser() -> Result<(), String> {
     valid.finish()?;
 
     for records in [
-        &["@@VMSA PASS smoke.pass"][..],
+        &["@@VMSA PASS host.pass"][..],
         &[
             "@@VMSA BEGIN protocol=1 target=x",
             "@@VMSA BEGIN protocol=1 target=x",
         ][..],
         &["@@VMSA BEGIN protocol=1 target=x", "@@VMSA UNKNOWN value=1"][..],
-        &["@@VMSA BEGIN protocol=1 target=x", "@@VMSA PASS smoke.pass"][..],
+        &["@@VMSA BEGIN protocol=1 target=x", "@@VMSA PASS host.pass"][..],
         &[
             "@@VMSA BEGIN protocol=1 target=x",
-            "@@VMSA RUN smoke.pass",
-            "@@VMSA PASS smoke.pass",
+            "@@VMSA RUN host.pass",
+            "@@VMSA PASS host.pass",
             "@@VMSA END passed=0 failed=0 skipped=0",
         ][..],
         &["@@VMSA BEGIN protocol=2 target=x"][..],
         &[
             "@@VMSA BEGIN protocol=1 target=x",
             "@@VMSA END passed=0 failed=0 skipped=0",
-            "@@VMSA RUN smoke.late",
+            "@@VMSA RUN host.late",
         ][..],
     ] {
         let mut parser = Parser::new();

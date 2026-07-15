@@ -79,4 +79,11 @@ Known capability gaps discovered by this audit and the FVP runs are:
 
 Remaining breadth tracked outside the public-item audit maps directly to
 [`CAPABILITY_MODEL.md`](CAPABILITY_MODEL.md) and the unchecked entries in
-[`../IMPLMENTATION_TODO.md`](../IMPLMENTATION_TODO.md).
+[`../IMPLEMENTATION_TODO.md`](../IMPLEMENTATION_TODO.md).
+
+The stricter post-plan audit is
+[`BRANCH_AREA_AUDIT.md`](BRANCH_AREA_AUDIT.md). It expands generic API routes
+into regime/format/stage combinations and deliberately leaves ordering,
+non-representative live branches
+unchecked until they have direct evidence. Its unchecked boxes supersede the
+older sentence above as the current beyond-plan work queue.

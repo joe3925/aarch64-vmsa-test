@@ -11,10 +11,13 @@
 
 #include "../vmsa_filter.h"
 
-#define VMSA_BOOT_CONTEXT_ABI_VERSION UINT32_C(3)
+#define VMSA_BOOT_CONTEXT_ABI_VERSION UINT32_C(4)
 #define VMSA_ARENA_BYTES (256U * 1024U)
 
 typedef void (*vmsa_uart_write_t)(uint8_t byte);
+typedef int32_t (*vmsa_pas_page_acquire_t)(uint32_t pas, uint64_t *virtual_address,
+		uint64_t *physical);
+typedef int32_t (*vmsa_pas_page_release_t)(uint32_t pas, uint64_t physical);
 
 typedef struct vmsa_boot_context {
 	uint32_t abi_version;
@@ -28,8 +31,13 @@ typedef struct vmsa_boot_context {
 	const uint8_t *filter;
 	size_t filter_bytes;
 	void *run_on_secondary;
+	vmsa_pas_page_acquire_t pas_page_acquire;
+	vmsa_pas_page_release_t pas_page_release;
 	uint64_t reserved[2];
 } vmsa_boot_context_t;
+
+_Static_assert(sizeof(vmsa_boot_context_t) == 112U, "vmsa boot ABI size");
+_Static_assert(_Alignof(vmsa_boot_context_t) == 8U, "vmsa boot ABI alignment");
 
 static uint8_t vmsa_arena[VMSA_ARENA_BYTES] __attribute__((aligned(4096)));
 static uint8_t *vmsa_report_buffer;

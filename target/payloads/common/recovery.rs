@@ -727,6 +727,21 @@ pub(super) fn mapper_remap_failure(
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
         vmsa_test_harness::MappingAttributes::READ_WRITE,
     )?;
+    let rejected_replacement = translation.break_before_make::<
+        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::address::Granule4KiB,
+    >(
+        ADDRESS,
+        Some(second.phys_addr() + 1),
+        vmsa_test_harness::MappingAttributes::READ_WRITE,
+    );
+    if rejected_replacement != Err(vmsa_test_harness::HarnessError::InvalidState) {
+        return vmsa_test_harness::HarnessError::InvalidState.into();
+    }
+    let rollback = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), OLD);
+    if !matches!(rollback, TestResult::Pass) {
+        return rollback;
+    }
     let rejected =
         context.with_harness_failure(vmsa_test_harness::HarnessFailurePoint::Remap, 0, || {
             translation

@@ -224,6 +224,26 @@ fn supervise(
         }
         let now = Instant::now();
         if now >= deadline {
+            if expected.termination.is_some_and(|expected_name| {
+                active_test
+                    .as_ref()
+                    .is_some_and(|(active_name, _)| active_name == expected_name)
+                    && parser.observed_counts()
+                        == &(Counts {
+                            passed: 0,
+                            failed: 0,
+                            skipped: 0,
+                        })
+            }) {
+                terminate(child, container_name)?;
+                return Ok(Completed {
+                    counts: Counts {
+                        passed: 1,
+                        failed: 0,
+                        skipped: 0,
+                    },
+                });
+            }
             let detail = active_test.as_ref().map_or_else(
                 || {
                     if phase == "startup" {
@@ -492,6 +512,28 @@ pub fn validate_lifecycle(output_root: &Path) -> Result<(), String> {
         {
             return Err(format!(
                 "normal return from destructive test was not rejected exactly: {destructive_returned:?}"
+            ));
+        }
+
+        let destructive_quiescent = run_lifecycle_case_with_termination(
+            &root,
+            "expected-destructive-quiescent",
+            "printf '%s\n' '@@VMSA BEGIN protocol=1 target=host-self-check' \
+             '@@VMSA RUN host.destructive'; sleep 10",
+            "host.destructive",
+        );
+        if !matches!(
+            destructive_quiescent,
+            Ok(Completed {
+                counts: Counts {
+                    passed: 1,
+                    failed: 0,
+                    skipped: 0
+                }
+            })
+        ) {
+            return Err(format!(
+                "quiescent destructive termination was not accepted exactly: {destructive_quiescent:?}"
             ));
         }
 

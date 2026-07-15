@@ -3,7 +3,7 @@
 #[cfg(not(target_arch = "aarch64"))]
 compile_error!("vmsa-test-architecture requires AArch64");
 
-use core::arch::global_asm;
+use core::arch::{asm, global_asm};
 
 global_asm!(include_str!("../asm/access.S"));
 global_asm!(include_str!("../asm/lower_el.S"));
@@ -67,6 +67,17 @@ unsafe extern "C" {
         result: *mut [u64; 2],
         state: u64,
     ) -> u64;
+}
+
+/// Raises a deliberate synchronous exception for destructive fatal-path tests.
+///
+/// The caller must run in a boot that is expected to terminate. A fault is
+/// handled by the installed fatal exception callback rather than recovered.
+#[doc(hidden)]
+pub fn trigger_unexpected_exception() {
+    // SAFETY: This instruction intentionally has no guarded recovery interval;
+    // the destructive test owns the boot and requires the fatal vector path.
+    unsafe { asm!(".inst 0", options(nostack)) }
 }
 
 pub fn guarded_read(address: u64, width: AccessWidth) -> Result<GuardedResult, GuardError> {

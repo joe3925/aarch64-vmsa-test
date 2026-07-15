@@ -126,6 +126,8 @@ static bool run_realm_lifecycle(uint8_t command, bool valid_abi,
 	bool unprotected_writable = false;
 	uint64_t plan;
 	vmsa_realm_rec_record_t *record;
+	struct rtt_entry protected_entry;
+	u_register_t protected_read_result;
 
 	if (is_feat_52b_on_4k_2_supported()) {
 		feature_flag = RMI_FEATURE_REGISTER_0_LPA2;
@@ -174,12 +176,25 @@ static bool run_realm_lifecycle(uint8_t command, bool valid_abi,
 			return false;
 		}
 		*(uint64_t *)source = UINT64_C(0x5245432d53322d4d);
+		flush_dcache_range(source, PAGE_SIZE);
 		if (host_realm_delegate_map_protected_data(false, &realm,
 				target, PAGE_SIZE, source) != REALM_SUCCESS) {
 			page_free(source);
 			if (host_rmi_granule_undelegate(target) == RMI_SUCCESS) {
 				page_free(target);
 			}
+			(void)host_destroy_realm(&realm);
+			return false;
+		}
+		protected_read_result = host_rmi_rtt_readentry(realm.rd, target,
+				3L, &protected_entry);
+		if (protected_read_result != RMI_SUCCESS ||
+				protected_entry.state != RMI_ASSIGNED ||
+				protected_entry.ripas != RMI_RAM) {
+			(void)printf("VMSA-INFRA PROTECTED_RTT ret=0x%lx state=0x%lx ripas=0x%lx out=0x%llx target=0x%lx\n",
+				protected_read_result, protected_entry.state,
+				protected_entry.ripas,
+				(unsigned long long)protected_entry.out_addr, target);
 			(void)host_destroy_realm(&realm);
 			return false;
 		}
@@ -194,6 +209,7 @@ static bool run_realm_lifecycle(uint8_t command, bool valid_abi,
 			return false;
 		}
 		*(uint64_t *)unprotected = UINT64_C(0x5245432d554e5052);
+		flush_dcache_range(unprotected, PAGE_SIZE);
 		record->mutation_ipa = unprotected |
 			(1UL << (EXTRACT(RMI_FEATURE_REGISTER_0_S2SZ,
 				realm.rmm_feat_reg0) - 1UL));

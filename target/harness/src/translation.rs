@@ -207,7 +207,7 @@ impl LookupLevel {
     }
 }
 
-pub const fn stage1_start_level(
+pub(crate) const fn infrastructure_stage1_start_level(
     format: TranslationFormat,
     granule: Granule,
     input_bits: AddressBits,
@@ -312,12 +312,12 @@ impl Stage1MemoryControls {
         Self { mair: 0, mair2: 0 }
     }
 
-    pub fn with_attribute(
-        mut self,
-        slot: MemoryAttributeSlot,
-        attributes: aarch64_vmsa::attrs::MemoryAttributes,
-    ) -> Result<Self, AttributeError> {
-        let encoded = encode_memory_attributes(attributes)?;
+    /// Installs an architecturally encoded MAIR byte for translation setup.
+    ///
+    /// This deliberately accepts the register encoding rather than semantic
+    /// attributes. Semantic encoding is behavior of the crate under test and
+    /// must go through its `AttributeCodec`, never through harness logic.
+    pub fn with_raw_attribute(mut self, slot: MemoryAttributeSlot, encoded: u8) -> Self {
         let index = slot.index();
         let (register, shift) = if index < 8 {
             (&mut self.mair, u32::from(index) * 8)
@@ -325,65 +325,11 @@ impl Stage1MemoryControls {
             (&mut self.mair2, u32::from(index - 8) * 8)
         };
         *register = (*register & !(0xff_u64 << shift)) | (u64::from(encoded) << shift);
-        Ok(self)
+        self
     }
 
     pub(crate) const fn registers(self) -> (u64, u64) {
         (self.mair, self.mair2)
-    }
-}
-
-fn encode_memory_attributes(
-    attributes: aarch64_vmsa::attrs::MemoryAttributes,
-) -> Result<u8, AttributeError> {
-    use aarch64_vmsa::attrs::{
-        AllocationHints, CachePolicy, Cacheability, DeviceMemoryType, MemoryAttributes,
-        MemoryTransience,
-    };
-
-    const fn device(value: DeviceMemoryType) -> u8 {
-        match value {
-            DeviceMemoryType::NonGatheringNonReorderingNoEarlyAck => 0,
-            DeviceMemoryType::NonGatheringNonReorderingEarlyAck => 1,
-            DeviceMemoryType::NonGatheringReorderingEarlyAck => 2,
-            DeviceMemoryType::GatheringReorderingEarlyAck => 3,
-        }
-    }
-
-    fn cacheability(value: Cacheability) -> Result<u8, AttributeError> {
-        match value {
-            Cacheability::NonCacheable => Ok(0b0100),
-            Cacheability::Cacheable {
-                policy,
-                transience,
-                allocation,
-            } => {
-                let high = match (policy, transience) {
-                    (CachePolicy::WriteThrough, MemoryTransience::Transient) => 0b0000,
-                    (CachePolicy::WriteBack, MemoryTransience::Transient) => 0b0100,
-                    (CachePolicy::WriteThrough, MemoryTransience::NonTransient) => 0b1000,
-                    (CachePolicy::WriteBack, MemoryTransience::NonTransient) => 0b1100,
-                };
-                let low = match allocation {
-                    AllocationHints::None => 0,
-                    AllocationHints::WriteAllocate => 1,
-                    AllocationHints::ReadAllocate => 2,
-                    AllocationHints::ReadWriteAllocate => 3,
-                };
-                if transience == MemoryTransience::Transient && low == 0 {
-                    Err(AttributeError::UnencodableMemoryAttribute)
-                } else {
-                    Ok(high | low)
-                }
-            }
-        }
-    }
-
-    match attributes {
-        MemoryAttributes::Device(value) => Ok(device(value) << 2),
-        MemoryAttributes::Normal { inner, outer } => {
-            Ok(cacheability(inner)? | cacheability(outer)? << 4)
-        }
     }
 }
 
@@ -831,7 +777,7 @@ use core::marker::PhantomData;
 use core::ptr::NonNull;
 
 use crate::HarnessError;
-use crate::memory::TestMemory;
+use crate::memory::{RootTableMemory, TestMemory};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MappingAttributes {
@@ -2096,13 +2042,14 @@ where
         }
         address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
     }
-    let uart_page = G::align_down(0x1c0a_0000);
-    if !is_code_page(uart_page)
-        && !(arena_start..=arena_last).contains(&uart_page)
-        && uart_page != stack_page
-        && !is_state_page(uart_page)
-    {
-        ensure_data_page!(uart_page);
+    for uart_page in [G::align_down(0x1c09_0000), G::align_down(0x1c0a_0000)] {
+        if !is_code_page(uart_page)
+            && !(arena_start..=arena_last).contains(&uart_page)
+            && uart_page != stack_page
+            && !is_state_page(uart_page)
+        {
+            ensure_data_page!(uart_page);
+        }
     }
     Ok(())
 }
@@ -2276,21 +2223,22 @@ where
         }
         address = address.checked_add(page_size).ok_or(HarnessError::Memory)?;
     }
-    const UART_PAGE: u64 = 0x1c0a_0000;
-    if !is_code_page(UART_PAGE)
-        && !(arena_start..=arena_last).contains(&UART_PAGE)
-        && UART_PAGE != stack_page
-        && !is_state_page(UART_PAGE)
-    {
-        mapper
-            .map_leaf(
-                WalkInputAddr::new(UART_PAGE),
-                PhysAddr(UART_PAGE),
-                Level::L3,
-                data_fields,
-                table_fields,
-            )
-            .map_err(|_| HarnessError::InvalidState)?;
+    for uart_page in [G::align_down(0x1c09_0000), G::align_down(0x1c0a_0000)] {
+        if !is_code_page(uart_page)
+            && !(arena_start..=arena_last).contains(&uart_page)
+            && uart_page != stack_page
+            && !is_state_page(uart_page)
+        {
+            mapper
+                .map_leaf(
+                    WalkInputAddr::new(uart_page),
+                    PhysAddr(uart_page),
+                    Level::L3,
+                    data_fields,
+                    table_fields,
+                )
+                .map_err(|_| HarnessError::InvalidState)?;
+        }
     }
     Ok(())
 }
@@ -2309,6 +2257,204 @@ pub struct TestMapper<
 #[derive(Clone, Copy)]
 struct ProbeInvalidation {
     marker: u64,
+    events: [u8; 16],
+    event_count: usize,
+}
+
+impl ProbeInvalidation {
+    const LEAF_INSERTED: u8 = 1;
+    const LEAF_REMOVED: u8 = 2;
+    const TABLE_INSERTED: u8 = 3;
+    const TABLE_REMOVED: u8 = 4;
+    const BEFORE_RECLAIM: u8 = 5;
+    const SYNCHRONIZE: u8 = 6;
+
+    fn record(&mut self, event: u8) {
+        if let Some(slot) = self.events.get_mut(self.event_count) {
+            *slot = event;
+        }
+        self.event_count = self.event_count.saturating_add(1);
+    }
+
+    fn clear_events(&mut self) {
+        self.events = [0; 16];
+        self.event_count = 0;
+    }
+
+    fn events(&self) -> &[u8] {
+        &self.events[..self.event_count.min(self.events.len())]
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProbeAccessError {
+    Read,
+    Write,
+    Inner,
+}
+
+struct ProbeTableAccess {
+    inner: OffsetTableAccess,
+    fail_read: bool,
+    fail_write: bool,
+}
+
+unsafe impl TableAccess<Vmsa64, Granule4KiB> for ProbeTableAccess {
+    type Error = ProbeAccessError;
+
+    fn table_at<'a>(
+        &'a self,
+        location: aarch64_vmsa::table::TableAccessLocation<Vmsa64, Granule4KiB>,
+    ) -> Result<aarch64_vmsa::table::TranslationTable<'a, Vmsa64, Granule4KiB>, Self::Error> {
+        if self.fail_read {
+            Err(ProbeAccessError::Read)
+        } else {
+            self.inner.table_at(location).map_err(|_| ProbeAccessError::Inner)
+        }
+    }
+}
+
+unsafe impl TableAccessMut<Vmsa64, Granule4KiB> for ProbeTableAccess {
+    fn table_at_mut<'a>(
+        &'a mut self,
+        location: aarch64_vmsa::table::TableAccessLocation<Vmsa64, Granule4KiB>,
+    ) -> Result<aarch64_vmsa::table::TranslationTableMut<'a, Vmsa64, Granule4KiB>, Self::Error> {
+        if self.fail_write {
+            Err(ProbeAccessError::Write)
+        } else {
+            self.inner
+                .table_at_mut(location)
+                .map_err(|_| ProbeAccessError::Inner)
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProbeFrameError {
+    Allocate,
+    Free,
+    Inner,
+}
+
+struct ProbeFrameProvider {
+    inner: ArenaFrameProvider,
+    fail_allocate: bool,
+    fail_free: bool,
+}
+
+impl TableFrameProvider<Granule4KiB> for ProbeFrameProvider {
+    type Error = ProbeFrameError;
+    type Frame = TablePhysAddr<Granule4KiB>;
+
+    fn allocate_zeroed_table(
+        &mut self,
+        layout: TableAllocLayout,
+    ) -> Result<Self::Frame, Self::Error> {
+        if self.fail_allocate {
+            Err(ProbeFrameError::Allocate)
+        } else {
+            self.inner
+                .allocate_zeroed_table(layout)
+                .map_err(|_| ProbeFrameError::Inner)
+        }
+    }
+
+    unsafe fn free_table(
+        &mut self,
+        frame: TablePhysAddr<Granule4KiB>,
+        layout: TableAllocLayout,
+    ) -> Result<(), Self::Error> {
+        if self.fail_free {
+            Err(ProbeFrameError::Free)
+        } else {
+            unsafe { self.inner.free_table(frame, layout) }.map_err(|_| ProbeFrameError::Inner)
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum MapperProviderProbe {
+    TableRead,
+    DescriptorWrite,
+    FrameAllocate,
+    FrameFree,
+}
+
+pub(crate) fn verify_mapper_provider_probe(
+    memory: NonNull<TestMemory>,
+    root_memory: &mut RootTableMemory,
+    probe: MapperProviderProbe,
+) -> bool {
+    use aarch64_vmsa::mapper::{Mapper, MapperError, Offline};
+    use aarch64_vmsa::regime::NonSecureEl2Stage1;
+    use aarch64_vmsa::translation::walk::WalkInputAddr;
+
+    let root_level = if matches!(probe, MapperProviderProbe::TableRead | MapperProviderProbe::DescriptorWrite) {
+        Level::L3
+    } else {
+        Level::L0
+    };
+    let input_bits = if root_level == Level::L3 { 12 } else { 48 };
+    let Ok(root_address) = TablePhysAddr::new(PhysAddr(root_memory.phys_addr())) else {
+        return false;
+    };
+    let offset = unsafe { memory.as_ref() }.physical_to_virtual_offset();
+    let access = ProbeTableAccess {
+        inner: unsafe { OffsetTableAccess::new(VirtAddr(offset)) },
+        fail_read: matches!(probe, MapperProviderProbe::TableRead),
+        fail_write: matches!(probe, MapperProviderProbe::DescriptorWrite),
+    };
+    let frames = ProbeFrameProvider {
+        inner: ArenaFrameProvider::new(memory),
+        fail_allocate: matches!(probe, MapperProviderProbe::FrameAllocate),
+        fail_free: false,
+    };
+    let root = RootTable::new(root_address, root_level, input_bits, 48);
+    let Ok(mut mapper) = Mapper::<
+        Vmsa64,
+        NonSecureEl2Stage1,
+        Granule4KiB,
+        _,
+        _,
+        Offline,
+    >::new_offline(root, access, frames) else {
+        return false;
+    };
+    let leaf = match <NonSecureEl2Stage1 as TestRegimeFor<Granule4KiB>>::raw_leaf(
+        MappingAttributes::READ_WRITE,
+    ) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    let table = match <NonSecureEl2Stage1 as TestRegimeFor<Granule4KiB>>::raw_table() {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    match probe {
+        MapperProviderProbe::TableRead => matches!(
+            mapper.translate(WalkInputAddr::new(0)),
+            Err(MapperError::Access(ProbeAccessError::Read))
+        ),
+        MapperProviderProbe::DescriptorWrite => mapper
+            .map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
+            == Err(MapperError::Access(ProbeAccessError::Write)),
+        MapperProviderProbe::FrameAllocate => mapper
+            .map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
+            == Err(MapperError::Frame(ProbeFrameError::Allocate)),
+        MapperProviderProbe::FrameFree => {
+            if mapper
+                .map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
+                .is_err()
+            {
+                return false;
+            }
+            mapper.frames_mut().fail_free = true;
+            matches!(
+                mapper.unmap_reclaim(WalkInputAddr::new(0)),
+                Err(MapperError::Frame(ProbeFrameError::Free))
+            )
+        }
+    }
 }
 
 impl<F, G> aarch64_vmsa::mapper::MapperInvalidation<F, G> for ProbeInvalidation
@@ -2323,6 +2469,7 @@ where
         _: F::Raw,
         _: F::Raw,
     ) {
+        self.record(Self::LEAF_INSERTED);
     }
     fn leaf_removed(
         &mut self,
@@ -2330,6 +2477,7 @@ where
         _: usize,
         _: F::Raw,
     ) {
+        self.record(Self::LEAF_REMOVED);
     }
     fn table_descriptor_inserted(
         &mut self,
@@ -2338,6 +2486,7 @@ where
         _: F::Raw,
         _: F::Raw,
     ) {
+        self.record(Self::TABLE_INSERTED);
     }
     fn table_descriptor_removed(
         &mut self,
@@ -2345,9 +2494,14 @@ where
         _: usize,
         _: F::Raw,
     ) {
+        self.record(Self::TABLE_REMOVED);
     }
-    fn before_table_frame_reclaim(&mut self, _: TablePhysAddr<G>, _: TableAllocLayout) {}
-    fn synchronize(&mut self) {}
+    fn before_table_frame_reclaim(&mut self, _: TablePhysAddr<G>, _: TableAllocLayout) {
+        self.record(Self::BEFORE_RECLAIM);
+    }
+    fn synchronize(&mut self) {
+        self.record(Self::SYNCHRONIZE);
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2649,8 +2803,17 @@ where
                 aarch64_vmsa::translation::walk::WalkOutcome::Leaf(leaf) => {
                     (leaf.location(), leaf.entry_index(), leaf.raw())
                 }
-                aarch64_vmsa::translation::walk::WalkOutcome::Invalid(_) => {
-                    return Err(HarnessError::InvalidState);
+                aarch64_vmsa::translation::walk::WalkOutcome::Invalid(invalid) => {
+                    let location = invalid.location();
+                    let entry_index = invalid.entry_index();
+                    let table = self
+                        .mapper
+                        .inner
+                        .access()
+                        .table_at(location)
+                        .map_err(|_| HarnessError::InvalidState)?;
+                    let original = table.read(entry_index).ok_or(HarnessError::InvalidState)?;
+                    (location, entry_index, original)
                 }
             }
         };
@@ -2850,6 +3013,8 @@ where
             frames,
             ProbeInvalidation {
                 marker: 0x51a7_e001,
+                events: [0; 16],
+                event_count: 0,
             },
         ) else {
             return false;
@@ -3009,6 +3174,49 @@ where
         >,
     LeafFieldsOf<Vmsa64, R, G>: Copy,
 {
+    pub fn verify_break_before_make_ordering(self) -> bool {
+        let Ok(leaf) = R::raw_leaf(MappingAttributes::READ_WRITE) else {
+            return false;
+        };
+        let Ok(table) = R::raw_table() else {
+            return false;
+        };
+        let (root, access, frames) = self.inner.into_parts();
+        let Ok(mut mapper) = Mapper::<F, R, G, _, _, aarch64_vmsa::mapper::Live<_>>::new_live(
+            root,
+            access,
+            frames,
+            ProbeInvalidation {
+                marker: 0,
+                events: [0; 16],
+                event_count: 0,
+            },
+        ) else {
+            return false;
+        };
+        if mapper
+            .map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
+            .is_err()
+        {
+            return false;
+        }
+        mapper.invalidation_mut().clear_events();
+        if mapper.unmap(WalkInputAddr::new(0)).is_err()
+            || mapper
+                .map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
+                .is_err()
+        {
+            return false;
+        }
+        mapper.invalidation().events()
+            == [
+                ProbeInvalidation::LEAF_REMOVED,
+                ProbeInvalidation::SYNCHRONIZE,
+                ProbeInvalidation::LEAF_INSERTED,
+                ProbeInvalidation::SYNCHRONIZE,
+            ]
+    }
+
     pub(crate) fn prepare_current_runtime(
         &mut self,
         entry: u64,
@@ -3070,6 +3278,12 @@ where
         for index in 0..data_pages.len() {
             let address = data_pages[index];
             if data_pages[..index].contains(&address) {
+                continue;
+            }
+            // A coarse candidate granule can place runtime data in the same
+            // leaf as the active stack.  The stack loop has already installed
+            // the required read/write, non-executable identity mapping.
+            if (stack_start..stack_end).contains(&address) {
                 continue;
             }
             if sandbox_regions.iter().any(|(input, _)| *input == address) {

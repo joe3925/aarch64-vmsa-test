@@ -19,6 +19,8 @@ mod invalidation;
 #[path = "../../common/mapper_live.rs"]
 #[allow(dead_code)]
 mod mapper_live;
+#[path = "../../common/root_pas.rs"]
+mod pas;
 #[path = "../../common/root_cases.rs"]
 mod root_cases;
 #[path = "../../common/runtime_support.rs"]
@@ -42,27 +44,27 @@ fn security_state_membership(context: &mut TestContext<'_, CurrentEnvironment>) 
 }
 fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     let current = aarch64_vmsa::arch::VmsaFeatures::current();
-    features::regime_result(matches!(
-        aarch64_vmsa::regime::validate_regime::<aarch64_vmsa::regime::RootEl3Stage1>(&current),
-        Err(aarch64_vmsa::regime::RegimeValidationError::UnsupportedFeaturesOrSecurityState)
-    ))
+    features::regime_result(
+        aarch64_vmsa::regime::validate_regime::<aarch64_vmsa::regime::RootEl3Stage1>(&current)
+            .is_ok(),
+    )
 }
 fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     use aarch64_vmsa::address::{Granule4KiB, Granule16KiB, Granule64KiB};
     use aarch64_vmsa::descriptor::{Vmsa64, Vmsa64Lpa2, Vmsa128};
     use aarch64_vmsa::regime::{RootEl3Stage1, validate_regime_format};
     let current = &aarch64_vmsa::arch::VmsaFeatures::current();
-    let unsupported = validate_regime_format::<Vmsa64, RootEl3Stage1, Granule4KiB>(current)
-        .is_err()
-        && validate_regime_format::<Vmsa64, RootEl3Stage1, Granule16KiB>(current).is_err()
-        && validate_regime_format::<Vmsa64, RootEl3Stage1, Granule64KiB>(current).is_err()
+    let supported = validate_regime_format::<Vmsa64, RootEl3Stage1, Granule4KiB>(current)
+        .is_ok()
+        && validate_regime_format::<Vmsa64, RootEl3Stage1, Granule16KiB>(current).is_ok()
+        && validate_regime_format::<Vmsa64, RootEl3Stage1, Granule64KiB>(current).is_ok()
         && validate_regime_format::<Vmsa64Lpa2, RootEl3Stage1, Granule4KiB>(current).is_err()
         && validate_regime_format::<Vmsa64Lpa2, RootEl3Stage1, Granule16KiB>(current).is_err()
         && validate_regime_format::<Vmsa64Lpa2, RootEl3Stage1, Granule64KiB>(current).is_err()
-        && validate_regime_format::<Vmsa128, RootEl3Stage1, Granule4KiB>(current).is_err()
-        && validate_regime_format::<Vmsa128, RootEl3Stage1, Granule16KiB>(current).is_err()
-        && validate_regime_format::<Vmsa128, RootEl3Stage1, Granule64KiB>(current).is_err();
-    features::regime_result(unsupported)
+        && validate_regime_format::<Vmsa128, RootEl3Stage1, Granule4KiB>(current).is_ok()
+        && validate_regime_format::<Vmsa128, RootEl3Stage1, Granule16KiB>(current).is_ok()
+        && validate_regime_format::<Vmsa128, RootEl3Stage1, Granule64KiB>(current).is_ok();
+    features::regime_result(supported)
 }
 fn current_access(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     access::current_access(c)

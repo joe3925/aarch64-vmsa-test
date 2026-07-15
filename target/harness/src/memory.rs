@@ -40,6 +40,25 @@ pub struct Page {
     pages: usize,
 }
 impl Page {
+    /// Constructs a page supplied by a validated firmware allocator callback.
+    ///
+    /// # Safety
+    ///
+    /// The caller must own the aligned physical/virtual page until the current
+    /// test scope ends.
+    #[doc(hidden)]
+    pub unsafe fn from_firmware(physical: u64, virtual_address: *mut u8) -> Option<Self> {
+        let virtual_address = NonNull::new(virtual_address)?;
+        if physical & 0xfff != 0 || virtual_address.as_ptr().addr() & 0xfff != 0 {
+            return None;
+        }
+        Some(Self {
+            physical,
+            virtual_address,
+            pages: 1,
+        })
+    }
+
     pub const fn phys_addr(self) -> u64 {
         self.physical
     }

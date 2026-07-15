@@ -83,9 +83,19 @@ def fvp_command(images: build.FirmwareImages, target: str) -> list[str]:
         ])
     if target == "root-el3":
         command.extend([
+            "-C", "bp.has_rme=1",
+            "-C", "bp.secure_memory=0",
             "-C", "cci550.addr_width=48",
             "-C", "cluster0.PA_SIZE=52",
             "-C", "cluster1.PA_SIZE=52",
+            "-C", "cluster0.rme_support_level=2",
+            "-C", "cluster1.rme_support_level=2",
+            "-C", "cluster0.gicv3.cpuintf-mmap-access-level=2",
+            "-C", "cluster1.gicv3.cpuintf-mmap-access-level=2",
+            "-C", "cluster0.gicv3.without-DS-support=1",
+            "-C", "cluster1.gicv3.without-DS-support=1",
+            "-C", "cluster0.gicv4.mask-virtual-interrupt=1",
+            "-C", "cluster1.gicv4.mask-virtual-interrupt=1",
             "-C", "cluster0.has_arm_v9-4=1",
             "-C", "cluster1.has_arm_v9-4=1",
             "-C", "cluster0.has_128_bit_tt_descriptors=2",

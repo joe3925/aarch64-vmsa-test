@@ -10,21 +10,23 @@
 .global vmsa_enter_lower_el_asm
 .type vmsa_enter_lower_el_asm, %function
 vmsa_enter_lower_el_asm:
-    stp x29, x30, [sp, #-144]!
+    stp x29, x30, [sp, #-160]!
     stp x19, x20, [sp, #16]
     stp x21, x22, [sp, #32]
     stp x23, x24, [sp, #48]
     str x25, [sp, #64]
     str x26, [sp, #112]
+    str x27, [sp, #120]
     mrs x12, SP_EL0
-    str x12, [sp, #128]
-    str x5, [sp, #136]
+    str x12, [sp, #136]
+    str x5, [sp, #144]
     mov x29, sp
     mov x19, x2
     mov x20, x0
     mov x21, x1
     mov x22, x3
     mov x26, x4
+    mov x27, x6
     mrs x23, HCR_EL2
     mrs x24, CPTR_EL2
     mrs x25, CPACR_EL1
@@ -36,7 +38,7 @@ vmsa_enter_lower_el_asm:
     bl vmsa_lower_begin
     cbz x0, .Llower_busy
     mov x12, #0
-    str x12, [sp, #120]
+    str x12, [sp, #128]
     tbz x23, #34, .Lnon_vhe
     cbnz x26, .Llower_configured
     mrs x12, TTBR0_EL12
@@ -50,7 +52,7 @@ vmsa_enter_lower_el_asm:
     mrs x12, CPACR_EL12
     str x12, [sp, #104]
     mov x12, #1
-    str x12, [sp, #120]
+    str x12, [sp, #128]
     mrs x12, TTBR0_EL2
     msr TTBR0_EL12, x12
     mrs x12, MAIR_EL2
@@ -75,7 +77,7 @@ vmsa_enter_lower_el_asm:
     msr CPACR_EL1, x12
 .Llower_configured:
     orr x12, x23, #HCR_RW
-    ldr x13, [sp, #136]
+    ldr x13, [sp, #144]
     cmp x13, #2
     b.eq .Llower_host_el0
     bic x12, x12, #HCR_TGE
@@ -90,14 +92,16 @@ vmsa_enter_lower_el_asm:
     orr x15, x15, #TCR_EPD1
     msr TCR_EL2, x15
     mov x14, #2
-    str x14, [sp, #120]
+    str x14, [sp, #128]
 .Llower_host_already_vhe:
     orr x12, x12, #HCR_E2H
     orr x12, x12, #HCR_TGE
 .Llower_hcr_ready:
     msr HCR_EL2, x12
-    msr SP_EL1, x21
-    ldr x12, [sp, #136]
+    ldr x12, [sp, #144]
+    cmp x12, #1
+    csel x13, x27, x21, eq
+    msr SP_EL1, x13
     cbz x12, .Llower_stack_ready
     msr SP_EL0, x21
 .Llower_stack_ready:
@@ -109,7 +113,7 @@ vmsa_enter_lower_el_asm:
     dsb nsh
     isb
 .Llower_recovery:
-    ldr x12, [sp, #120]
+    ldr x12, [sp, #128]
     cmp x12, #2
     b.eq .Lrestore_host_el0
     cbz x12, .Lrestore_common
@@ -130,7 +134,7 @@ vmsa_enter_lower_el_asm:
     msr TCR_EL2, x12
     isb
 .Lrestore_common:
-    ldr x12, [sp, #128]
+    ldr x12, [sp, #136]
     msr SP_EL0, x12
     msr HCR_EL2, x23
     msr CPTR_EL2, x24
@@ -147,7 +151,8 @@ vmsa_enter_lower_el_asm:
     ldp x23, x24, [sp, #48]
     ldr x25, [sp, #64]
     ldr x26, [sp, #112]
-    ldp x29, x30, [sp], #144
+    ldr x27, [sp, #120]
+    ldp x29, x30, [sp], #160
     ret
 .size vmsa_enter_lower_el_asm, .-vmsa_enter_lower_el_asm
 

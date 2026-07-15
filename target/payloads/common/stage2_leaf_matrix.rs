@@ -7,11 +7,19 @@ enum Observation {
     AddressTranslation,
 }
 
+#[derive(Clone, Copy)]
+enum ActivePermissionOperation {
+    Read,
+    Write,
+    Execute,
+    ExecuteEl0,
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "the arguments are the explicit architectural matrix coordinates"
 )]
-fn active_standard_leaf<F, G>(
+fn active_standard_leaf_case<F, G, R>(
     context: &mut TestContext<'_, CurrentEnvironment>,
     granule: vmsa_test_harness::Granule,
     format: vmsa_test_harness::TranslationFormat,
@@ -22,10 +30,13 @@ fn active_standard_leaf<F, G>(
     input_hint: u64,
     controls: vmsa_test_harness::TranslationControls,
     observation: Observation,
+    permissions: aarch64_vmsa::attrs::Stage2LeafPermissions,
+    operation: ActivePermissionOperation,
 ) -> TestResult
 where
     G: vmsa_test_harness::adapter::TestGranule,
-    Stage2Regime: vmsa_test_harness::adapter::TestRegimeFor<G>,
+    R: vmsa_test_harness::adapter::TestRegimeFor<G>,
+    R::WalkProfile: aarch64_vmsa::translation::TranslationWalkProfile<Stage = aarch64_vmsa::translation::Stage2>,
     F: vmsa_test_harness::adapter::TestFormat
         + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
     aarch64_vmsa::descriptor::Vmsa64:
@@ -37,19 +48,19 @@ where
                 G,
                 LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
                     aarch64_vmsa::descriptor::Vmsa64,
-                    Stage2Regime,
+                    R,
                     G,
                 >,
                 TableFields = aarch64_vmsa::regime::TableFieldsOf<
                     aarch64_vmsa::descriptor::Vmsa64,
-                    Stage2Regime,
+                    R,
                     G,
                 >,
             >,
-    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, Stage2Regime, G>: Copy,
+    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
     aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
             F,
-            Stage2Regime,
+            R,
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<()>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
@@ -57,8 +68,9 @@ where
                 (),
                 aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
             >,
-            RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, Stage2Regime, G>,
-            RawTable = aarch64_vmsa::regime::TableFieldsOf<F, Stage2Regime, G>,
+            SemanticTable = aarch64_vmsa::attrs::SemanticVmsa64Stage2TableAttrs,
+            RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, R, G>,
+            RawTable = aarch64_vmsa::regime::TableFieldsOf<F, R, G>,
         >,
 {
     use vmsa_test_harness::{
@@ -69,8 +81,27 @@ where
     const VA_BASE: u64 = 0x5240_0000;
     const VALUE: u64 = 0x5332_344b_4c45_4146;
     let page = context.allocate_page()?;
-    if !matches!(
-        context.write_u64(page.virtual_address() as u64 + 8, VALUE),
+    let backing = page.virtual_address() as u64 + 8;
+    if matches!(
+        operation,
+        ActivePermissionOperation::Execute | ActivePermissionOperation::ExecuteEl0
+    ) {
+        for (offset, instruction) in [(0, 0xd280_0020), (4, 0xd65f_03c0)] {
+            if !matches!(
+                context.write_u32(backing + offset, instruction),
+                vmsa_test_harness::AccessResult::Completed { .. }
+            ) {
+                return vmsa_test_harness::HarnessError::InvalidState.into();
+            }
+        }
+        context.maintain_cache(
+            vmsa_test_harness::CacheMaintenanceOperation::InstructionCoherency {
+                address: backing,
+                bytes: 8,
+            },
+        )?;
+    } else if !matches!(
+        context.write_u64(backing, VALUE),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
         return vmsa_test_harness::HarnessError::InvalidState.into();
@@ -136,14 +167,21 @@ where
                 VA_BASE,
                 target_ipa & !0xfff,
                 3,
-                MappingAttributes::READ_WRITE,
+                MappingAttributes {
+                    writable: true,
+                    executable: matches!(
+                        operation,
+                        ActivePermissionOperation::Execute | ActivePermissionOperation::ExecuteEl0
+                    ),
+                    user_accessible: matches!(operation, ActivePermissionOperation::ExecuteEl0),
+                },
             )
             .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?;
     }
     let offline_walk;
     let offline_semantic;
     {
-        let mut mapper = context.offline_mapper_for_format_with_geometry::<Stage2Regime, G, F>(
+        let mut mapper = context.offline_mapper_for_format_with_geometry::<R, G, F>(
             &mut stage2_root,
             start_level,
             input_bits,
@@ -171,6 +209,37 @@ where
         {
             return vmsa_test_harness::HarnessError::InvalidState.into();
         }
+        let removed = mapper
+            .unmap_exact(input_base)
+            .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?;
+        if removed.output != output_base
+            || removed.level != LookupLevel::new(leaf_level.as_i8()).expect("valid leaf level")
+        {
+            return vmsa_test_harness::HarnessError::InvalidState.into();
+        }
+        let memory = aarch64_vmsa::attrs::MemoryAttributes::Normal {
+            inner: aarch64_vmsa::attrs::Cacheability::NonCacheable,
+            outer: aarch64_vmsa::attrs::Cacheability::NonCacheable,
+        };
+        mapper.map_semantic_leaf::<aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
+            &semantic_config,
+            input_base,
+            output_base,
+            LookupLevel::new(leaf_level.as_i8()).expect("valid leaf level"),
+            aarch64_vmsa::attrs::SemanticStage2LeafAttrs {
+                memory: aarch64_vmsa::attrs::Stage2MemoryAttributes::Combined(memory),
+                permissions,
+                output_address_space: (),
+                controls: aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls {
+                    shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
+                    access_flag: true,
+                    dirty_management: aarch64_vmsa::attrs::DirtyBitManagement::SoftwareManaged,
+                    contiguous: false,
+                    software: aarch64_vmsa::attrs::SoftwareMetadata::new(0),
+                },
+            },
+            aarch64_vmsa::attrs::SemanticVmsa64Stage2TableAttrs::default(),
+        )?;
         let walk = mapper.inspect_walk(target_ipa)?;
         if walk.steps().len() != expected_tables + 1 {
             return vmsa_test_harness::HarnessError::InvalidState.into();
@@ -270,13 +339,13 @@ where
         context.install_combined_owned(stage1_root, stage1_setup, stage2_root, stage2_setup)?;
     let installed = combined
         .stage2_mut()?
-        .inspect_walk_for::<Stage2Regime, F, G>(target_ipa)?;
+        .inspect_walk_for::<R, F, G>(target_ipa)?;
     if installed != offline_walk {
         return vmsa_test_harness::HarnessError::InvalidState.into();
     }
     let installed_semantic = combined
         .stage2_mut()?
-        .inspect_semantic_for::<Stage2Regime, F, G, aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
+        .inspect_semantic_for::<R, F, G, aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
             target_ipa,
             &semantic_config,
         )?
@@ -293,9 +362,66 @@ where
         return vmsa_test_harness::HarnessError::InvalidState.into();
     }
     match observation {
-        Observation::Access => {
-            vmsa_test_harness::expect_value(combined.read_u64(VA_BASE + 8), VALUE)
-        }
+        Observation::Access => match operation {
+            ActivePermissionOperation::Read
+                if permissions.data != aarch64_vmsa::attrs::DataAccess::None =>
+            {
+                vmsa_test_harness::expect_value(combined.read_u64(VA_BASE + 8), VALUE)
+            }
+            ActivePermissionOperation::Write
+                if permissions.data == aarch64_vmsa::attrs::DataAccess::ReadWrite =>
+            {
+                vmsa_test_harness::expect_completed(combined.write_u64(VA_BASE + 8, VALUE + 1))
+            }
+            ActivePermissionOperation::Execute if permissions.privileged_execute => {
+                vmsa_test_harness::expect_value(combined.execute(VA_BASE + 8), 1)
+            }
+            ActivePermissionOperation::ExecuteEl0 if permissions.unprivileged_execute => {
+                vmsa_test_harness::expect_value(combined.el0_execute(VA_BASE + 8), 1)
+            }
+            ActivePermissionOperation::Read => vmsa_test_harness::expect_matching_fault(
+                combined.read_u64(VA_BASE + 8),
+                vmsa_test_harness::FaultMatcher::new(vmsa_test_harness::ExpectedFault {
+                    status: Some(vmsa_test_harness::FaultStatus::Permission),
+                    access: Some(vmsa_test_harness::AccessKind::Read),
+                    stage: Some(vmsa_test_harness::FaultStage::Stage2),
+                    level: Some(LookupLevel::new(leaf_level.as_i8()).expect("valid leaf level")),
+                })
+                .with_class(vmsa_test_harness::FaultClass::DataAbort)
+                .at_address(VA_BASE + 8),
+            ),
+            ActivePermissionOperation::Write => vmsa_test_harness::expect_matching_fault(
+                combined.write_u64(VA_BASE + 8, VALUE + 1),
+                vmsa_test_harness::FaultMatcher::new(vmsa_test_harness::ExpectedFault {
+                    status: Some(vmsa_test_harness::FaultStatus::Permission),
+                    access: Some(vmsa_test_harness::AccessKind::Write),
+                    stage: Some(vmsa_test_harness::FaultStage::Stage2),
+                    level: Some(LookupLevel::new(leaf_level.as_i8()).expect("valid leaf level")),
+                })
+                .with_class(vmsa_test_harness::FaultClass::DataAbort)
+                .at_address(VA_BASE + 8),
+            ),
+            ActivePermissionOperation::Execute | ActivePermissionOperation::ExecuteEl0 => {
+                let observed = if matches!(operation, ActivePermissionOperation::ExecuteEl0) {
+                    combined.el0_execute(VA_BASE + 8)
+                } else {
+                    combined.execute(VA_BASE + 8)
+                };
+                vmsa_test_harness::expect_matching_fault(
+                    observed,
+                    vmsa_test_harness::FaultMatcher::new(vmsa_test_harness::ExpectedFault {
+                        status: Some(vmsa_test_harness::FaultStatus::Permission),
+                        access: Some(vmsa_test_harness::AccessKind::Execute),
+                        stage: Some(vmsa_test_harness::FaultStage::Stage2),
+                        level: Some(
+                            LookupLevel::new(leaf_level.as_i8()).expect("valid leaf level"),
+                        ),
+                    })
+                    .with_class(vmsa_test_harness::FaultClass::InstructionAbort)
+                    .at_address(VA_BASE + 8),
+                )
+            }
+        },
         Observation::AddressTranslation => {
             match combined.translate(VA_BASE + 8, vmsa_test_harness::TranslationQueryAccess::Read) {
                 vmsa_test_harness::TranslationQueryResult::Success {
@@ -312,6 +438,81 @@ where
             }
         }
     }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the arguments are the explicit architectural matrix coordinates"
+)]
+fn active_standard_leaf<F, G>(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+    granule: vmsa_test_harness::Granule,
+    format: vmsa_test_harness::TranslationFormat,
+    start_level: aarch64_vmsa::address::Level,
+    leaf_level: aarch64_vmsa::address::Level,
+    input_bits: u8,
+    output_bits: u8,
+    input_hint: u64,
+    controls: vmsa_test_harness::TranslationControls,
+    observation: Observation,
+) -> TestResult
+where
+    G: vmsa_test_harness::adapter::TestGranule,
+    Stage2Regime: vmsa_test_harness::adapter::TestRegimeFor<G>,
+    F: vmsa_test_harness::adapter::TestFormat
+        + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
+    aarch64_vmsa::descriptor::Vmsa64:
+        aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
+    <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>>::Layout:
+        aarch64_vmsa::descriptor::DescriptorLayout<
+                F,
+                aarch64_vmsa::translation::Stage2,
+                G,
+                LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
+                    aarch64_vmsa::descriptor::Vmsa64,
+                    Stage2Regime,
+                    G,
+                >,
+                TableFields = aarch64_vmsa::regime::TableFieldsOf<
+                    aarch64_vmsa::descriptor::Vmsa64,
+                    Stage2Regime,
+                    G,
+                >,
+            >,
+    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, Stage2Regime, G>: Copy,
+    aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
+            F,
+            Stage2Regime,
+            G,
+            aarch64_vmsa::attrs::LiveVmsaConfig<()>,
+            SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
+                aarch64_vmsa::attrs::Stage2LeafPermissions,
+                (),
+                aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
+            >,
+            SemanticTable = aarch64_vmsa::attrs::SemanticVmsa64Stage2TableAttrs,
+            RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, Stage2Regime, G>,
+            RawTable = aarch64_vmsa::regime::TableFieldsOf<F, Stage2Regime, G>,
+        >,
+{
+    active_standard_leaf_case::<F, G, Stage2Regime>(
+        context,
+        granule,
+        format,
+        start_level,
+        leaf_level,
+        input_bits,
+        output_bits,
+        input_hint,
+        controls,
+        observation,
+        aarch64_vmsa::attrs::Stage2LeafPermissions {
+            data: aarch64_vmsa::attrs::DataAccess::ReadWrite,
+            privileged_execute: false,
+            unprivileged_execute: false,
+        },
+        ActivePermissionOperation::Read,
+    )
 }
 
 fn vmsa64_leaf(
@@ -341,6 +542,136 @@ fn vmsa64_leaf(
         observation,
     )
 }
+
+fn vmsa64_permission_case(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+    data: aarch64_vmsa::attrs::DataAccess,
+    execute: bool,
+    operation: ActivePermissionOperation,
+) -> TestResult {
+    let bits = vmsa_test_harness::AddressBits::new(48)
+        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    let controls = vmsa_test_harness::vmsa64_stage2_controls_4k(
+        bits,
+        bits,
+        vmsa_test_harness::LookupLevel::new(0)
+            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+    )
+    .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    active_standard_leaf_case::<
+        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::address::Granule4KiB,
+        Stage2Regime,
+    >(
+        context,
+        vmsa_test_harness::Granule::Size4KiB,
+        vmsa_test_harness::TranslationFormat::Vmsa64,
+        aarch64_vmsa::address::Level::L0,
+        aarch64_vmsa::address::Level::L3,
+        48,
+        48,
+        1u64 << 42,
+        controls,
+        Observation::Access,
+        aarch64_vmsa::attrs::Stage2LeafPermissions {
+            data,
+            privileged_execute: execute,
+            unprivileged_execute: execute,
+        },
+        operation,
+    )
+}
+
+macro_rules! stage2_permission_cases {
+    ($($name:ident, $data:ident, $execute:literal, $operation:ident);+ $(;)?) => {
+        $(
+            pub(super) fn $name(
+                context: &mut TestContext<'_, CurrentEnvironment>,
+            ) -> TestResult {
+                vmsa64_permission_case(
+                    context,
+                    aarch64_vmsa::attrs::DataAccess::$data,
+                    $execute,
+                    ActivePermissionOperation::$operation,
+                )
+            }
+        )+
+    };
+}
+
+stage2_permission_cases!(
+    permission_none_read, None, false, Read;
+    permission_none_write, None, false, Write;
+    permission_ro_read, ReadOnly, false, Read;
+    permission_ro_write, ReadOnly, false, Write;
+    permission_rw_read, ReadWrite, false, Read;
+    permission_rw_write, ReadWrite, false, Write;
+    permission_x_execute, ReadOnly, true, Execute;
+    permission_xn_execute, ReadOnly, false, Execute;
+);
+
+fn vmsa64_xnx_permission_case(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+    privileged_execute: bool,
+    unprivileged_execute: bool,
+    operation: ActivePermissionOperation,
+) -> TestResult {
+    let bits = vmsa_test_harness::AddressBits::new(48)
+        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    let controls = vmsa_test_harness::vmsa64_stage2_controls_4k(
+        bits,
+        bits,
+        vmsa_test_harness::LookupLevel::new(0)
+            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+    )
+    .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    active_standard_leaf_case::<
+        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::regime::NonSecureEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>,
+    >(
+        context,
+        vmsa_test_harness::Granule::Size4KiB,
+        vmsa_test_harness::TranslationFormat::Vmsa64,
+        aarch64_vmsa::address::Level::L0,
+        aarch64_vmsa::address::Level::L3,
+        48,
+        48,
+        1u64 << 42,
+        controls,
+        Observation::Access,
+        aarch64_vmsa::attrs::Stage2LeafPermissions {
+            data: aarch64_vmsa::attrs::DataAccess::ReadOnly,
+            privileged_execute,
+            unprivileged_execute,
+        },
+        operation,
+    )
+}
+
+macro_rules! stage2_xnx_cases {
+    ($($name:ident, $px:literal, $ux:literal, $operation:ident);+ $(;)?) => {
+        $(
+            pub(super) fn $name(
+                context: &mut TestContext<'_, CurrentEnvironment>,
+            ) -> TestResult {
+                vmsa64_xnx_permission_case(
+                    context,
+                    $px,
+                    $ux,
+                    ActivePermissionOperation::$operation,
+                )
+            }
+        )+
+    };
+}
+
+stage2_xnx_cases!(
+    permission_px_uxn_priv_execute, true, false, Execute;
+    permission_px_uxn_unpriv_execute, true, false, ExecuteEl0;
+    permission_pxn_ux_priv_execute, false, true, Execute;
+    permission_pxn_ux_unpriv_execute, false, true, ExecuteEl0;
+);
 
 fn lpa2_leaf(
     context: &mut TestContext<'_, CurrentEnvironment>,

@@ -1,0 +1,17 @@
+diff --git a/tftf/framework/tftf.ld.S b/tftf/framework/tftf.ld.S
+index 64d75e5..52ad843 100644
+--- a/tftf/framework/tftf.ld.S
++++ b/tftf/framework/tftf.ld.S
+@@ -47,7 +47,11 @@ SECTIONS
+     .data : {
+         __DATA_START__ = .;
+         *(.data*)
+-        . = NEXT(PAGE_SIZE); /* This ensures tftf.bin is aligned to page size. */
++        /*
++         * Realm payloads may contain objects with the largest supported
++         * translation-granule alignment. Keep their appended image base aligned.
++         */
++        . = NEXT(0x10000);
+         __DATA_END__ = .;
+     } >RAM
+ 
