@@ -75,9 +75,21 @@ unsafe extern "C" {
 /// handled by the installed fatal exception callback rather than recovered.
 #[doc(hidden)]
 pub fn trigger_unexpected_exception() {
+    DELIBERATE_UNEXPECTED_EXCEPTION.store(true, core::sync::atomic::Ordering::Release);
     // SAFETY: This instruction intentionally has no guarded recovery interval;
     // the destructive test owns the boot and requires the fatal vector path.
     unsafe { asm!(".inst 0", options(nostack)) }
+}
+
+static DELIBERATE_UNEXPECTED_EXCEPTION: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Returns whether the fatal vector was reached from the harness's deliberately
+/// armed terminal exception. The flag is consumed so an unrelated later fault
+/// cannot inherit terminal authorization.
+#[doc(hidden)]
+pub fn take_deliberate_unexpected_exception() -> bool {
+    DELIBERATE_UNEXPECTED_EXCEPTION.swap(false, core::sync::atomic::Ordering::AcqRel)
 }
 
 pub fn guarded_read(address: u64, width: AccessWidth) -> Result<GuardedResult, GuardError> {

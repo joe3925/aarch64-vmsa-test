@@ -250,6 +250,7 @@ where
         sandbox = context.prepare_transition_runtime(
             &mut mapper,
             active_stage1_leaf_case::<F, G> as *const () as u64,
+            false,
         )?;
     }
     let root_address = PhysicalAddress::new(root.phys_addr());
@@ -444,8 +445,11 @@ where
             semantic_leaf,
             semantic_table,
         )?;
-        sandbox = context
-            .prepare_transition_runtime(&mut mapper, active_granule::<F, G> as *const () as u64)?;
+        sandbox = context.prepare_transition_runtime(
+            &mut mapper,
+            active_granule::<F, G> as *const () as u64,
+            false,
+        )?;
         let walk = mapper.inspect_walk(ADDRESS)?;
         let Some(leaf) = walk.leaf() else {
             return vmsa_test_harness::HarnessError::InvalidState.into();
@@ -559,24 +563,16 @@ where
     if !matches!(result, TestResult::Pass) {
         return result;
     }
-    translation.protect::<F, G>(
-        ADDRESS,
-        vmsa_test_harness::MappingAttributes::READ_ONLY,
-    )?;
+    translation.protect::<F, G>(ADDRESS, vmsa_test_harness::MappingAttributes::READ_ONLY)?;
     let write_fault = vmsa_test_harness::expect_matching_fault(
         context.write_u64(ADDRESS, VALUE.wrapping_add(1)),
-        vmsa_test_harness::FaultMatcher::new(
-            vmsa_test_harness::ExpectedFault::permission_write(),
-        )
-        .at_address(ADDRESS),
+        vmsa_test_harness::FaultMatcher::new(vmsa_test_harness::ExpectedFault::permission_write())
+            .at_address(ADDRESS),
     );
     if !matches!(write_fault, TestResult::Pass) {
         return write_fault;
     }
-    translation.protect::<F, G>(
-        ADDRESS,
-        vmsa_test_harness::MappingAttributes::READ_WRITE,
-    )?;
+    translation.protect::<F, G>(ADDRESS, vmsa_test_harness::MappingAttributes::READ_WRITE)?;
     let restored = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE);
     drop(translation);
     if !context.transition_sandbox_restored(&sandbox) {
@@ -1262,28 +1258,48 @@ where
         Stage1Observation::Access => {
             vmsa_test_harness::expect_value(context.lower_read_u64(access_address), VALUE)
         }
-        Stage1Observation::AddressTranslation => match context.translate_lower_stage1(
-            access_address,
-            vmsa_test_harness::TranslationQueryAccess::Read,
-        ) {
-            vmsa_test_harness::TranslationQueryResult::Success {
-                physical_address, ..
-            } if physical_address == target_physical => TestResult::Pass,
-            vmsa_test_harness::TranslationQueryResult::Success {
-                physical_address, ..
-            } => TestResult::Fail(vmsa_test_harness::TestFailure {
+        Stage1Observation::AddressTranslation => match context
+            .translate_lower_stage1_d128_raw(
+                access_address,
+                vmsa_test_harness::TranslationQueryAccess::Read,
+            )
+            .map(|(low, high)| {
+                (
+                    vmsa_test_harness::TranslationQueryResult::from_raw_par_for_test(
+                        access_address,
+                        low,
+                    ),
+                    high,
+                )
+            }) {
+            Some((
+                vmsa_test_harness::TranslationQueryResult::Success {
+                    physical_address, ..
+                },
+                _,
+            )) if physical_address == target_physical => TestResult::Pass,
+            Some((
+                vmsa_test_harness::TranslationQueryResult::Success {
+                    physical_address, ..
+                },
+                high,
+            )) => TestResult::Fail(vmsa_test_harness::TestFailure {
                 kind: vmsa_test_harness::FailureKind::WrongValue,
                 expected: target_physical,
-                actual: physical_address,
+                actual: if physical_address == 0 {
+                    high
+                } else {
+                    physical_address
+                },
             }),
-            vmsa_test_harness::TranslationQueryResult::Fault { raw, .. } => {
+            Some((vmsa_test_harness::TranslationQueryResult::Fault { raw, .. }, _)) => {
                 TestResult::Fail(vmsa_test_harness::TestFailure {
                     kind: vmsa_test_harness::FailureKind::WrongValue,
                     expected: target_physical,
                     actual: raw,
                 })
             }
-            vmsa_test_harness::TranslationQueryResult::Unsupported => {
+            Some((vmsa_test_harness::TranslationQueryResult::Unsupported, _)) | None => {
                 vmsa_test_harness::HarnessError::InvalidState.into()
             }
         },

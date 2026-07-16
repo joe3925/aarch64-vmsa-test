@@ -50,6 +50,7 @@ pub enum LowerElCommand {
         first: u64,
         second: u64,
     },
+    DisableStage1,
     Exit,
 }
 
@@ -88,6 +89,13 @@ impl LowerElRequest {
     pub const fn exit() -> Self {
         Self {
             command: LowerElCommand::Exit,
+            target: LowerElTarget::El1,
+        }
+    }
+
+    pub const fn disable_stage1() -> Self {
+        Self {
+            command: LowerElCommand::DisableStage1,
             target: LowerElTarget::El1,
         }
     }

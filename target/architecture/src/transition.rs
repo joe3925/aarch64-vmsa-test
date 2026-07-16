@@ -13,6 +13,12 @@ static HOST_EL0_TRANSLATION_ADDRESS: AtomicU64 = AtomicU64::new(0);
 static HOST_EL0_TRANSLATION_WRITE: AtomicBool = AtomicBool::new(false);
 static HOST_EL0_TRANSLATION_RESULT: AtomicU64 = AtomicU64::new(0);
 static HOST_EL0_TRANSLATION_COMPLETE: AtomicBool = AtomicBool::new(false);
+static LOWER_FAULT_VALID: AtomicBool = AtomicBool::new(false);
+static LOWER_FAULT_ESR: AtomicU64 = AtomicU64::new(0);
+static LOWER_FAULT_FAR: AtomicU64 = AtomicU64::new(0);
+static LOWER_FAULT_HPFAR: AtomicU64 = AtomicU64::new(0);
+static LOWER_FAULT_ELR: AtomicU64 = AtomicU64::new(0);
+static LOWER_FAULT_SPSR: AtomicU64 = AtomicU64::new(0);
 
 #[inline(never)]
 pub fn runtime_state_address() -> u64 {
@@ -42,6 +48,7 @@ pub enum LowerElStage1Mode {
     Preserve = 0,
     Disable = 1,
     Configured = 2,
+    Configure = 3,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,6 +75,7 @@ pub struct HostEl0Translation {
 pub enum LowerElOutcome {
     Returned,
     HostEl0Translation { par: u64 },
+    Fault(crate::exception::RawFault),
 }
 
 impl LowerElReturnConduit {
@@ -132,6 +140,7 @@ pub fn enter_lower_el(
             )
         }
         LowerElStage1Mode::Configured => None,
+        LowerElStage1Mode::Configure => None,
     };
 
     let saved_smc_routing = match return_conduit {
@@ -154,6 +163,7 @@ pub fn enter_lower_el(
         Ordering::Release,
     );
     LOWER_TARGET_EL0.store(target == LowerElTarget::El0, Ordering::Release);
+    LOWER_FAULT_VALID.store(false, Ordering::Release);
     if let Some(request) = host_el0_translation {
         HOST_EL0_TRANSLATION_ADDRESS.store(request.address, Ordering::Release);
         HOST_EL0_TRANSLATION_WRITE.store(
@@ -208,6 +218,15 @@ pub fn enter_lower_el(
     if status != 0 {
         return Err(TransitionError::Busy);
     }
+    if LOWER_FAULT_VALID.swap(false, Ordering::AcqRel) {
+        return Ok(LowerElOutcome::Fault(crate::exception::RawFault {
+            esr: LOWER_FAULT_ESR.load(Ordering::Acquire),
+            far: LOWER_FAULT_FAR.load(Ordering::Acquire),
+            hpfar: Some(LOWER_FAULT_HPFAR.load(Ordering::Acquire)),
+            elr: LOWER_FAULT_ELR.load(Ordering::Acquire),
+            spsr: LOWER_FAULT_SPSR.load(Ordering::Acquire),
+        }));
+    }
     match host_el0_translation {
         Some(_) if HOST_EL0_TRANSLATION_COMPLETE.swap(false, Ordering::AcqRel) => {
             Ok(LowerElOutcome::HostEl0Translation {
@@ -217,6 +236,26 @@ pub fn enter_lower_el(
         Some(_) => Err(TransitionError::ArchitecturalState),
         None => Ok(LowerElOutcome::Returned),
     }
+}
+
+pub(crate) fn handle_lower_fault(
+    exception_class: u8,
+    state: (u64, u64, Option<u64>, u64, u64),
+) -> Option<(u64, u64)> {
+    if !LOWER_ACTIVE.load(Ordering::Acquire)
+        || !matches!(exception_class, 0x20 | 0x21 | 0x24 | 0x25)
+    {
+        return None;
+    }
+    LOWER_FAULT_ESR.store(state.0, Ordering::Release);
+    LOWER_FAULT_FAR.store(state.1, Ordering::Release);
+    LOWER_FAULT_HPFAR.store(state.2.unwrap_or(0), Ordering::Release);
+    LOWER_FAULT_ELR.store(state.3, Ordering::Release);
+    LOWER_FAULT_SPSR.store(state.4, Ordering::Release);
+    LOWER_FAULT_VALID.store(true, Ordering::Release);
+    let recovery = LOWER_RECOVERY.load(Ordering::Acquire);
+    let recovery_spsr = LOWER_RECOVERY_SPSR.load(Ordering::Acquire);
+    (recovery != 0).then_some((recovery, recovery_spsr))
 }
 
 #[unsafe(no_mangle)]

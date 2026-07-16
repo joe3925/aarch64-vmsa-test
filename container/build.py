@@ -276,7 +276,14 @@ def build_ns_el2(repositories: dict[str, Path], filter_value: str | None, log: P
     return build_tf_a(
         repositories["tf-a"],
         log,
-        ["CTX_INCLUDE_AARCH32_REGS=0", f"BL33={tftf}"],
+        [
+            "ARM_ARCH_MAJOR=9",
+            "ARM_ARCH_MINOR=4",
+            "ENABLE_FEAT_D128=2",
+            "ENABLE_FEAT_AIE=1",
+            "CTX_INCLUDE_AARCH32_REGS=0",
+            f"BL33={tftf}",
+        ],
     )
 
 
@@ -291,7 +298,9 @@ def build_root_el3(repositories: dict[str, Path], filter_value: str | None, log:
             "FVP_TRUSTED_SRAM_SIZE=512",
             "ENABLE_RME=1",
             "ARM_ARCH_MAJOR=9",
-            "ARM_ARCH_MINOR=2",
+            "ARM_ARCH_MINOR=4",
+            "ENABLE_FEAT_D128=2",
+            "ENABLE_FEAT_AIE=1",
             f"BL33={tftf}",
             f"VMSA_ROOT_LIB={payload}",
             f"VMSA_TEST_INCLUDE={repositories['tf-a']}",
@@ -305,7 +314,17 @@ def build_realm_el2(repositories: dict[str, Path], filter_value: str | None, log
     write_filter_header(repositories["tf-a"], filter_value)
     return build_tf_a(
         repositories["tf-a"], log,
-        ["ENABLE_RME=1", f"BL33={tftf}", f"VMSA_REALM_LIB={payload}", f"VMSA_TEST_INCLUDE={repositories['tf-a']}"],
+        [
+            "ENABLE_RME=1",
+            "ARM_ARCH_MAJOR=9",
+            "ARM_ARCH_MINOR=4",
+            "ENABLE_FEAT_D128=2",
+            "ENABLE_FEAT_AIE=1",
+            "CTX_INCLUDE_AARCH32_REGS=0",
+            f"BL33={tftf}",
+            f"VMSA_REALM_LIB={payload}",
+            f"VMSA_TEST_INCLUDE={repositories['tf-a']}",
+        ],
     )
 
 
@@ -362,7 +381,11 @@ def build_secure_el2(repositories: dict[str, Path], filter_value: str | None, lo
         [
             "SPD=spmd",
             "SPMD_SPM_AT_SEL2=1",
-            "ARM_ARCH_MINOR=5",
+            "ARM_ARCH_MAJOR=9",
+            "ARM_ARCH_MINOR=4",
+            "ENABLE_FEAT_D128=2",
+            "ENABLE_FEAT_AIE=1",
+            "CTX_INCLUDE_AARCH32_REGS=0",
             "BRANCH_PROTECTION=1",
             "CTX_INCLUDE_PAUTH_REGS=1",
             "ENABLE_FEAT_MTE2=1",
@@ -406,7 +429,9 @@ def build_realm_stage2(repositories: dict[str, Path], filter_value: str | None, 
         [
             "ENABLE_RME=1",
             "ARM_ARCH_MAJOR=9",
-            "ARM_ARCH_MINOR=2",
+            "ARM_ARCH_MINOR=4",
+            "ENABLE_FEAT_D128=2",
+            "ENABLE_FEAT_AIE=1",
             f"RMM={rmm}",
             f"BL33={tftf}",
         ],

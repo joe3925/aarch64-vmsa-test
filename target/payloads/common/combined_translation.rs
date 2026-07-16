@@ -50,8 +50,7 @@ pub(super) fn combined_stage1_stage2(
         let table_walk_region = stage1_root.phys_addr() & !0x3fff_ffff;
         let target_region = table_walk_region ^ 0x4000_0000;
         let target_ipa = target_region | (data_page.phys_addr() - table_walk_region);
-        let replacement_ipa =
-            target_region | (replacement_page.phys_addr() - table_walk_region);
+        let replacement_ipa = target_region | (replacement_page.phys_addr() - table_walk_region);
         {
             let mut mapper = context.offline_mapper_for_format_with_geometry::<
                 LowerRegime,
@@ -103,7 +102,12 @@ pub(super) fn combined_stage1_stage2(
             // while stage 2 is active so a candidate-target fault can return.
             mapper.map_leaf(0, 0, start_level, recovery_attributes)?;
             if !omit_target {
-                mapper.map_leaf(target_ipa, data_page.phys_addr(), level3, MappingAttributes::READ_WRITE)?;
+                mapper.map_leaf(
+                    target_ipa,
+                    data_page.phys_addr(),
+                    level3,
+                    MappingAttributes::READ_WRITE,
+                )?;
                 mapper.map_leaf(
                     replacement_ipa,
                     replacement_page.phys_addr(),

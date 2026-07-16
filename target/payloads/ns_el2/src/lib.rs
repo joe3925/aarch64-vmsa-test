@@ -52,6 +52,12 @@ mod permissions;
 mod recovery;
 #[path = "../../common/runtime_support.rs"]
 mod runtime_support;
+#[path = "../../common/semantic_d128.rs"]
+mod semantic_d128;
+#[path = "../../common/semantic_host.rs"]
+mod semantic_host;
+#[path = "../../common/semantic_normal.rs"]
+mod semantic_normal;
 #[path = "../../common/stage2_leaf_matrix.rs"]
 mod stage2_leaf_matrix;
 #[path = "../../common/table_live.rs"]
@@ -65,7 +71,35 @@ define_environment!(NsEl2Environment, aarch64_vmsa::regime::NonSecureEl2Stage1);
 pub type CurrentEnvironment = NsEl2Environment;
 pub type CurrentRegime = aarch64_vmsa::regime::NonSecureEl2Stage1;
 pub type Stage2Regime = aarch64_vmsa::regime::NonSecureEl2Stage2;
+pub type Stage2XnxRegime =
+    aarch64_vmsa::regime::NonSecureEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>;
+pub type Stage2Pas = ();
+pub const fn stage2_pas() -> Stage2Pas {}
 pub type LowerRegime = aarch64_vmsa::regime::NonSecureEl1Stage1;
+pub type HostRegime = aarch64_vmsa::regime::NonSecureEl2HostStage1;
+pub type LowerPas = ();
+pub type HostPas = ();
+pub type HostTablePas = ();
+pub type CurrentPas = ();
+pub type CurrentTablePas = ();
+pub const fn current_config_pas() -> CurrentPas {}
+pub const fn current_pas() -> CurrentPas {}
+pub const fn current_table_pas() -> CurrentTablePas {}
+pub const fn current_d128_alias() -> aarch64_vmsa::attrs::D128Stage1AliasKind {
+    aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal
+}
+pub const fn current_regime_attributes() -> vmsa_test_harness::RegimeAttributes {
+    vmsa_test_harness::RegimeAttributes::Normal
+}
+pub const fn lower_pas() -> LowerPas {}
+pub const fn host_pas() -> HostPas {}
+pub const fn host_table_pas() -> HostTablePas {}
+pub const fn lower_regime_attributes() -> vmsa_test_harness::RegimeAttributes {
+    vmsa_test_harness::RegimeAttributes::Normal
+}
+pub const fn host_regime_attributes() -> vmsa_test_harness::RegimeAttributes {
+    vmsa_test_harness::RegimeAttributes::Normal
+}
 
 fn feature_snapshot_agreement(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     features::live_snapshot_agreement(context.capabilities())
@@ -363,6 +397,36 @@ fn lpa2_shareability_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> Test
 }
 fn feature_requirement_unions(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     features::requirement_unions()
+}
+fn feature_decode_binary(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::decode_binary_raw_encodings()
+}
+fn feature_decode_exception_levels(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::decode_exception_level_raw_encodings()
+}
+fn feature_decode_rme(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::decode_rme_raw_encodings()
+}
+fn feature_decode_varange(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::decode_varange_raw_encodings()
+}
+fn feature_decode_parange(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::decode_parange_raw_encodings()
+}
+fn feature_decode_lpa2_tg4(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::decode_lpa2_tg4_raw_encodings()
+}
+fn feature_decode_lpa2_tg16(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::decode_lpa2_tg16_raw_encodings()
+}
+fn feature_decode_lpa2_secondary(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::decode_lpa2_secondary_raw_encodings()
+}
+fn feature_decode_lpa2_priority(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::decode_lpa2_priority()
+}
+fn feature_decode_derived_merge(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    features::decode_derived_merge_orderings()
 }
 
 fn current_access(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {

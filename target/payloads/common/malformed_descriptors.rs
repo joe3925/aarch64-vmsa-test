@@ -57,8 +57,11 @@ fn malformed_vmsa64_leaf(
             LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
             MappingAttributes::READ_WRITE,
         )?;
-        sandbox = context
-            .prepare_transition_runtime(&mut mapper, malformed_vmsa64_leaf as *const () as u64)?;
+        sandbox = context.prepare_transition_runtime(
+            &mut mapper,
+            malformed_vmsa64_leaf as *const () as u64,
+            false,
+        )?;
         let walk = mapper.inspect_walk(ADDRESS)?;
         let leaf = walk
             .leaf()
@@ -326,6 +329,7 @@ where
         sandbox = context.prepare_transition_runtime(
             &mut mapper,
             active_granule::<aarch64_vmsa::descriptor::Vmsa64Lpa2, G> as *const () as u64,
+            false,
         )?;
         let leaf = mapper
             .inspect_walk(ADDRESS)?

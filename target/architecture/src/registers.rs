@@ -186,6 +186,14 @@ pub struct Stage2State {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SecureStage2State {
+    pub vsttbr: u64,
+    pub vstcr: u64,
+    pub vtcr: u64,
+    pub hcr: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct D128Stage2State {
     pub vttbr_low: u64,
     pub vttbr_high: u64,
@@ -539,6 +547,30 @@ pub fn current_stage2_state() -> Option<Stage2State> {
         );
     }
     Some(Stage2State { vttbr, vtcr, hcr })
+}
+
+pub fn current_secure_stage2_state() -> Option<SecureStage2State> {
+    if current_el() != 2 {
+        return None;
+    }
+    let vttbr: u64;
+    let vtcr: u64;
+    let generic_vtcr: u64;
+    let hcr: u64;
+    unsafe {
+        asm!(
+            "mrs {0}, S3_4_C2_C6_0",
+            "mrs {1}, S3_4_C2_C6_2",
+            "mrs {2}, VTCR_EL2",
+            "mrs {3}, HCR_EL2",
+            out(reg) vttbr,
+            out(reg) vtcr,
+            out(reg) generic_vtcr,
+            out(reg) hcr,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    Some(SecureStage2State { vsttbr: vttbr, vstcr: vtcr, vtcr: generic_vtcr, hcr })
 }
 
 pub fn current_stage2_d128_state() -> Option<D128Stage2State> {
@@ -919,12 +951,6 @@ pub unsafe fn install_el2_stage1_geometry(
             "mrs {old_vbar}, VBAR_EL2",
             "msr VBAR_EL2, {recovery_vector}",
             "isb",
-            "movz x12, #0",
-            "movk x12, #0x1c0a, lsl #16",
-            "mov w13, #0x30",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "bic x9, {old_sctlr}, #1",
             "orr x10, {old_sctlr}, #1",
             "bic x10, x10, #0x80000",
@@ -942,6 +968,7 @@ pub unsafe fn install_el2_stage1_geometry(
             "msr TTBR0_EL2, {recovery_root}",
             "msr TCR_EL2, {recovery_tcr}",
             "msr MAIR_EL2, {recovery_mair}",
+            "dsb ishst",
             "tlbi alle2is",
             "dsb ish",
             "isb",
@@ -954,10 +981,7 @@ pub unsafe fn install_el2_stage1_geometry(
             "msr SCTLR_EL2, x9",
             "isb",
             "10:",
-            "mov w13, #0x31",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
+            "dsb ishst",
             "tlbi alle2is",
             "dsb ish",
             "isb",
@@ -966,10 +990,7 @@ pub unsafe fn install_el2_stage1_geometry(
             "msr TCR_EL2, {tcr}",
             "msr MAIR_EL2, {mair}",
             "isb",
-            "mov w13, #0x32",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
+            "dsb ishst",
             "tlbi alle2is",
             "dsb ish",
             "isb",
@@ -977,32 +998,10 @@ pub unsafe fn install_el2_stage1_geometry(
             "at s1e2r, x14",
             "isb",
             "mrs x14, PAR_EL1",
-            "tbnz x14, #0, 8f",
-            "mov w13, #0x50",
-            "b 7f",
-            "8:",
-            "mov w13, #0x46",
-            "7:",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
-            "mov w13, #0x33",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "msr SCTLR_EL2, x10",
             "isb",
-            "cbz {stack_virtual}, 11f",
-            "mov sp, {stack_virtual}",
-            "str xzr, [sp, #-16]!",
-            "ldr x9, [sp], #16",
             "mov sp, {old_sp}",
-            "11:",
             "9:",
-            "mov w13, #0x34",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             old_ttbr0 = out(reg) old_ttbr0,
             old_tcr = out(reg) old_tcr,
             old_mair = out(reg) old_mair,
@@ -1014,7 +1013,6 @@ pub unsafe fn install_el2_stage1_geometry(
             tcr = in(reg) tcr,
             mair = in(reg) mair,
             stack_physical = in(reg) stack_physical,
-            stack_virtual = in(reg) stack_virtual,
             recovery_root = in(reg) recovery_root,
             recovery_tcr = in(reg) recovery_tcr,
             recovery_mair = in(reg) recovery_mair,
@@ -1022,8 +1020,6 @@ pub unsafe fn install_el2_stage1_geometry(
             out("x9") _,
             out("x10") _,
             out("x11") _,
-            out("x12") _,
-            out("x13") _,
             out("x14") _,
             options()
         );
@@ -1038,6 +1034,156 @@ pub unsafe fn install_el2_stage1_geometry(
         },
         tcr2: old_tcr2,
         transition_stack,
+        previous_vbar: old_vbar,
+    })
+}
+
+/// Installs a changed current-EL stage-1 geometry at EL2 or EL3.
+///
+/// EL3 needs its own MMU-off sequence: the EL2 implementation cannot be used
+/// because every translation register, TLBI operation, and vector register is
+/// banked by exception level.
+///
+/// # Safety
+///
+/// The caller must provide an independently owned transition stack, identity
+/// mappings for the executing code and recovery vector, and exclusive ownership
+/// of current-EL stage-1 state until restoration.
+pub unsafe fn install_current_stage1_geometry(
+    ttbr0: u64,
+    tcr: u64,
+    mair: u64,
+    transition_stack: Option<TransitionStack>,
+) -> Option<GeometryStage1State> {
+    match current_el() {
+        2 => unsafe { install_el2_stage1_geometry(ttbr0, tcr, mair, transition_stack) },
+        3 => unsafe { install_el3_stage1_geometry(ttbr0, tcr, mair, transition_stack) },
+        _ => None,
+    }
+}
+
+unsafe fn install_el3_stage1_geometry(
+    ttbr0: u64,
+    tcr: u64,
+    mair: u64,
+    transition_stack: Option<TransitionStack>,
+) -> Option<GeometryStage1State> {
+    let stack = transition_stack?;
+    if stack.physical_top == 0
+        || stack.virtual_top == 0
+        || stack.physical_top & 0xf != 0
+        || stack.virtual_top & 0xf != 0
+        || stack.recovery_vector == 0
+        || stack.recovery_vector & 0x7ff != 0
+    {
+        return None;
+    }
+    let old_ttbr0: u64;
+    let old_tcr: u64;
+    let old_mair: u64;
+    let old_sctlr: u64;
+    let old_vbar: u64;
+    let pc_par: u64;
+    let stack_par: u64;
+    let preflight_ok: u64;
+    // SAFETY: The physical transition stack remains reachable with the MMU
+    // disabled. The candidate maps this routine, its continuation, the virtual
+    // stack, and the recovery vector before this operation begins.
+    unsafe {
+        asm!(
+            "mov {old_sp}, sp",
+            "mrs {old_ttbr0}, TTBR0_EL3",
+            "mrs {old_tcr}, TCR_EL3",
+            "mrs {old_mair}, MAIR_EL3",
+            "mrs {old_sctlr}, SCTLR_EL3",
+            "mrs {old_vbar}, VBAR_EL3",
+            "msr VBAR_EL3, {recovery_vector}",
+            "isb",
+            "bic x9, {old_sctlr}, #1",
+            "orr x10, {old_sctlr}, #1",
+            "bic x10, x10, #0x80000",
+            "msr SCTLR_EL3, x9",
+            "isb",
+            "mov sp, {stack_physical}",
+            "str xzr, [sp, #-16]!",
+            "ldr x9, [sp], #16",
+            "tlbi alle3is",
+            "dsb ish",
+            "isb",
+            "msr TTBR0_EL3, {ttbr0}",
+            "msr TCR_EL3, {tcr}",
+            "msr MAIR_EL3, {mair}",
+            "isb",
+            "tlbi alle3is",
+            "dsb ish",
+            "isb",
+            "adr x11, 9f",
+            "at s1e3r, x11",
+            "isb",
+            "mrs {pc_par}, PAR_EL1",
+            "sub x11, {stack_virtual}, #16",
+            "at s1e3r, x11",
+            "isb",
+            "mrs {stack_par}, PAR_EL1",
+            "mov {preflight_ok}, #0",
+            "tbnz {pc_par}, #0, 8f",
+            "tbnz {stack_par}, #0, 8f",
+            "mov {preflight_ok}, #1",
+            "msr SCTLR_EL3, x10",
+            "isb",
+            "mov sp, {stack_virtual}",
+            "str xzr, [sp, #-16]!",
+            "ldr x9, [sp], #16",
+            "mov sp, {old_sp}",
+            "b 9f",
+            "8:",
+            "msr TTBR0_EL3, {old_ttbr0}",
+            "msr TCR_EL3, {old_tcr}",
+            "msr MAIR_EL3, {old_mair}",
+            "isb",
+            "tlbi alle3is",
+            "dsb ish",
+            "isb",
+            "msr SCTLR_EL3, {old_sctlr}",
+            "isb",
+            "msr VBAR_EL3, {old_vbar}",
+            "isb",
+            "mov sp, {old_sp}",
+            "9:",
+            old_ttbr0 = out(reg) old_ttbr0,
+            old_tcr = out(reg) old_tcr,
+            old_mair = out(reg) old_mair,
+            old_sctlr = out(reg) old_sctlr,
+            old_vbar = out(reg) old_vbar,
+            old_sp = out(reg) _,
+            ttbr0 = in(reg) ttbr0,
+            tcr = in(reg) tcr,
+            mair = in(reg) mair,
+            stack_physical = in(reg) stack.physical_top,
+            stack_virtual = in(reg) stack.virtual_top,
+            recovery_vector = in(reg) stack.recovery_vector,
+            pc_par = out(reg) pc_par,
+            stack_par = out(reg) stack_par,
+            preflight_ok = out(reg) preflight_ok,
+            out("x9") _,
+            out("x10") _,
+            out("x11") _,
+            options()
+        );
+    }
+    if preflight_ok == 0 {
+        return None;
+    }
+    Some(GeometryStage1State {
+        stage1: Stage1State {
+            ttbr0: old_ttbr0,
+            tcr: old_tcr,
+            mair: old_mair,
+            sctlr: old_sctlr,
+            el: 3,
+        },
+        tcr2: 0,
+        transition_stack: Some(stack),
         previous_vbar: old_vbar,
     })
 }
@@ -1080,6 +1226,7 @@ pub unsafe fn restore_el2_stage1_geometry(state: GeometryStage1State) -> bool {
             "msr TTBR0_EL2, {recovery_root}",
             "msr TCR_EL2, {recovery_tcr}",
             "msr MAIR_EL2, {recovery_mair}",
+            "dsb ishst",
             "tlbi alle2is",
             "dsb ish",
             "isb",
@@ -1091,6 +1238,7 @@ pub unsafe fn restore_el2_stage1_geometry(state: GeometryStage1State) -> bool {
             "msr SCTLR_EL2, x9",
             "isb",
             "10:",
+            "dsb ishst",
             "tlbi alle2is",
             "dsb ish",
             "isb",
@@ -1099,6 +1247,7 @@ pub unsafe fn restore_el2_stage1_geometry(state: GeometryStage1State) -> bool {
             "msr TCR_EL2, {tcr}",
             "msr MAIR_EL2, {mair}",
             "isb",
+            "dsb ishst",
             "tlbi alle2is",
             "dsb ish",
             "isb",
@@ -1123,6 +1272,67 @@ pub unsafe fn restore_el2_stage1_geometry(state: GeometryStage1State) -> bool {
             old_sp = out(reg) _,
             out("x9") _,
             out("x10") _,
+            options()
+        );
+    }
+    true
+}
+
+/// Restores a state returned by [`install_current_stage1_geometry`].
+///
+/// # Safety
+///
+/// No other owner may have changed current-EL stage-1 state since installation.
+pub unsafe fn restore_current_stage1_geometry(state: GeometryStage1State) -> bool {
+    match state.stage1.el {
+        2 => unsafe { restore_el2_stage1_geometry(state) },
+        3 => unsafe { restore_el3_stage1_geometry(state) },
+        _ => false,
+    }
+}
+
+unsafe fn restore_el3_stage1_geometry(state: GeometryStage1State) -> bool {
+    if current_el() != 3 || state.stage1.el != 3 {
+        return false;
+    }
+    let Some(stack) = state.transition_stack else {
+        return false;
+    };
+    // SAFETY: This is the inverse of the paired EL3 install and uses the same
+    // independently owned physical stack during the MMU-off interval.
+    unsafe {
+        asm!(
+            "mov {candidate_sp}, sp",
+            "mrs x9, SCTLR_EL3",
+            "bic x9, x9, #1",
+            "msr SCTLR_EL3, x9",
+            "isb",
+            "mov sp, {stack_physical}",
+            "str xzr, [sp, #-16]!",
+            "ldr x9, [sp], #16",
+            "tlbi alle3is",
+            "dsb ish",
+            "isb",
+            "msr TTBR0_EL3, {ttbr0}",
+            "msr TCR_EL3, {tcr}",
+            "msr MAIR_EL3, {mair}",
+            "isb",
+            "tlbi alle3is",
+            "dsb ish",
+            "isb",
+            "msr SCTLR_EL3, {sctlr}",
+            "isb",
+            "msr VBAR_EL3, {vbar}",
+            "isb",
+            "mov sp, {candidate_sp}",
+            candidate_sp = out(reg) _,
+            stack_physical = in(reg) stack.physical_top,
+            ttbr0 = in(reg) state.stage1.ttbr0,
+            tcr = in(reg) state.stage1.tcr,
+            mair = in(reg) state.stage1.mair,
+            sctlr = in(reg) state.stage1.sctlr,
+            vbar = in(reg) state.previous_vbar,
+            out("x9") _,
             options()
         );
     }
@@ -1192,7 +1402,7 @@ pub unsafe fn install_el2_stage1_d128(
     }
     unsafe {
         asm!(
-            "mrs {old_mair2}, S3_4_C10_C3_1",
+            "mrs {old_mair2}, S3_4_C10_C1_1",
             old_mair2 = out(reg) old_mair2,
             options(nomem, nostack, preserves_flags)
         );
@@ -1217,17 +1427,7 @@ pub unsafe fn install_el2_stage1_d128(
         asm!(
             ".arch_extension d128",
             "mov x8, sp",
-            "movz x12, #0",
-            "movk x12, #0x1c0a, lsl #16",
-            "mov w13, #0x41",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "mrrs x2, x3, TTBR0_EL2",
-            "mov w13, #0x42",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "mrs {old_tcr}, TCR_EL2",
             "mrs {old_mair}, MAIR_EL2",
             "mrs {old_sctlr}, SCTLR_EL2",
@@ -1237,10 +1437,6 @@ pub unsafe fn install_el2_stage1_d128(
             "mrs {old_vbar}, VBAR_EL2",
             "msr VBAR_EL2, x22",
             "isb",
-            "mov w13, #0x43",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "bic x9, {old_sctlr}, #1",
             "orr x10, {old_sctlr}, #1",
             "bic x10, x10, #0x80000",
@@ -1274,88 +1470,26 @@ pub unsafe fn install_el2_stage1_d128(
             "msr SCTLR_EL2, x9",
             "isb",
             "10:",
-            "mov w13, #0x44",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "tlbi alle2is",
             "dsb ish",
             "isb",
             "msr S3_4_C2_C0_3, x11",
-            "mov w13, #0x45",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "msr TCR_EL2, {tcr}",
             "msr MAIR_EL2, {mair}",
-            "msr S3_4_C10_C3_1, x23",
+            "msr S3_4_C10_C1_1, x23",
             "msr S3_4_C10_C2_3, {pir}",
             "msr S3_4_C10_C2_2, {pire0}",
-            "mov w13, #0x46",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "mov x0, {ttbr0_low}",
             "mov x1, {ttbr0_high}",
             "msrr TTBR0_EL2, x0, x1",
-            "mov w13, #0x47",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "isb",
-            "mov w13, #0x49",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "tlbi alle2is",
-            "mov w13, #0x4a",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "dsb ish",
-            "mov w13, #0x4b",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "isb",
-            "mov w13, #0x4c",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "adr x14, 9f",
-            "mov x15, x14",
             "at s1e2r, x14",
             "isb",
             "mrs x14, PAR_EL1",
-            "tbnz x14, #0, 8f",
-            "mov w13, #0x50",
-            "b 7f",
-            "8:",
-            "mov w13, #0x46",
-            "7:",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
-            "mov w13, #0x59",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
-            "tbnz x14, #0, 6f",
-            "eor x15, x15, x14",
-            "lsl x15, x15, #12",
-            "lsr x15, x15, #24",
-            "cbnz x15, 5f",
-            "mov w13, #0x51",
-            "b 4f",
-            "5:",
-            "mov w13, #0x57",
-            "b 4f",
-            "6:",
-            "mov w13, #0x58",
-            "4:",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             "msr SCTLR_EL2, x10",
             "isb",
             "cbz x17, 11f",
@@ -1365,10 +1499,6 @@ pub unsafe fn install_el2_stage1_d128(
             "mov sp, x8",
             "11:",
             "9:",
-            "mov w13, #0x48",
-            "str w13, [x12]",
-            "mov w13, #0xa",
-            "str w13, [x12]",
             old_tcr = out(reg) old_tcr,
             old_mair = out(reg) old_mair,
             old_sctlr = out(reg) old_sctlr,
@@ -1482,7 +1612,7 @@ pub unsafe fn restore_el2_stage1_d128(state: D128Stage1State) -> bool {
             "msrr TTBR0_EL2, x0, x1",
             "msr TCR_EL2, {tcr}",
             "msr MAIR_EL2, {mair}",
-            "msr S3_4_C10_C3_1, x23",
+            "msr S3_4_C10_C1_1, x23",
             "msr S3_4_C2_C0_3, {tcr2}",
             "msr S3_4_C1_C2_2, {hcrx}",
             "isb",
@@ -1767,16 +1897,16 @@ pub unsafe fn install_el1_stage1(ttbr0: u64, tcr: u64, mair: u64) -> Option<Stag
         asm!("mrs {0}, HCR_EL2", out(reg) hcr, options(nomem, nostack, preserves_flags));
         if hcr & (1 << 34) != 0 {
             asm!(
-            ".arch armv8.5-a",
-            "mrs {0}, TTBR0_EL12",
-            "mrs {1}, TCR_EL12",
-            "mrs {2}, MAIR_EL12",
-            "mrs {3}, SCTLR_EL12",
-            out(reg) old_ttbr0,
-            out(reg) old_tcr,
-            out(reg) old_mair,
-            out(reg) old_sctlr,
-            options(nostack, preserves_flags)
+                ".arch armv8.5-a",
+                "mrs {0}, TTBR0_EL12",
+                "mrs {1}, TCR_EL12",
+                "mrs {2}, MAIR_EL12",
+                "mrs {3}, SCTLR_EL12",
+                out(reg) old_ttbr0,
+                out(reg) old_tcr,
+                out(reg) old_mair,
+                out(reg) old_sctlr,
+                options(nostack, preserves_flags)
             );
         } else {
             asm!(
@@ -1798,21 +1928,30 @@ pub unsafe fn install_el1_stage1(ttbr0: u64, tcr: u64, mair: u64) -> Option<Stag
         };
         if hcr & (1 << 34) != 0 {
             asm!(
-            ".arch armv8.5-a",
-            "dsb ishst",
-            "msr TTBR0_EL12, {0}",
-            "msr TCR_EL12, {1}",
-            "msr MAIR_EL12, {2}",
-            "msr SCTLR_EL12, {3}",
-            "isb",
-            "tlbi vmalle1is",
-            "dsb ish",
-            "isb",
-            in(reg) ttbr0,
-            in(reg) tcr,
-            in(reg) mair,
-            in(reg) new_sctlr,
-            options(nostack, preserves_flags)
+                ".arch armv8.5-a",
+                "bic x9, {saved_hcr}, #0x08000000",
+                "bic x9, x9, #1",
+                "msr HCR_EL2, x9",
+                "isb",
+                "dsb ishst",
+                "msr TTBR0_EL12, {0}",
+                "msr TCR_EL12, {1}",
+                "msr MAIR_EL12, {2}",
+                "isb",
+                "tlbi vmalle1is",
+                "dsb ish",
+                "isb",
+                "msr SCTLR_EL12, {3}",
+                "isb",
+                "msr HCR_EL2, {saved_hcr}",
+                "isb",
+                in(reg) ttbr0,
+                in(reg) tcr,
+                in(reg) mair,
+                in(reg) new_sctlr,
+                saved_hcr = in(reg) hcr,
+                out("x9") _,
+                options(nostack, preserves_flags)
             );
         } else {
             asm!(
@@ -1820,10 +1959,11 @@ pub unsafe fn install_el1_stage1(ttbr0: u64, tcr: u64, mair: u64) -> Option<Stag
                 "msr TTBR0_EL1, {0}",
                 "msr TCR_EL1, {1}",
                 "msr MAIR_EL1, {2}",
-                "msr SCTLR_EL1, {3}",
                 "isb",
                 "tlbi vmalle1is",
                 "dsb ish",
+                "isb",
+                "msr SCTLR_EL1, {3}",
                 "isb",
                 in(reg) ttbr0,
                 in(reg) tcr,
@@ -1857,37 +1997,47 @@ pub unsafe fn restore_el1_stage1(state: Stage1State) -> bool {
         asm!("mrs {0}, HCR_EL2", out(reg) hcr, options(nomem, nostack, preserves_flags));
         if hcr & (1 << 34) != 0 {
             asm!(
-            ".arch armv8.5-a",
-            "dsb ishst",
-            "msr SCTLR_EL12, {0}",
-            "msr TTBR0_EL12, {1}",
-            "msr TCR_EL12, {2}",
-            "msr MAIR_EL12, {3}",
-            "isb",
-            "tlbi vmalle1is",
-            "dsb ish",
-            "isb",
-            in(reg) state.sctlr,
-            in(reg) state.ttbr0,
-            in(reg) state.tcr,
-            in(reg) state.mair,
-            options(nostack, preserves_flags)
-            );
-        } else {
-            asm!(
+                ".arch armv8.5-a",
+                "bic x9, {saved_hcr}, #0x08000000",
+                "bic x9, x9, #1",
+                "msr HCR_EL2, x9",
+                "isb",
                 "dsb ishst",
-                "msr SCTLR_EL1, {0}",
-                "msr TTBR0_EL1, {1}",
-                "msr TCR_EL1, {2}",
-                "msr MAIR_EL1, {3}",
+                "msr TTBR0_EL12, {0}",
+                "msr TCR_EL12, {1}",
+                "msr MAIR_EL12, {2}",
                 "isb",
                 "tlbi vmalle1is",
                 "dsb ish",
                 "isb",
-                in(reg) state.sctlr,
+                "msr SCTLR_EL12, {3}",
+                "isb",
+                "msr HCR_EL2, {saved_hcr}",
+                "isb",
                 in(reg) state.ttbr0,
                 in(reg) state.tcr,
                 in(reg) state.mair,
+                in(reg) state.sctlr,
+                saved_hcr = in(reg) hcr,
+                out("x9") _,
+                options(nostack, preserves_flags)
+            );
+        } else {
+            asm!(
+                "dsb ishst",
+                "msr TTBR0_EL1, {0}",
+                "msr TCR_EL1, {1}",
+                "msr MAIR_EL1, {2}",
+                "isb",
+                "tlbi vmalle1is",
+                "dsb ish",
+                "isb",
+                "msr SCTLR_EL1, {3}",
+                "isb",
+                in(reg) state.ttbr0,
+                in(reg) state.tcr,
+                in(reg) state.mair,
+                in(reg) state.sctlr,
                 options(nostack, preserves_flags)
             );
         }
@@ -1960,6 +2110,56 @@ pub unsafe fn install_stage2(vttbr: u64, vtcr: u64) -> Option<Stage2State> {
     })
 }
 
+pub unsafe fn install_secure_stage2(
+    vttbr: u64,
+    vstcr: u64,
+    vtcr: u64,
+) -> Option<SecureStage2State> {
+    if current_el() != 2 {
+        return None;
+    }
+    let old_vttbr: u64;
+    let old_vtcr: u64;
+    let old_generic_vtcr: u64;
+    let old_hcr: u64;
+    unsafe {
+        asm!(
+            "mrs {0}, S3_4_C2_C6_0",
+            "mrs {1}, S3_4_C2_C6_2",
+            "mrs {2}, VTCR_EL2",
+            "mrs {3}, HCR_EL2",
+            out(reg) old_vttbr,
+            out(reg) old_vtcr,
+            out(reg) old_generic_vtcr,
+            out(reg) old_hcr,
+            options(nostack, preserves_flags)
+        );
+        let new_hcr = old_hcr | 1;
+        asm!(
+            "dsb ishst",
+            "msr S3_4_C2_C6_0, {0}",
+            "msr S3_4_C2_C6_2, {1}",
+            "msr VTCR_EL2, {2}",
+            "msr HCR_EL2, {3}",
+            "isb",
+            "tlbi vmalls12e1is",
+            "dsb ish",
+            "isb",
+            in(reg) vttbr,
+            in(reg) vstcr,
+            in(reg) vtcr,
+            in(reg) new_hcr,
+            options(nostack, preserves_flags)
+        );
+    }
+    Some(SecureStage2State {
+        vsttbr: old_vttbr,
+        vstcr: old_vtcr,
+        vtcr: old_generic_vtcr,
+        hcr: old_hcr,
+    })
+}
+
 /// Restores a stage-2 state returned by [`install_stage2`].
 ///
 /// # Safety
@@ -1975,6 +2175,31 @@ pub unsafe fn restore_stage2(state: Stage2State) -> bool {
         asm!("dsb ishst", "msr HCR_EL2, {0}", "msr VTTBR_EL2, {1}", "msr VTCR_EL2, {2}",
             "isb", "tlbi vmalls12e1is", "dsb ish", "isb",
             in(reg) state.hcr, in(reg) state.vttbr, in(reg) state.vtcr, options(nostack, preserves_flags));
+    }
+    true
+}
+
+pub unsafe fn restore_secure_stage2(state: SecureStage2State) -> bool {
+    if current_el() != 2 {
+        return false;
+    }
+    unsafe {
+        asm!(
+            "dsb ishst",
+            "msr HCR_EL2, {0}",
+            "msr S3_4_C2_C6_0, {1}",
+            "msr S3_4_C2_C6_2, {2}",
+            "msr VTCR_EL2, {3}",
+            "isb",
+            "tlbi vmalls12e1is",
+            "dsb ish",
+            "isb",
+            in(reg) state.hcr,
+            in(reg) state.vsttbr,
+            in(reg) state.vstcr,
+            in(reg) state.vtcr,
+            options(nostack, preserves_flags)
+        );
     }
     true
 }

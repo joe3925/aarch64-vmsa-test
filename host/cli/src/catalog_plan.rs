@@ -166,6 +166,10 @@ fn applicable_targets(builder: &str) -> Result<[bool; 5], String> {
         "SecurityEnvironments::SECURE.union(SecurityEnvironments::REALM)" => {
             [false, true, true, true, false]
         }
+        "NORMAL.union(SecurityEnvironments::SECURE).union(SecurityEnvironments::REALM)" => {
+            [true, true, true, true, false]
+        }
+        "NORMAL.union(SecurityEnvironments::REALM)" => [true, false, true, true, false],
         "SecurityEnvironments::REALM" => [false, false, true, true, false],
         "SecurityEnvironments::ROOT" => [false, false, false, false, true],
         "NORMAL_SECURE.union(SecurityEnvironments::REALM)" => [true, true, true, true, false],

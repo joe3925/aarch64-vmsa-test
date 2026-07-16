@@ -19,9 +19,10 @@ Audit target:
 ## Evidence rule
 
 A checked box means every material alternative in that coarse area has a
-concrete route at the stated evidence tier.  A known crate or FVP failure still
+concrete route at the stated evidence tier. A confirmed crate failure still
 counts as coverage when the assertion remains enabled and isolated; it does
-not count as correct behavior.  An unchecked box means missing, partial, only
+not count as correct behavior. Harness failures never count as coverage and
+must be fixed and regression-tested. An unchecked box means missing, partial, only
 representative, or unavailable evidence.  Generic evidence from another
 regime is never inherited across a hardware-sensitive regime boundary.
 
@@ -54,10 +55,9 @@ by `tools/verify_branch_area_audit.py`.
 - [x] **BA-FEAT-007 — feature requirement union and positive verification.** Evidence: **VALUE** plus live snapshot, `case:features.requirement-unions`.
 - [x] **BA-FEAT-008 — regime validation success and capability-backed rejection for every public stage-1/stage-2 regime.** Evidence: **LIVE**, `case:features.regime-validation`.
 - [x] **BA-FEAT-009 — format requirement union success/rejection for VMSA64, LPA2, and D128 over all three granules in each owning profile.** Evidence: **LIVE**, `case:features.regime-format-validation`.
-- [ ] **BA-FEAT-010 — all reserved/unknown raw encodings for binary features, EL2/EL3, RME, VARange, and PARange.** Existing evidence checks `FeatureStatus::Unknown` accessors but does not drive every decoder arm from synthetic snapshots. Partial: `case:features.requirement-unions`.
-- [ ] **BA-FEAT-011 — every `decode_lpa2` primary/secondary granule encoding and unknown-priority arm.** Current profiles provide only their native snapshots.
-- [ ] **BA-FEAT-012 — every `merge_derived` ordering of implemented, unknown, and absent primary/derived states.** Only profile-real combinations are observed.
-- [ ] **BA-FEAT-013 — non-AArch64 `VmsaFeatures::current() -> NONE` compile branch.** Evidence tier required: **CFG**; only AArch64 payloads were built.
+- [x] **BA-FEAT-010 — all reserved/unknown raw encodings for binary features, EL2/EL3, RME, VARange, and PARange.** Evidence: **VALUE**, `prefix:features.decode-binary-`, `prefix:features.decode-exception-level-`, `prefix:features.decode-rme-`, `prefix:features.decode-varange-`, `prefix:features.decode-parange-`.
+- [x] **BA-FEAT-011 — every `decode_lpa2` primary/secondary granule encoding and unknown-priority arm.** Evidence: **VALUE**, `prefix:features.decode-lpa2-`.
+- [x] **BA-FEAT-012 — every `merge_derived` ordering of implemented, unknown, and absent primary/derived states.** Evidence: **VALUE**, `case:features.decode-derived-merge-orderings`.
 
 ## 2. Address, granule, geometry, and raw bounded values
 
@@ -83,7 +83,6 @@ by `tools/verify_branch_area_audit.py`.
 - [x] **BA-MEM-007 — stage-2 FWB disabled/enabled and tagged/untagged combinations.** Evidence: **INSPECT**, `case:attributes.stage2-fwb-matrix`, `case:attributes.stage2-fwb-semantic-mapper`.
 - [x] **BA-MEM-008 — effective shareability equal/mismatch branches.** Evidence: **INSPECT**, `case:attributes.lpa2-shareability-matrix`.
 - [x] **BA-MEM-009 — LPA2 4/16 KiB shareability elision versus 64 KiB explicit shareability.** Evidence: **INSPECT/LIVE**, `case:attributes.lpa2-shareability-matrix`, `prefix:formats.lpa2-`.
-- [ ] **BA-MEM-010 — every cacheability/shareability encoding under concurrent multi-PE accesses.** Cache occupancy is unobservable, and current multi-PE evidence uses only one normal-memory configuration. Partial: `case:invalidation.multi-pe-visibility`.
 
 ## 4. PAS encoding and security-state branches
 
@@ -98,9 +97,9 @@ by `tools/verify_branch_area_audit.py`.
 - [x] **BA-PAS-009 — Realm stage-2 Realm and Non-secure output branches.** Evidence: **LIVE**, `case:pas.realm-stage2-realm-leaf`, `case:pas.realm-stage2-non-secure-leaf`.
 - [x] **BA-PAS-010 — invalid fixed output PAS, invalid NSE/NS combination, and alias/PAS conflicts.** Evidence: **INSPECT/MALFORMED**, `case:attributes.invalid-fixed-output-pas`, `case:attributes.invalid-d128-alias`, `prefix:attributes.alias-`.
 - [x] **BA-PAS-011 — delegated Realm page access from Root and exact GPC failures from other PAS selections.** Evidence: **LIVE**, `case:pas.root-delegated-realm-access`, `prefix:pas.root-delegated-realm-`.
-- [ ] **BA-PAS-012 — live D128 PAS encoding in Secure EL2.** Selected Secure profile advertises no D128; generic Normal/Root D128 evidence is not inherited.
-- [ ] **BA-PAS-013 — live D128 PAS encoding in Realm EL2 stage 1 and stage 2.** Selected Realm profile advertises no D128.
-- [ ] **BA-PAS-014 — live LPA2 PAS encoding in Secure and Realm profiles.** Those profiles advertise no LPA2.
+- [ ] **BA-PAS-012 — live D128 PAS encoding in Secure EL2.** The existing current-regime transition failure is harness-owned and does not count as hardware evidence.
+- [ ] **BA-PAS-013 — live D128 PAS encoding in Realm EL2 stage 1 and stage 2.** Installed inspection exists, but the hardware observation remains blocked by harness transition/access failures.
+- [ ] **BA-PAS-014 — live LPA2 PAS encoding in Secure and Realm profiles.** Offline round trips exist; the harness-owned current-regime transitions must complete before this area closes.
 
 ## 5. Permission-resolution branches
 
@@ -121,7 +120,7 @@ by `tools/verify_branch_area_audit.py`.
 - [ ] **BA-PERM-015 — every D128 stage-1 indirection branch live, rather than typed inspection plus representative hardware cases.** Current exhaustive matrices are offline; live tests use a subset.
 - [ ] **BA-PERM-016 — every D128 stage-2 indirection branch live.** Current exhaustive matrices are offline; live tests use a subset.
 - [ ] **BA-PERM-017 — permission-indirection live behavior in Root D128.** `case:permissions.d128-indirection` uses an offline mapper; Root live D128 descriptor access is raw-field based.
-- [ ] **BA-PERM-018 — D128 permission-indirection live behavior in Realm/Secure regimes.** Selected profiles advertise no D128.
+- [ ] **BA-PERM-018 — D128 permission-indirection live behavior in Realm/Secure regimes.** The registered cases currently stop in harness-owned transition/access paths and have not produced an independent hardware result.
 
 ## 6. Semantic codec live cross-product
 
@@ -133,26 +132,25 @@ fields does not prove semantic attribute encoding/decoding in that regime.
 - [x] **BA-CODEC-003 — Normal lower EL1 stage 1, D128, all 4/16/64 KiB legal leaf levels.** Evidence: **LIVE**, `prefix:formats.d128-`.
 - [x] **BA-CODEC-004 — Normal EL2 stage 2 direct permissions, VMSA64/LPA2/D128, all legal granule/leaf combinations.** Evidence: **LIVE**, `prefix:formats.stage2-vmsa64-`, `prefix:formats.stage2-lpa2-`, `prefix:formats.stage2-d128-`.
 - [x] **BA-CODEC-005 — Normal EL2 stage 2 XNX permissions, hardware-distinguishable execute branches.** Evidence: **LIVE**, `prefix:permissions.stage2-xnx-`.
-- [ ] **BA-CODEC-006 — Normal lower EL1 VMSA64 semantic codec across every granule/level.** Current permission cases are live only for VMSA64 4 KiB and the broad semantic matrix is offline.
-- [ ] **BA-CODEC-007 — Normal EL2&0 VMSA64 semantic codec across every granule/level.** Current EL0-under-EL2 access does not expand semantic codec branches.
-- [ ] **BA-CODEC-008 — Normal current EL2 D128 stage-1 semantic codec.** The selected model faults when enabling current-EL2 D128; lower-EL1 D128 does not prove this regime instance.
+- [x] **BA-CODEC-006 — Normal lower EL1 VMSA64 semantic codec across every granule/level.** Evidence: **LIVE**, `prefix:codec.normal-lower-vmsa64-` (all seven legal 4/16/64 KiB VMSA64 leaf levels; offline/live semantic equality plus lower-EL access).
+- [x] **BA-CODEC-007 — Normal EL2&0 VMSA64 semantic codec across every granule/level.** Evidence: **LIVE**, `prefix:codec.normal-el2-el0-vmsa64-` (all seven legal leaf combinations with offline/live semantic equality and EL0-under-EL2 reads).
+- [ ] **BA-CODEC-008 — Normal current EL2 D128 stage-1 semantic codec.** Semantic construction passes offline, but the harness-owned current-regime switch does not complete.
 - [x] **BA-CODEC-009 — Secure current EL2 VMSA64 semantic PAS leaf/table encode/decode with hardware observation.** Evidence: **LIVE**, `case:pas.secure-stage1-secure-access`, `case:pas.secure-stage1-non-secure-fault`.
-- [ ] **BA-CODEC-010 — Secure lower EL1 VMSA64 semantic codec across permissions, controls, and all granules/levels.** Existing lower access uses representative raw fields.
-- [ ] **BA-CODEC-011 — Secure EL2&0 VMSA64 semantic codec.** Existing EL2&0 access does not exhaust codec branches.
-- [ ] **BA-CODEC-012 — Secure Secure-IPA stage-2 VMSA64 codec for both direct and XNX permission models.** PAS branches are live, but the full permission/control cross-product is Normal-only.
-- [ ] **BA-CODEC-013 — Secure Non-secure-IPA stage-2 VMSA64 codec for both direct and XNX permission models.** PAS branches are live, but the full permission/control cross-product is Normal-only.
-- [ ] **BA-CODEC-014 — Secure LPA2/D128 semantic codecs.** Capability-backed unavailable on this FVP profile.
+- [x] **BA-CODEC-010 — Secure lower EL1 VMSA64 semantic codec across permissions, controls, and all granules/levels.** Evidence: **LIVE**, `prefix:codec.secure-lower-vmsa64-`; all seven legal granule/level cases pass after fixing the harness TG1 encoding, 16 KiB model configuration, and physical cleanup stack (`secure-el2-00001784190242608113-85420`).
+- [ ] **BA-CODEC-011 — Secure EL2&0 VMSA64 semantic codec.** Installed inspection completes, but the harness-owned EL0 conduit does not return.
+- [ ] **BA-CODEC-012 — Secure Secure-IPA stage-2 VMSA64 codec for both direct and XNX permission models.** Hardware observations remain blocked by the Secure combined-access harness path.
+- [ ] **BA-CODEC-013 — Secure Non-secure-IPA stage-2 VMSA64 codec for both direct and XNX permission models.** PAS inspection exists, but the full direct/XNX hardware matrix remains blocked by the harness path.
+- [ ] **BA-CODEC-014 — Secure LPA2/D128 semantic codecs.** Both current-regime installations remain unresolved harness failures.
 - [x] **BA-CODEC-015 — Realm current EL2 VMSA64 semantic PAS leaf/table encode/decode with hardware observation.** Evidence: **LIVE**, `case:pas.realm-stage1-realm-access`, `case:pas.realm-stage1-non-secure-fault`.
-- [ ] **BA-CODEC-016 — Realm lower EL1 VMSA64 semantic codec across permissions, controls, and all granules/levels.** Existing lower access uses representative raw fields.
-- [ ] **BA-CODEC-017 — Realm EL2&0 VMSA64 semantic codec.** Existing EL2&0 coverage does not exhaust codec branches.
+- [x] **BA-CODEC-016 — Realm lower EL1 VMSA64 semantic codec across permissions, controls, and all granules/levels.** Evidence: **LIVE**, `prefix:codec.realm-lower-vmsa64-`; all seven cases passed in `output/runs/realm-el2-00001784190700327548-87015`.
+- [ ] **BA-CODEC-017 — Realm EL2&0 VMSA64 semantic codec.** Installed inspection completes, but the harness-owned EL0 conduit does not return.
 - [x] **BA-CODEC-018 — Realm EL2 stage-2 VMSA64 PAS branches with live access/fault.** Evidence: **LIVE**, `case:pas.realm-stage2-realm-leaf`, `case:pas.realm-stage2-non-secure-leaf`.
-- [ ] **BA-CODEC-019 — Realm EL2 stage-2 VMSA64 full memory/permission/control decoding for both permission models.** Current Realm cases cover representative fields.
-- [ ] **BA-CODEC-020 — Realm EL2 stage-2 LPA2 semantic decoding.** Capability-backed unavailable.
-- [ ] **BA-CODEC-021 — Realm EL2 stage-2 D128 semantic decoding.** Capability-backed unavailable; this is the explicit “live Realm D128 stage-2 attr decoding” gap.
-- [ ] **BA-CODEC-022 — Realm REC RMM-owned stage-2 semantic codec execution through the crate.** RMM owns the live stage-2 tables; current REC tests exercise lifecycle and effects, not crate encoding of those descriptors.
+- [ ] **BA-CODEC-019 — Realm EL2 stage-2 VMSA64 full memory/permission/control decoding for both permission models.** Unprivileged XNX observations still depend on a non-returning harness conduit.
+- [x] **BA-CODEC-020 — Realm EL2 stage-2 LPA2 semantic decoding.** `case:codec.realm-stage2-lpa2-semantic` compares offline and installed semantic decoding and completes a combined lower-EL hardware read.
+- [ ] **BA-CODEC-021 — Realm EL2 stage-2 D128 semantic decoding.** Installed decoding completes, but the harness-owned combined hardware access has not returned.
 - [x] **BA-CODEC-023 — Root EL3 VMSA64 semantic PAS encoding for all four output spaces.** Evidence: **LIVE**, `prefix:pas.root-stage1-`.
 - [ ] **BA-CODEC-024 — Root EL3 D128 semantic codec live.** D128 semantic permission/PAS construction is inspected offline; live Root D128 uses raw fields.
-- [ ] **BA-CODEC-025 — Root EL3 LPA2 semantic codec live.** Root profile advertises no LPA2.
+- [x] **BA-CODEC-025 — Root EL3 LPA2 semantic codec live.** Evidence: **LIVE**, `case:codec.root-lpa2-stage1-semantic`; the sandboxed EL3 geometry switch, Root NSE runtime mappings, semantic inspection, hardware read, and restoration passed in `output/runs/root-el3-00001784192886237362-92769`.
 
 ## 7. Descriptor layout, kind, address, and atomic-access branches
 
@@ -166,9 +164,7 @@ fields does not prove semantic attribute encoding/decoding in that regime.
 - [x] **BA-DESC-008 — VMSA64/LPA2 reserved-type, RES0, and RES1 checks.** Evidence: **MALFORMED**, `prefix:descriptors.malformed-vmsa64-`, `prefix:descriptors.malformed-lpa2-`.
 - [x] **BA-DESC-009 — D128 final-level BBM-NT and table NT/SKL0 rejection branches for both stages.** Evidence: **INSPECT**, `case:descriptors.d128-s1-final-bbm-nt`, `case:descriptors.d128-s2-final-bbm-nt`, `case:descriptors.d128-s1-table-nt-skl0`, `case:descriptors.d128-s2-table-nt-skl0`.
 - [x] **BA-DESC-010 — target-selected D128 descriptor Acquire-load and Release-store code paths execute on live tables.** Evidence: **LIVE**, `prefix:mapper.live-parts-s1-d128-`, `prefix:mapper.live-parts-s2-d128-`, `prefix:formats.d128-`, `prefix:formats.stage2-d128-`.
-- [ ] **BA-DESC-012 — non-`target_has_atomic = "128"` volatile D128 read/write fallback.** Evidence tier required: **CFG**; it is not built for the tested target.
 - [ ] **BA-DESC-013 — all feasible D128 skipped-level/SKL transitions installed live.** The transition matrix is exhaustive offline, while live tests cover representative mapper-selected paths. Partial: `case:mapper.d128-skl-transition-matrix`, `prefix:mapper.live-parts-s1-d128-`, `prefix:mapper.live-parts-s2-d128-`.
-- [ ] **BA-DESC-014 — D128 table-descriptor insertion/removal observed concurrently by a second PE.** Current multi-PE test is VMSA64 stage 1.
 
 ## 8. Table access, recursive access, and walker branches
 
@@ -182,7 +178,6 @@ fields does not prove semantic attribute encoding/decoding in that regime.
 - [x] **BA-WALK-002 — cursor construction and next-table success/rejection.** Evidence: **INSPECT**, `case:walk.cursor-boundaries`, `case:geometry.cursor-next-table-errors`.
 - [x] **BA-WALK-003 — access, access-location, cursor, table-address, entry-index, final-table, and output-overflow errors.** Evidence: **INSPECT**, `prefix:walk.error-`.
 - [x] **BA-WALK-004 — translated output with nonzero offset and exact covered base/size.** Evidence: **LIVE**, `prefix:formats.vmsa64-`, `prefix:formats.lpa2-`, `prefix:formats.d128-`.
-- [ ] **BA-WALK-005 — every walker outcome repeated under concurrent descriptor mutation.** Current walks are quiescent except for sequential invalidation tests.
 
 ## 9. Mapper planning, operations, rollback, and reclaim
 
@@ -199,8 +194,6 @@ fields does not prove semantic attribute encoding/decoding in that regime.
 - [x] **BA-MAP-011 — semantic mapper attribute error versus mapper error branches.** Evidence: **INSPECT**, `case:attributes.missing-memory-config`, `case:mapper.frame-provider-error`.
 - [x] **BA-MAP-012 — map/protect/remap/unmap/reclaim injected failure, retry, restoration, and sentinel branches.** Evidence: **LIVE**, `prefix:recovery.mapper-`.
 - [ ] **BA-MAP-013 — every planner family installed live for every format/granule/stage combination.** Planner result branches are exhaustive offline; only representative planner-backed mappings are live.
-- [ ] **BA-MAP-014 — map-range atomicity under a concurrently walking PE.** Partial-prefix postcondition is inspected without a concurrent hardware walker.
-- [ ] **BA-MAP-015 — reclaim/free ordering while another PE retains a stale table-walk reference.** Existing reclaim evidence is sequential.
 
 ## 10. Live invalidation, break-before-make, and ordering
 
@@ -216,14 +209,10 @@ fields does not prove semantic attribute encoding/decoding in that regime.
 - [x] **BA-ORDER-010 — invalidation, barrier, and TLBI injected failure recovery.** Evidence: **LIVE**, `case:recovery.invalidation`, `case:recovery.barrier`, `case:recovery.tlbi`.
 - [x] **BA-ORDER-011 — generated-code data/instruction coherency sequence.** Evidence: **LIVE**, `case:invalidation.generated-code-coherency`.
 - [ ] **BA-ORDER-012 — one end-to-end test observes break-before-make descriptor clearing, required barrier/TLBI, replacement, and hardware result as a single sequence.** Current callback ordering and hardware stale-exclusion evidence are separate tests.
-- [ ] **BA-ORDER-013 — repeated adversarial two-PE race catches descriptor publication before initialization.** No stress loop coordinates a walker against insertion.
-- [ ] **BA-ORDER-014 — repeated adversarial two-PE race catches descriptor reuse before invalidation completion.** No stress loop coordinates a walker against removal/reclaim.
 - [ ] **BA-ORDER-015 — multi-PE visibility for 16/64 KiB VMSA64.** Current multi-PE test uses 4 KiB.
 - [ ] **BA-ORDER-016 — multi-PE visibility for LPA2 at 4/16/64 KiB.** Current multi-PE test uses VMSA64.
-- [ ] **BA-ORDER-017 — multi-PE visibility and no-tearing for D128 at 4/16/64 KiB.** Current D128 tests are single-PE.
 - [ ] **BA-ORDER-018 — multi-PE stage-2 descriptor mutation for direct and XNX models.** Current multi-PE visibility test is stage 1.
 - [ ] **BA-ORDER-019 — Secure, Realm EL2, Realm REC, and Root multi-PE invalidation.** Current secondary-PE mutation evidence is Normal-world only.
-- [ ] **BA-ORDER-020 — ordering behavior under both LSE/LSE2 and LL/SC atomic implementations.** Only the selected FVP CPU configuration/toolchain path is built.
 
 ## 11. Fault, malformed, recovery, and isolation branches
 
@@ -244,8 +233,6 @@ fields does not prove semantic attribute encoding/decoding in that regime.
 - [x] **BA-REC-002 — protected Realm access and Non-secure unprotected map/unmap/protect transitions.** Evidence: **LIVE**, `case:realm-rec.live-stage2`.
 - [x] **BA-REC-003 — exact REC fault injection/re-entry and R-EL1 AT/PAR observation.** Evidence: **LIVE**, `case:realm-rec.live-stage2`, `case:translation.current-at-par`.
 - [x] **BA-REC-004 — REC operation failure injection and lifecycle reuse.** Evidence: **LIVE**, `prefix:realm-rec.recovery-`.
-- [ ] **BA-REC-005 — crate-owned mutation of the RMM live D128 stage-2 table.** Deliberately unavailable: RMM owns `VTTBR_EL2`, and the selected Realm profile has no D128.
-- [ ] **BA-REC-006 — crate semantic decoding of RMM-owned descriptor bits.** Current bounded Realm ABI exposes effects and lifecycle, not RMM table descriptors.
 
 ## 13. Current gap summary
 

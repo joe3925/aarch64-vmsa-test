@@ -10,10 +10,19 @@ pub enum ReportEvent {
     Run {
         name: &'static str,
     },
+    Terminal {
+        name: &'static str,
+    },
     Pass {
         name: &'static str,
     },
     Fail {
+        name: &'static str,
+        reason: &'static str,
+        expected: u64,
+        actual: u64,
+    },
+    InfrastructureFailure {
         name: &'static str,
         reason: &'static str,
         expected: u64,
@@ -52,6 +61,7 @@ impl<S: ByteSink> ProtocolWriter<S> {
             ),
             ReportEvent::Capability { name, value } => writeln!(self, "@@VMSA CAP {name}={value}"),
             ReportEvent::Run { name } => writeln!(self, "@@VMSA RUN {name}"),
+            ReportEvent::Terminal { name } => writeln!(self, "@@VMSA TERMINAL {name}"),
             ReportEvent::Pass { name } => writeln!(self, "@@VMSA PASS {name}"),
             ReportEvent::Fail {
                 name,
@@ -64,6 +74,15 @@ impl<S: ByteSink> ProtocolWriter<S> {
                     "@@VMSA FAIL {name} reason={reason} expected={expected} actual={actual}"
                 )
             }
+            ReportEvent::InfrastructureFailure {
+                name,
+                reason,
+                expected,
+                actual,
+            } => writeln!(
+                self,
+                "@@VMSA INFRA {name} reason={reason} expected={expected} actual={actual}"
+            ),
             ReportEvent::Skip { name, reason } => {
                 writeln!(self, "@@VMSA SKIP {name} reason={reason}")
             }

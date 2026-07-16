@@ -34,8 +34,11 @@ pub fn stage1_address_size(context: &mut TestContext<'_, crate::CurrentEnvironme
         mapper
             .isolated_malformed_table()
             .replace_terminal_descriptor(ADDRESS, malformed)?;
-        sandbox = context
-            .prepare_transition_runtime(&mut mapper, stage1_address_size as *const () as u64)?;
+        sandbox = context.prepare_transition_runtime(
+            &mut mapper,
+            stage1_address_size as *const () as u64,
+            false,
+        )?;
     }
     let bits = vmsa_test_harness::AddressBits::new(32)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;

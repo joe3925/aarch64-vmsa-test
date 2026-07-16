@@ -26,6 +26,8 @@ mod root_cases;
 #[path = "../../common/runtime_support.rs"]
 #[allow(dead_code)]
 mod runtime_support;
+#[path = "../../common/semantic_root.rs"]
+mod semantic_root;
 use common::{BootContext, REGIME_ROOT, define_environment, outcome_code};
 use vmsa_test_harness::adapter::{RunOptions, run_catalog_tests};
 use vmsa_test_harness::{LogicalTest, Requirements, SecurityEnvironment, TestContext, TestResult};
@@ -50,20 +52,10 @@ fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult 
     )
 }
 fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Granule16KiB, Granule64KiB};
-    use aarch64_vmsa::descriptor::{Vmsa64, Vmsa64Lpa2, Vmsa128};
-    use aarch64_vmsa::regime::{RootEl3Stage1, validate_regime_format};
+    use aarch64_vmsa::regime::RootEl3Stage1;
     let current = &aarch64_vmsa::arch::VmsaFeatures::current();
-    let supported = validate_regime_format::<Vmsa64, RootEl3Stage1, Granule4KiB>(current)
-        .is_ok()
-        && validate_regime_format::<Vmsa64, RootEl3Stage1, Granule16KiB>(current).is_ok()
-        && validate_regime_format::<Vmsa64, RootEl3Stage1, Granule64KiB>(current).is_ok()
-        && validate_regime_format::<Vmsa64Lpa2, RootEl3Stage1, Granule4KiB>(current).is_err()
-        && validate_regime_format::<Vmsa64Lpa2, RootEl3Stage1, Granule16KiB>(current).is_err()
-        && validate_regime_format::<Vmsa64Lpa2, RootEl3Stage1, Granule64KiB>(current).is_err()
-        && validate_regime_format::<Vmsa128, RootEl3Stage1, Granule4KiB>(current).is_ok()
-        && validate_regime_format::<Vmsa128, RootEl3Stage1, Granule16KiB>(current).is_ok()
-        && validate_regime_format::<Vmsa128, RootEl3Stage1, Granule64KiB>(current).is_ok();
+    let supported = features::require_base_format!(current; RootEl3Stage1)
+        && features::require_live_format_agreement!(current; RootEl3Stage1, stage2 = false);
     features::regime_result(supported)
 }
 fn current_access(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {

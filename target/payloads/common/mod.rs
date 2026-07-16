@@ -7,7 +7,8 @@ use vmsa_test_abi::{
 };
 use vmsa_test_architecture::exception::{FatalExceptionGuard, RawFault, VectorGuard};
 use vmsa_test_architecture::registers::{
-    self, D128Stage1State, D128Stage2State, GeometryStage1State, Stage1State, Stage2State,
+    self, D128Stage1State, D128Stage2State, GeometryStage1State, SecureStage2State, Stage1State,
+    Stage2State,
 };
 use vmsa_test_architecture::transition::{LowerElReturnConduit, LowerElStage1Mode};
 use vmsa_test_architecture::{GuardedResult, guarded_execute, guarded_read, guarded_write};
@@ -20,10 +21,6 @@ use vmsa_test_harness::{
     AccessKind, AccessOperation, AccessResult, AddressBits, Capabilities, HarnessError,
     LookupLevel, ObservedFault, TranslationSetup, TranslationStage,
 };
-
-unsafe extern "C" {
-    static __DATA_START__: u8;
-}
 
 pub const REGIME_NORMAL: u8 = 0;
 pub const REGIME_SECURE: u8 = 1;
@@ -336,6 +333,7 @@ enum SavedTranslation {
     LowerStage1(Stage1State),
     LowerStage1D128(D128Stage1State),
     Stage2(Stage2State),
+    SecureStage2(SecureStage2State),
     Stage2D128(D128Stage2State),
 }
 
@@ -475,6 +473,7 @@ pub struct AdapterCore {
     lower_el_entry: u64,
     lower_el_stack: u64,
     installed_lower_stack: Option<u64>,
+    installed_lower_stack_physical: Option<u64>,
     lower_el_stage1: LowerElStage1Mode,
     lower_el_return: LowerElReturnConduit,
     regime: u8,
@@ -492,8 +491,7 @@ pub struct AdapterCore {
     realm_stage2_region: Option<vmsa_test_harness::RealmStage2Region>,
     realm_stage2_mutation: Option<unsafe extern "C" fn(u64) -> u32>,
     realm_stage2_mapped: bool,
-    pas_page_acquire:
-        Option<unsafe extern "C" fn(u32, *mut u64, *mut u64) -> i32>,
+    pas_page_acquire: Option<unsafe extern "C" fn(u32, *mut u64, *mut u64) -> i32>,
     pas_page_release: Option<unsafe extern "C" fn(u32, u64) -> i32>,
     scoped_pas_page: Option<(vmsa_test_harness::PhysicalAddressSpace, u64)>,
 }
@@ -544,6 +542,7 @@ impl AdapterCore {
             lower_el_entry: context.lower_el_entry,
             lower_el_stack: context.lower_el_stack,
             installed_lower_stack: None,
+            installed_lower_stack_physical: None,
             lower_el_stage1,
             lower_el_return,
             regime,
@@ -586,10 +585,12 @@ impl AdapterCore {
             _ => unreachable!(),
         }
     }
-    pub fn transition_runtime_data(&self) -> [u64; 2] {
+    pub fn transition_runtime_data(&self) -> [u64; 4] {
         [
-            core::ptr::addr_of!(__DATA_START__) as u64,
+            self as *const Self as u64,
             panic_callback_address(),
+            self.lower_el_stack.saturating_sub(1),
+            self.lower_el_entry,
         ]
     }
     pub fn realm_rec_is_current(&self) -> bool {
@@ -916,7 +917,9 @@ impl AdapterCore {
             return Err(AdapterError::InvalidTransition);
         }
         if let Some((pas, physical)) = self.scoped_pas_page.take() {
-            let release = self.pas_page_release.ok_or(AdapterError::InvalidTransition)?;
+            let release = self
+                .pas_page_release
+                .ok_or(AdapterError::InvalidTransition)?;
             // SAFETY: The callback pair came from the validated live boot context.
             if unsafe { release(pas as u32, physical) } != 0 {
                 return Err(AdapterError::RestorationFailed);
@@ -943,7 +946,10 @@ impl AdapterCore {
         pas: vmsa_test_harness::PhysicalAddressSpace,
     ) -> Result<vmsa_test_harness::Page, vmsa_test_harness::HarnessError> {
         if pas == self.memory_pas() {
-            return self.memory.allocate_page().map_err(|_| HarnessError::Memory);
+            return self
+                .memory
+                .allocate_page()
+                .map_err(|_| HarnessError::Memory);
         }
         if self.state != AdapterState::TestScoped || self.scoped_pas_page.is_some() {
             return Err(HarnessError::InvalidState);
@@ -957,10 +963,9 @@ impl AdapterCore {
             return Err(HarnessError::InvalidState);
         }
         // SAFETY: A successful firmware callback promises one owned aligned page.
-        let page = unsafe {
-            vmsa_test_harness::Page::from_firmware(physical, virtual_address as *mut u8)
-        }
-        .ok_or(HarnessError::Environment)?;
+        let page =
+            unsafe { vmsa_test_harness::Page::from_firmware(physical, virtual_address as *mut u8) }
+                .ok_or(HarnessError::Environment)?;
         self.scoped_pas_page = Some((pas, physical));
         Ok(page)
     }
@@ -1053,8 +1058,8 @@ impl AdapterCore {
                             ttbr_high,
                             tcr,
                             registers::Stage1MemoryRegisters { mair, mair2 },
-                            0xcccc_cccc_cccc_ccca,
-                            0xcccc_cccc_cccc_ccca,
+                            0xeeee_eeee_eeee_eeee,
+                            0xeeee_eeee_eeee_eeee,
                             transition_stack.map(|stack| registers::TransitionStack {
                                 physical_top: stack.physical_top(),
                                 virtual_top: stack.virtual_top(),
@@ -1067,8 +1072,11 @@ impl AdapterCore {
                     }
                     .ok_or(AdapterError::UnsupportedStage)?;
                     SavedTranslation::Stage1D128(state)
-                } else if setup.format == vmsa_test_harness::TranslationFormat::Vmsa64
-                    && setup.granule == vmsa_test_harness::Granule::Size4KiB
+                } else if matches!(
+                    setup.format,
+                    vmsa_test_harness::TranslationFormat::Vmsa64
+                        | vmsa_test_harness::TranslationFormat::Vmsa64Lpa2
+                ) && setup.granule == vmsa_test_harness::Granule::Size4KiB
                     && transition_stack.is_none()
                 {
                     let ttbr = encode_table_base(setup.root.get(), asid, setup.output_bits.get())?;
@@ -1088,9 +1096,10 @@ impl AdapterCore {
                         recovery_mair: stack.recovery_mair(),
                         recovery_vector: stack.recovery_vector(),
                     });
-                    let state =
-                        unsafe { registers::install_el2_stage1_geometry(ttbr, tcr, mair, stack) }
-                            .ok_or(AdapterError::UnsupportedStage)?;
+                    let state = unsafe {
+                        registers::install_current_stage1_geometry(ttbr, tcr, mair, stack)
+                    };
+                    let state = state.ok_or(AdapterError::UnsupportedStage)?;
                     SavedTranslation::Stage1Geometry(state)
                 }
             }
@@ -1141,24 +1150,55 @@ impl AdapterCore {
                     }
                     SavedTranslation::Stage2D128(state)
                 } else {
-                    let vttbr = encode_table_base(setup.root.get(), vmid, setup.output_bits.get())?;
-                    // SAFETY: Stage-2 installation is accepted only by an EL2 adapter.
-                    let state = unsafe { registers::install_stage2(vttbr, setup.controls.bits()) }
-                        .ok_or(AdapterError::UnsupportedStage)?;
-                    let active = registers::current_stage2_state()
-                        .ok_or(AdapterError::ArchitecturalState)?;
-                    if active.vttbr != vttbr
-                        || active.vtcr != setup.controls.bits()
-                        || active.hcr & 1 == 0
-                    {
-                        // SAFETY: `state` was captured by the immediately preceding
-                        // installation and no other owner has observed the regime.
-                        if !unsafe { registers::restore_stage2(state) } {
-                            return Err(AdapterError::RestorationFailed);
+                    let secure_bank = setup.regime == vmsa_test_harness::RegimeAttributes::Secure;
+                    let vttbr = encode_table_base(
+                        setup.root.get(),
+                        if secure_bank { 0 } else { vmid },
+                        setup.output_bits.get(),
+                    )?;
+                    let stage2_controls = if secure_bank {
+                        setup.controls.bits() & 0x8000_00ff
+                    } else {
+                        setup.controls.bits()
+                    };
+                    if secure_bank {
+                        let state = unsafe {
+                            registers::install_secure_stage2(
+                                vttbr,
+                                stage2_controls,
+                                setup.controls.bits(),
+                            )
                         }
-                        return Err(AdapterError::ArchitecturalState);
+                        .ok_or(AdapterError::UnsupportedStage)?;
+                        let active = registers::current_secure_stage2_state()
+                            .ok_or(AdapterError::ArchitecturalState)?;
+                        if active.vsttbr != vttbr
+                            || active.vstcr != stage2_controls
+                            || active.vtcr != setup.controls.bits()
+                            || active.hcr & 1 == 0
+                        {
+                            if !unsafe { registers::restore_secure_stage2(state) } {
+                                return Err(AdapterError::RestorationFailed);
+                            }
+                            return Err(AdapterError::ArchitecturalState);
+                        }
+                        SavedTranslation::SecureStage2(state)
+                    } else {
+                        let state = unsafe { registers::install_stage2(vttbr, stage2_controls) }
+                            .ok_or(AdapterError::UnsupportedStage)?;
+                        let active = registers::current_stage2_state()
+                            .ok_or(AdapterError::ArchitecturalState)?;
+                        if active.vttbr != vttbr
+                            || active.vtcr != stage2_controls
+                            || active.hcr & 1 == 0
+                        {
+                            if !unsafe { registers::restore_stage2(state) } {
+                                return Err(AdapterError::RestorationFailed);
+                            }
+                            return Err(AdapterError::ArchitecturalState);
+                        }
+                        SavedTranslation::Stage2(state)
                     }
-                    SavedTranslation::Stage2(state)
                 }
             }
         };
@@ -1349,15 +1389,19 @@ impl AdapterCore {
             (None, None) => 0,
             _ => return Err(AdapterError::ArchitecturalState),
         };
-        let lower_stack = if setup.granule == vmsa_test_harness::Granule::Size4KiB {
-            self.lower_el_stack
+        let bytes = setup.granule.bytes() as usize;
+        let stack_page = self
+            .memory
+            .allocate_aligned_pages(bytes / 4096, bytes)
+            .map_err(|_| AdapterError::ArchitecturalState)?;
+        let lower_stack_physical = stack_page
+            .phys_addr()
+            .checked_add(bytes as u64)
+            .ok_or(AdapterError::ArchitecturalState)?;
+        let lower_stack = if setup.format == vmsa_test_harness::TranslationFormat::Vmsa128 {
+            lower_stack_physical
         } else {
-            let bytes = setup.granule.bytes() as usize;
-            let page = self
-                .memory
-                .allocate_aligned_pages(bytes / 4096, bytes)
-                .map_err(|_| AdapterError::ArchitecturalState)?;
-            page.phys_addr()
+            0x6b00_0000u64
                 .checked_add(bytes as u64)
                 .ok_or(AdapterError::ArchitecturalState)?
         };
@@ -1393,8 +1437,9 @@ impl AdapterCore {
                     setup,
                     self.lower_el_entry,
                     lower_stack,
+                    lower_stack_physical,
                 )
-                .map_err(|_| AdapterError::ArchitecturalState)?;
+                .map_err(lower_runtime_adapter_error)?;
                 (controls.bits(), 0x0000_44ff, configured_mair2)
             }
         } else {
@@ -1437,12 +1482,27 @@ impl AdapterCore {
                     setup,
                     self.lower_el_entry,
                     lower_stack,
+                    lower_stack_physical,
                 )
-                .map_err(|_| AdapterError::ArchitecturalState)?;
+                .map_err(lower_runtime_adapter_error)?;
             }
             (setup.controls.bits(), configured_mair, configured_mair2)
         };
         setup.controls = vmsa_test_harness::adapter::translation_controls_from_register(tcr);
+        let saved_vmsa64_lower = if matches!(
+            setup.format,
+            vmsa_test_harness::TranslationFormat::Vmsa64
+                | vmsa_test_harness::TranslationFormat::Vmsa64Lpa2
+        ) {
+            let original =
+                registers::current_el1_stage1_state().ok_or(AdapterError::ArchitecturalState)?;
+            match self.run_lower_el_active(LowerElRequest::disable_stage1()) {
+                AccessResult::Completed { .. } => Some(original),
+                _ => return Err(AdapterError::ArchitecturalState),
+            }
+        } else {
+            None
+        };
         let saved = if setup.format == vmsa_test_harness::TranslationFormat::Vmsa128 {
             let (ttbr_low, ttbr_high) = encode_d128_table_base(
                 setup.root.get(),
@@ -1459,8 +1519,8 @@ impl AdapterCore {
                     ttbr_high,
                     tcr,
                     registers::Stage1MemoryRegisters { mair, mair2 },
-                    0xcccc_cccc_cccc_ccca,
-                    0xcccc_cccc_cccc_ccca,
+                    0xeeee_eeee_eeee_eeee,
+                    0xeeee_eeee_eeee_eeee,
                 )
             }
             .ok_or(AdapterError::UnsupportedStage)?;
@@ -1468,9 +1528,11 @@ impl AdapterCore {
         } else {
             let ttbr = encode_table_base(setup.root.get(), asid, setup.output_bits.get())?;
             // SAFETY: The inactive EL1 context is exclusively owned by this guard.
-            let state = unsafe { registers::install_el1_stage1(ttbr, tcr, mair) }
+            let _temporary = unsafe { registers::install_el1_stage1(ttbr, tcr, mair) }
                 .ok_or(AdapterError::UnsupportedStage)?;
-            SavedTranslation::LowerStage1(state)
+            SavedTranslation::LowerStage1(
+                saved_vmsa64_lower.ok_or(AdapterError::ArchitecturalState)?,
+            )
         };
         self.generation = self
             .generation
@@ -1492,6 +1554,7 @@ impl AdapterCore {
         );
         self.installed_lower_stage1 = Some(ActiveTranslation { token, saved });
         self.installed_lower_stack = Some(lower_stack);
+        self.installed_lower_stack_physical = Some(lower_stack_physical);
         self.state = AdapterState::TranslationInstalled;
         Ok(token)
     }
@@ -1504,6 +1567,17 @@ impl AdapterCore {
             .installed_lower_stage1
             .as_ref()
             .is_some_and(|active| active.token == token);
+        let restoring_lower_vmsa64 = self.installed_lower_stage1.as_ref().is_some_and(|active| {
+            active.token == token && matches!(active.saved, SavedTranslation::LowerStage1(_))
+        });
+        if restoring_lower_vmsa64 {
+            if !matches!(
+                self.run_lower_el_active(LowerElRequest::disable_stage1()),
+                AccessResult::Completed { .. }
+            ) {
+                return Err(AdapterError::ArchitecturalState);
+            }
+        }
         let slot = if self
             .installed_current_stage1
             .as_ref()
@@ -1534,6 +1608,7 @@ impl AdapterCore {
         if restore_saved(&active.saved) {
             if restoring_lower {
                 self.installed_lower_stack = None;
+                self.installed_lower_stack_physical = None;
             }
             self.state = if self.installed_current_stage1.is_some()
                 || self.installed_lower_stage1.is_some()
@@ -1638,6 +1713,7 @@ impl AdapterCore {
             }
         }
         self.installed_lower_stack = None;
+        self.installed_lower_stack_physical = None;
         self.state = AdapterState::TestScoped;
     }
 
@@ -1872,7 +1948,15 @@ impl AdapterCore {
     }
 
     fn run_lower_el_active(&mut self, request: LowerElRequest) -> AccessResult {
-        let lower_stack = self.installed_lower_stack.unwrap_or(self.lower_el_stack);
+        let lower_stack = if matches!(request.command, LowerElCommand::DisableStage1)
+            && self.installed_lower_stage1.is_some()
+        {
+            self.installed_lower_stack_physical
+                .or(self.installed_lower_stack)
+                .unwrap_or(self.lower_el_stack)
+        } else {
+            self.installed_lower_stack.unwrap_or(self.lower_el_stack)
+        };
         if self.lower_el_entry == 0 || lower_stack == 0 {
             return AccessResult::HarnessFailure(HarnessError::Environment);
         }
@@ -1897,7 +1981,11 @@ impl AdapterCore {
         // SAFETY: The allocation is page-aligned, exclusively owned by this
         // command, and large enough for LowerElMailbox.
         unsafe { mailbox_pointer.write_volatile(mailbox) };
-        let lower_stage1 = if matches!(
+        let lower_stage1 = if matches!(request.command, LowerElCommand::DisableStage1)
+            && self.installed_lower_stage1.is_none()
+        {
+            LowerElStage1Mode::Configure
+        } else if matches!(
             self.installed_lower_stage1
                 .as_ref()
                 .map(|active| &active.saved),
@@ -1914,7 +2002,7 @@ impl AdapterCore {
                     .map(|active| &active.saved),
                 Some(SavedTranslation::LowerStage1D128(_))
             );
-            for (address, access) in [
+            for (index, (address, access)) in [
                 (
                     self.lower_el_entry,
                     vmsa_test_architecture::translation::TranslationAccess::Read,
@@ -1935,7 +2023,10 @@ impl AdapterCore {
                     vmsa_test_architecture::exception::runtime_state_address(),
                     vmsa_test_architecture::translation::TranslationAccess::Write,
                 ),
-            ] {
+            ]
+            .into_iter()
+            .enumerate()
+            {
                 let par = if d128 {
                     vmsa_test_architecture::translation::lower_stage1_d128(address, access)
                         .map(|(low, _)| low)
@@ -1988,6 +2079,9 @@ impl AdapterCore {
             Ok(vmsa_test_architecture::transition::LowerElOutcome::Returned) => None,
             Ok(vmsa_test_architecture::transition::LowerElOutcome::HostEl0Translation { par }) => {
                 Some(par)
+            }
+            Ok(vmsa_test_architecture::transition::LowerElOutcome::Fault(fault)) => {
+                return AccessResult::Fault(normalize_fault(fault, access_kind(request)));
             }
             Err(_) => return AccessResult::HarnessFailure(HarnessError::Environment),
         };
@@ -2202,7 +2296,7 @@ fn restore_saved(saved: &SavedTranslation) -> bool {
         SavedTranslation::Stage1(state) => unsafe { registers::restore_stage1(state) },
         // SAFETY: Saved state was captured by the paired geometry installer.
         SavedTranslation::Stage1Geometry(state) => unsafe {
-            registers::restore_el2_stage1_geometry(state)
+            registers::restore_current_stage1_geometry(state)
         },
         // SAFETY: Saved state was captured by the paired D128 installer.
         SavedTranslation::Stage1D128(state) => unsafe { registers::restore_el2_stage1_d128(state) },
@@ -2219,6 +2313,12 @@ fn restore_saved(saved: &SavedTranslation) -> bool {
                 return false;
             }
             registers::current_stage2_state() == Some(state)
+        }
+        SavedTranslation::SecureStage2(state) => {
+            if !unsafe { registers::restore_secure_stage2(state) } {
+                return false;
+            }
+            registers::current_secure_stage2_state() == Some(state)
         }
         // SAFETY: Saved state was captured by the paired full-width stage-2 installer.
         SavedTranslation::Stage2D128(state) => unsafe { registers::restore_stage2_d128(state) },
@@ -2260,6 +2360,7 @@ fn lower_el_mailbox(
             first,
             second,
         } => (10, address, 3, first, second),
+        LowerElCommand::DisableStage1 => (11, 0, 3, 0, 0),
     };
     LowerElMailbox {
         abi_version: LOWER_EL_MAILBOX_ABI_VERSION,
@@ -2298,6 +2399,7 @@ fn access_kind(request: LowerElRequest) -> AccessKind {
         LowerElCommand::Translate { write: false, .. } => AccessKind::Read,
         LowerElCommand::Translate { write: true, .. } => AccessKind::Write,
         LowerElCommand::Exit => AccessKind::Execute,
+        LowerElCommand::DisableStage1 => AccessKind::Execute,
     }
 }
 
@@ -2319,6 +2421,17 @@ const fn access_operation_code(operation: AccessOperation) -> u64 {
         AccessOperation::PairRead => 5,
         AccessOperation::PairWrite => 6,
         AccessOperation::Translate => 7,
+    }
+}
+
+fn lower_runtime_adapter_error(error: vmsa_test_harness::HarnessError) -> AdapterError {
+    match error {
+        vmsa_test_harness::HarnessError::Memory
+        | vmsa_test_harness::HarnessError::InvalidState
+        | vmsa_test_harness::HarnessError::TransitionPreparation(_) => {
+            AdapterError::ArchitecturalState
+        }
+        _ => AdapterError::UnsupportedStage,
     }
 }
 
@@ -2354,6 +2467,12 @@ unsafe extern "C" fn fatal_exception(
     if callback != 0 {
         // SAFETY: The value originates from the validated live boot context.
         let callback: unsafe extern "C" fn(u8) = unsafe { core::mem::transmute(callback) };
+        if vmsa_test_architecture::take_deliberate_unexpected_exception() {
+            write_bytes(
+                callback,
+                b"@@VMSA TERMINAL faults.unexpected-exception-destructive\n",
+            );
+        }
         write_bytes(callback, b"VMSA-INFRA HARNESS_FAILURE esr=0x");
         write_hex(callback, esr);
         write_bytes(callback, b" far=0x");
@@ -2482,7 +2601,7 @@ macro_rules! define_environment {
                 self.core.memory_pas()
             }
 
-            fn transition_runtime_data(&self) -> [u64; 2] {
+            fn transition_runtime_data(&self) -> [u64; 4] {
                 self.core.transition_runtime_data()
             }
 

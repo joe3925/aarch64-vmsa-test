@@ -19,7 +19,7 @@ pub trait Environment {
     fn finish(&mut self) -> Result<(), Self::Error>;
     fn capabilities(&self) -> Capabilities;
     fn memory_pas(&self) -> crate::PhysicalAddressSpace;
-    fn transition_runtime_data(&self) -> [u64; 2];
+    fn transition_runtime_data(&self) -> [u64; 4];
     fn memory(&mut self) -> &mut TestMemory;
     fn allocate_page_in(
         &mut self,
@@ -28,7 +28,9 @@ pub trait Environment {
         if pas != self.memory_pas() {
             return Err(HarnessError::InvalidState);
         }
-        self.memory().allocate_page().map_err(|_| HarnessError::Memory)
+        self.memory()
+            .allocate_page()
+            .map_err(|_| HarnessError::Memory)
     }
     fn install_translation(
         &mut self,

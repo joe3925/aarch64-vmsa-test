@@ -33,4 +33,9 @@ impl TranslationQueryResult {
             }
         }
     }
+
+    #[doc(hidden)]
+    pub fn from_raw_par_for_test(address: u64, par: u64) -> Self {
+        Self::from_par(address, par)
+    }
 }

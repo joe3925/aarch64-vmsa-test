@@ -118,7 +118,7 @@ impl LowerElMailbox {
         self.abi_version == LOWER_EL_MAILBOX_ABI_VERSION
             && self.abi_size as usize == core::mem::size_of::<Self>()
             && self.reserved == [0; 2]
-            && self.operation <= 10
+            && self.operation <= 11
             && self.target <= 2
             && self.width <= 3
             && (self.operation <= 1 || self.width == 3)

@@ -26,7 +26,11 @@ void hafnium_vmsa_secure_test(void)
 		.abi_version = VMSA_BOOT_CONTEXT_ABI_VERSION,
 		.abi_size = (uint32_t)sizeof(vmsa_boot_context_t),
 		.memory_virtual = vmsa_arena,
-		.memory_physical = pa_addr(pa_from_va(va_from_ptr(vmsa_arena))),
+		/* This image is identity mapped. Hafnium's pa_from_va() returns the
+		 * partition allocation base for this static object, not the object's
+		 * offset within the image, which would overlap the harness arena with
+		 * executable text in candidate translation tables. */
+		.memory_physical = (uint64_t)(uintptr_t)vmsa_arena,
 		.memory_bytes = sizeof(vmsa_arena),
 		.uart_write = vmsa_uart_write,
 		.lower_el_entry = (uintptr_t)vmsa_lower_el_entry,

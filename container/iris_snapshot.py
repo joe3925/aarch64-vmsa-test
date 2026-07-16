@@ -13,6 +13,13 @@ from iris.debug.Model import NewNetworkModel
 
 def main() -> int:
     test_name = os.environ.get("VMSA_IRIS_TEST", "formats.d128-stage1-active")
+    target = os.environ.get("VMSA_IRIS_TARGET", "ns-el2")
+    physical_memory_space = {
+        "secure-el2": "Physical Memory (Secure)",
+        "realm-el2": "Physical Memory (Realm)",
+        "realm-stage2": "Physical Memory (Realm)",
+        "root-el3": "Physical Memory (Root)",
+    }.get(target, "Physical Memory (Non Secure)")
     command = [
         "FVP_Base_RevC-2xAEMvA",
         "-I",
@@ -37,6 +44,14 @@ def main() -> int:
         "-C",
         "bp.pl011_uart1.unbuffered_output=1",
         "-C",
+        "bp.pl011_uart2.out_file=-",
+        "-C",
+        "bp.pl011_uart2.unbuffered_output=1",
+        "-C",
+        "bp.pl011_uart3.out_file=-",
+        "-C",
+        "bp.pl011_uart3.unbuffered_output=1",
+        "-C",
         "bp.terminal_0.start_telnet=0",
         "-C",
         "bp.terminal_1.start_telnet=0",
@@ -49,9 +64,9 @@ def main() -> int:
         "-C",
         "cluster1.PA_SIZE=52",
         "-C",
-        "cluster0.has_arm_v8-7=1",
+        f"cluster0.has_arm_v8-{'5' if target == 'secure-el2' else '7'}=1",
         "-C",
-        "cluster1.has_arm_v8-7=1",
+        f"cluster1.has_arm_v8-{'5' if target == 'secure-el2' else '7'}=1",
         "-C",
         "cluster0.has_large_va=1",
         "-C",
@@ -77,6 +92,91 @@ def main() -> int:
         "-C",
         "cluster1.has_128_bit_tt_descriptors=2",
     ]
+    if target == "secure-el2":
+        command.extend(
+            [
+                "-C",
+                "bp.secure_memory=1",
+                "-C",
+                "cluster0.has_secure_el2=1",
+                "-C",
+                "cluster1.has_secure_el2=1",
+                "-C",
+                "cluster0.bti_support_level=1",
+                "-C",
+                "cluster1.bti_support_level=1",
+                "-C",
+                "cluster0.memory_tagging_support_level=2",
+                "-C",
+                "cluster1.memory_tagging_support_level=2",
+            ]
+        )
+    if target == "root-el3":
+        command.extend(
+            [
+                "-C",
+                "bp.has_rme=1",
+                "-C",
+                "bp.secure_memory=0",
+                "-C",
+                "cluster0.rme_support_level=2",
+                "-C",
+                "cluster1.rme_support_level=2",
+                "-C",
+                "cluster0.gicv3.cpuintf-mmap-access-level=2",
+                "-C",
+                "cluster1.gicv3.cpuintf-mmap-access-level=2",
+                "-C",
+                "cluster0.gicv3.without-DS-support=1",
+                "-C",
+                "cluster1.gicv3.without-DS-support=1",
+                "-C",
+                "cluster0.gicv4.mask-virtual-interrupt=1",
+                "-C",
+                "cluster1.gicv4.mask-virtual-interrupt=1",
+                "-C",
+                "cluster0.restriction_on_speculative_execution=2",
+                "-C",
+                "cluster1.restriction_on_speculative_execution=2",
+                "-C",
+                "cluster0.restriction_on_speculative_execution_aarch32=2",
+                "-C",
+                "cluster1.restriction_on_speculative_execution_aarch32=2",
+            ]
+        )
+    if target in {"realm-el2", "realm-stage2"}:
+        command.extend(
+            [
+                "-C",
+                "bp.has_rme=1",
+                "-C",
+                "bp.secure_memory=0",
+                "-C",
+                "cluster0.rme_support_level=2",
+                "-C",
+                "cluster1.rme_support_level=2",
+                "-C",
+                "cluster0.gicv3.cpuintf-mmap-access-level=2",
+                "-C",
+                "cluster1.gicv3.cpuintf-mmap-access-level=2",
+                "-C",
+                "cluster0.gicv3.without-DS-support=1",
+                "-C",
+                "cluster1.gicv3.without-DS-support=1",
+                "-C",
+                "cluster0.gicv4.mask-virtual-interrupt=1",
+                "-C",
+                "cluster1.gicv4.mask-virtual-interrupt=1",
+                "-C",
+                "cluster0.restriction_on_speculative_execution=2",
+                "-C",
+                "cluster1.restriction_on_speculative_execution=2",
+                "-C",
+                "cluster0.restriction_on_speculative_execution_aarch32=2",
+                "-C",
+                "cluster1.restriction_on_speculative_execution_aarch32=2",
+            ]
+        )
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -117,10 +217,31 @@ def main() -> int:
         model.run(blocking=False)
         if not reached_test.wait(20):
             raise RuntimeError(f"guest did not reach {test_name}")
-        model.run(blocking=False)
-        time.sleep(1)
-        if model.is_running:
-            model.stop(timeout=5)
+        breakpoint_address = os.environ.get("VMSA_IRIS_BREAKPOINT")
+        breakpoint_register = os.environ.get("VMSA_IRIS_REGISTER_BREAKPOINT")
+        if breakpoint_address is not None or breakpoint_register is not None:
+            breakpoint = (
+                cpu.add_bpt_prog(int(breakpoint_address, 0))
+                if breakpoint_address is not None
+                else cpu.add_bpt_reg(breakpoint_register, on_read=False, on_write=True)
+            )
+            hits = model.run(blocking=True, timeout=5)
+            print(
+                "breakpoint-hit="
+                + str(any(hit.number == breakpoint.number for hit in hits))
+            )
+            if os.environ.get("VMSA_IRIS_STEPS") is not None:
+                breakpoint.delete()
+                cpu.client.irisCall().step_syncStep(
+                    instId=cpu.instId,
+                    steps=int(os.environ["VMSA_IRIS_STEPS"], 0),
+                    unit="instruction",
+                )
+        else:
+            model.run(blocking=False)
+            time.sleep(float(os.environ.get("VMSA_IRIS_DELAY", "1")))
+            if model.is_running:
+                model.stop(timeout=5)
         print(f"cpu={cpu.instName}")
         print("memory-spaces=" + ",".join(cpu.memory_spaces_by_name.keys()))
         for register in [
@@ -135,18 +256,32 @@ def main() -> int:
             "SPSR_EL1",
             "ESR_EL2",
             "FAR_EL2",
+            "HPFAR_EL2",
             "ELR_EL2",
             "SPSR_EL2",
+            "ESR_EL3",
+            "FAR_EL3",
+            "ELR_EL3",
+            "SPSR_EL3",
             "SCTLR_EL2",
             "SCTLR_EL1",
+            "HCR_EL2",
+            "VTCR_EL2",
+            "VTTBR_EL2",
+            "VSTCR_EL2",
+            "VSTTBR_EL2",
+            "SCR_EL3",
             "TCR_EL2",
             "TCR_EL1",
+            "TCR_EL3",
             "TCR2_EL2",
             "TCR2_EL1",
             "TTBR0_EL2",
             "TTBR0_EL1",
+            "TTBR0_EL3",
             "MAIR_EL2",
             "MAIR_EL1",
+            "MAIR_EL3",
             "PIR_EL1",
             "PIRE0_EL1",
             "PIR_EL2",
@@ -155,11 +290,29 @@ def main() -> int:
             "PAR_EL1",
             "VBAR_EL1",
             "VBAR_EL2",
+            "VBAR_EL3",
         ]:
             try:
                 print(f"{register}=0x{cpu.read_register(register):016x}")
             except Exception as error:
                 print(f"{register}=unavailable:{error}")
+        if cpu.read_register("HCR_EL2") & 1:
+            table = cpu.read_register("VTTBR_EL2") & 0x0000_FFFF_FFFF_F000
+            address = cpu.read_register("FAR_EL2")
+            for level, shift in enumerate((39, 30, 21, 12)):
+                index = (address >> shift) & 0x1FF
+                raw = int.from_bytes(
+                    cpu.read_memory(
+                        table + index * 8,
+                        memory_space=physical_memory_space,
+                        size=8,
+                    ),
+                    "little",
+                )
+                print(f"stage2-fault-l{level}=0x{raw:016x}")
+                if raw & 0b11 != 0b11:
+                    break
+                table = raw & 0x0000_FFFF_FFFF_F000
         if cpu.read_register("TCR2_EL2") & (1 << 5):
             root = cpu.read_register("TTBR0_EL2") & 0x00FF_FFFF_FFFF_FFE0
             addresses = {
@@ -183,7 +336,7 @@ def main() -> int:
                     low = int.from_bytes(
                         cpu.read_memory(
                             descriptor_address,
-                            memory_space="Physical Memory (Non Secure)",
+                            memory_space=physical_memory_space,
                             size=8,
                         ),
                         "little",
@@ -191,7 +344,7 @@ def main() -> int:
                     high = int.from_bytes(
                         cpu.read_memory(
                             descriptor_address + 8,
-                            memory_space="Physical Memory (Non Secure)",
+                            memory_space=physical_memory_space,
                             size=8,
                         ),
                         "little",
@@ -200,26 +353,46 @@ def main() -> int:
                     print(f"{name}-l{level}=0x{raw:032x}")
                     table = raw & 0x00FF_FFFF_FFFF_F000
         else:
-            root = cpu.read_register("TTBR0_EL1") & 0x0000_FFFF_FFFF_F000
+            current_el = "EL3" if target == "root-el3" else "EL2"
+            tcr = cpu.read_register(f"TCR_{current_el}")
+            tg0 = (tcr >> 14) & 0x3
+            if tg0 == 0b00:
+                granule_shift, index_bits, all_shifts = 12, 9, (39, 30, 21, 12)
+            elif tg0 == 0b10:
+                granule_shift, index_bits, all_shifts = 14, 11, (47, 36, 25, 14)
+            elif tg0 == 0b01:
+                granule_shift, index_bits, all_shifts = 16, 13, (42, 29, 16)
+            else:
+                raise RuntimeError(f"reserved TG0 encoding {tg0}")
+            root = cpu.read_register(f"TTBR0_{current_el}") & ~((1 << granule_shift) - 1)
+            input_bits = 64 - (tcr & 0x3F)
+            ds = tcr & (1 << (32 if current_el == "EL3" else 59))
+            if granule_shift == 12 and ds:
+                all_shifts = (48, 39, 30, 21, 12)
+            shifts = tuple(shift for shift in all_shifts if shift < input_bits)
+            first_level = len(all_shifts) - len(shifts)
             addresses = {
-                "entry": cpu.read_register("ELR_EL2"),
-                "stack": cpu.read_register("SP_EL1"),
-                "vector": cpu.read_register("VBAR_EL1"),
+                "entry": cpu.read_register(f"ELR_{current_el}"),
+                "stack": cpu.read_register("SP"),
+                "fault": cpu.read_register(f"FAR_{current_el}"),
+                "vector": cpu.read_register(f"VBAR_{current_el}"),
             }
+            if os.environ.get("VMSA_IRIS_ADDRESS") is not None:
+                addresses["requested"] = int(os.environ["VMSA_IRIS_ADDRESS"], 0)
             for name, address in addresses.items():
                 table = root
-                for level, shift in enumerate((39, 30, 21, 12)):
-                    index = (address >> shift) & 0x1FF
+                for level, shift in enumerate(shifts, start=first_level):
+                    index = (address >> shift) & ((1 << index_bits) - 1)
                     raw = int.from_bytes(
                         cpu.read_memory(
                             table + index * 8,
-                            memory_space="Physical Memory (Non Secure)",
+                            memory_space=physical_memory_space,
                             size=8,
                         ),
                         "little",
                     )
                     print(f"{name}-l{level}=0x{raw:016x}")
-                    table = raw & 0x0000_FFFF_FFFF_F000
+                    table = raw & ~((1 << granule_shift) - 1)
                     if raw & 0b11 != 0b11:
                         break
         return 0

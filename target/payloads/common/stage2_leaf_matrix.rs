@@ -15,6 +15,57 @@ enum ActivePermissionOperation {
     ExecuteEl0,
 }
 
+fn active_geometry_matches<F, G>(
+    granule: vmsa_test_harness::Granule,
+    start_level: aarch64_vmsa::address::Level,
+    leaf_level: aarch64_vmsa::address::Level,
+    input: u64,
+    covered_size: u64,
+) -> bool
+where
+    F: aarch64_vmsa::descriptor::DescriptorFormat,
+    G: vmsa_test_harness::adapter::TestGranule,
+{
+    use aarch64_vmsa::table::TableGeometry;
+    let entries = TableGeometry::<F, G>::entries();
+    let index_bits = TableGeometry::<F, G>::index_bits();
+    let index_mask = TableGeometry::<F, G>::index_mask();
+    if G::GRANULE != granule
+        || G::SIZE != granule.bytes()
+        || G::MASK + 1 != G::SIZE
+        || G::align_down(input) != input & !G::MASK
+        || G::page_offset(aarch64_vmsa::address::VirtAddr(input)) != input & G::MASK
+        || entries != 1usize.checked_shl(u32::from(index_bits)).unwrap_or(0)
+        || index_mask.checked_add(1) != u64::try_from(entries).ok()
+        || leaf_level.distance_from(start_level)
+            != u8::try_from(leaf_level.as_i8() - start_level.as_i8()).ok()
+        || !leaf_level.is_between_inclusive(start_level, F::FINAL_LEVEL)
+        || TableGeometry::<F, G>::offset_at_level_raw(u64::MAX, leaf_level)
+            .and_then(|mask| mask.checked_add(1))
+            != Some(covered_size)
+        || input & (covered_size - 1)
+            != TableGeometry::<F, G>::offset_at_level_raw(input, leaf_level).unwrap_or(u64::MAX)
+    {
+        return false;
+    }
+    for raw_level in start_level.as_i8()..=leaf_level.as_i8() {
+        let level = aarch64_vmsa::address::Level::new(raw_level);
+        let Some(shift) = TableGeometry::<F, G>::checked_level_shift(level) else {
+            return false;
+        };
+        let Some(index) = TableGeometry::<F, G>::index_at_level_raw(input, level) else {
+            return false;
+        };
+        if index != ((input >> shift) & index_mask) as usize
+            || level.distance_from(start_level)
+                != u8::try_from(raw_level - start_level.as_i8()).ok()
+        {
+            return false;
+        }
+    }
+    true
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "the arguments are the explicit architectural matrix coordinates"
@@ -62,10 +113,10 @@ where
             F,
             R,
             G,
-            aarch64_vmsa::attrs::LiveVmsaConfig<()>,
+            aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
                 aarch64_vmsa::attrs::Stage2LeafPermissions,
-                (),
+                crate::Stage2Pas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
             >,
             SemanticTable = aarch64_vmsa::attrs::SemanticVmsa64Stage2TableAttrs,
@@ -123,13 +174,8 @@ where
     let target_ipa = input_base
         .checked_add(target_pa - output_base)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if !crate::formats_live::active_geometry_matches::<F, G>(
-        granule,
-        start_level,
-        leaf_level,
-        target_ipa,
-        covered_size,
-    ) {
+    if !active_geometry_matches::<F, G>(granule, start_level, leaf_level, target_ipa, covered_size)
+    {
         return vmsa_test_harness::HarnessError::InvalidState.into();
     }
     let stage1_bits = AddressBits::new(52).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -145,7 +191,7 @@ where
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
-        output_pas: (),
+        output_pas: crate::stage2_pas(),
     };
     let stage1_controls = vmsa_test_harness::lpa2_el1_stage1_controls_4k(stage1_bits, stage1_bits)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -229,7 +275,7 @@ where
             aarch64_vmsa::attrs::SemanticStage2LeafAttrs {
                 memory: aarch64_vmsa::attrs::Stage2MemoryAttributes::Combined(memory),
                 permissions,
-                output_address_space: (),
+                output_address_space: crate::stage2_pas(),
                 controls: aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls {
                     shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
                     access_flag: true,
@@ -319,7 +365,7 @@ where
         vmid: None,
         controls: stage1_controls,
         stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-        regime: vmsa_test_harness::RegimeAttributes::Normal,
+        regime: crate::lower_regime_attributes(),
     };
     let stage2_setup = TranslationSetup {
         root: PhysicalAddress::new(stage2_root.phys_addr()),
@@ -333,7 +379,7 @@ where
         vmid: Some(Vmid(0x55)),
         controls,
         stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-        regime: vmsa_test_harness::RegimeAttributes::Normal,
+        regime: crate::current_regime_attributes(),
     };
     let mut combined =
         context.install_combined_owned(stage1_root, stage1_setup, stage2_root, stage2_setup)?;
@@ -484,10 +530,10 @@ where
             F,
             Stage2Regime,
             G,
-            aarch64_vmsa::attrs::LiveVmsaConfig<()>,
+            aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
                 aarch64_vmsa::attrs::Stage2LeafPermissions,
-                (),
+                crate::Stage2Pas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
             >,
             SemanticTable = aarch64_vmsa::attrs::SemanticVmsa64Stage2TableAttrs,
@@ -628,7 +674,7 @@ fn vmsa64_xnx_permission_case(
     active_standard_leaf_case::<
         aarch64_vmsa::descriptor::Vmsa64,
         aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::regime::NonSecureEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>,
+        crate::Stage2XnxRegime,
     >(
         context,
         vmsa_test_harness::Granule::Size4KiB,
@@ -1061,7 +1107,7 @@ where
     let target_ipa = input_base
         .checked_add(target_pa - output_base)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if !crate::formats_live::active_geometry_matches::<aarch64_vmsa::descriptor::Vmsa128, G>(
+    if !active_geometry_matches::<aarch64_vmsa::descriptor::Vmsa128, G>(
         granule,
         start_level,
         leaf_level,
@@ -1086,7 +1132,7 @@ where
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
-        output_pas: (),
+        output_pas: crate::stage2_pas(),
     };
     let mut stage1_root = context.allocate_root()?;
     let mut stage2_root = context.allocate_root_in(context.native_pas(), granule)?;
@@ -1217,7 +1263,7 @@ where
         vmid: None,
         controls: stage1_controls,
         stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-        regime: vmsa_test_harness::RegimeAttributes::Normal,
+        regime: crate::lower_regime_attributes(),
     };
     let stage2_setup = TranslationSetup {
         root: PhysicalAddress::new(stage2_root.phys_addr()),
@@ -1231,7 +1277,7 @@ where
         vmid: Some(Vmid(0x57)),
         controls: stage2_controls,
         stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-        regime: vmsa_test_harness::RegimeAttributes::Normal,
+        regime: crate::current_regime_attributes(),
     };
     let mut combined =
         context.install_combined_owned(stage1_root, stage1_setup, stage2_root, stage2_setup)?;

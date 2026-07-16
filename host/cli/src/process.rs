@@ -224,26 +224,6 @@ fn supervise(
         }
         let now = Instant::now();
         if now >= deadline {
-            if expected.termination.is_some_and(|expected_name| {
-                active_test
-                    .as_ref()
-                    .is_some_and(|(active_name, _)| active_name == expected_name)
-                    && parser.observed_counts()
-                        == &(Counts {
-                            passed: 0,
-                            failed: 0,
-                            skipped: 0,
-                        })
-            }) {
-                terminate(child, container_name)?;
-                return Ok(Completed {
-                    counts: Counts {
-                        passed: 1,
-                        failed: 0,
-                        skipped: 0,
-                    },
-                });
-            }
             let detail = active_test.as_ref().map_or_else(
                 || {
                     if phase == "startup" {
@@ -359,6 +339,26 @@ fn supervise(
                                 deadline = Instant::now() + limits.test;
                                 phase = "test";
                                 active_test = Some((name.clone(), Instant::now()));
+                            }
+                            Event::Terminal { name } => {
+                                if expected.termination != Some(name.as_str()) {
+                                    return Err(terminate_then(
+                                        child,
+                                        container_name,
+                                        Failure::Malformed(format!(
+                                            "unexpected terminal marker for {name}; expected {:?}",
+                                            expected.termination
+                                        )),
+                                    ));
+                                }
+                                terminate(child, container_name)?;
+                                return Ok(Completed {
+                                    counts: Counts {
+                                        passed: 1,
+                                        failed: 0,
+                                        skipped: 0,
+                                    },
+                                });
                             }
                             Event::Pass { name } | Event::Fail { name, .. } => {
                                 if let Some((active_name, test_started_at)) = active_test.take() {
@@ -484,7 +484,7 @@ pub fn validate_lifecycle(output_root: &Path) -> Result<(), String> {
             &root,
             "expected-termination",
             "printf '%s\\n' '@@VMSA BEGIN protocol=1 target=host-self-check' \
-             '@@VMSA RUN host.destructive'; exit 9",
+             '@@VMSA RUN host.destructive' '@@VMSA TERMINAL host.destructive'; sleep 10",
             "host.destructive",
         );
         match destructive {
@@ -524,16 +524,10 @@ pub fn validate_lifecycle(output_root: &Path) -> Result<(), String> {
         );
         if !matches!(
             destructive_quiescent,
-            Ok(Completed {
-                counts: Counts {
-                    passed: 1,
-                    failed: 0,
-                    skipped: 0
-                }
-            })
+            Err(Failure::Timeout(ref detail)) if detail.contains("test host.destructive watchdog expired")
         ) {
             return Err(format!(
-                "quiescent destructive termination was not accepted exactly: {destructive_quiescent:?}"
+                "unmarked destructive hang was not rejected exactly: {destructive_quiescent:?}"
             ));
         }
 
@@ -629,13 +623,18 @@ fn run_lifecycle_case_inner(
     let mut command = lifecycle_command(&container_name, script);
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
-    run(
+    run_with_limits(
         command,
         &container_name,
         "host-self-check",
         &directory,
         false,
         expected_termination,
+        if expected_termination.is_some() {
+            SupervisorLimits::doctor()
+        } else {
+            SupervisorLimits::production("host-self-check")
+        },
     )
 }
 
@@ -666,24 +665,8 @@ fn finish(
                 "destructive test {expected} returned normally instead of terminating its boot"
             )));
         }
-        if parser.active_test() == Some(expected)
-            && parser.observed_counts()
-                == &(Counts {
-                    passed: 0,
-                    failed: 0,
-                    skipped: 0,
-                })
-        {
-            return Ok(Completed {
-                counts: Counts {
-                    passed: 1,
-                    failed: 0,
-                    skipped: 0,
-                },
-            });
-        }
         return Err(Failure::Malformed(format!(
-            "expected destructive termination during {expected}; active test was {:?} and process exited with {status}",
+            "expected terminal marker during {expected}; active test was {:?} and process exited with {status}",
             parser.active_test()
         )));
     }
@@ -866,6 +849,7 @@ fn terminal_tone(line: &str) -> Option<crate::terminal::Tone> {
     if line.starts_with("@@VMSA PASS") {
         Some(Tone::Success)
     } else if line.starts_with("@@VMSA FAIL")
+        || line.starts_with("@@VMSA INFRA")
         || line.starts_with("VMSA-INFRA HARNESS_FAILURE")
         || line.contains(" PANIC ")
     {

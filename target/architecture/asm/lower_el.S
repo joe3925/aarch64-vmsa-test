@@ -40,7 +40,8 @@ vmsa_enter_lower_el_asm:
     mov x12, #0
     str x12, [sp, #128]
     tbz x23, #34, .Lnon_vhe
-    cbnz x26, .Llower_configured
+    cmp x26, #2
+    b.eq .Llower_configured
     mrs x12, TTBR0_EL12
     str x12, [sp, #72]
     mrs x12, TCR_EL12
@@ -76,6 +77,10 @@ vmsa_enter_lower_el_asm:
     orr x12, x25, #CPACR_FPEN
     msr CPACR_EL1, x12
 .Llower_configured:
+    cmp x26, #3
+    b.ne .Llower_restore_mode_ready
+    str xzr, [sp, #128]
+.Llower_restore_mode_ready:
     orr x12, x23, #HCR_RW
     ldr x13, [sp, #144]
     cmp x13, #2

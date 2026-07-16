@@ -23,6 +23,14 @@ pub enum TransitionPreparationError {
     RecoveryIdentity,
     CandidateRuntime,
     CandidateTableAccess,
+    D128RuntimeCode,
+    D128RuntimeStack,
+    D128RuntimeData,
+    D128RuntimeSandbox,
+    VmsaRuntimeCode,
+    VmsaRuntimeStack,
+    VmsaRuntimeData,
+    VmsaRuntimeSandbox,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

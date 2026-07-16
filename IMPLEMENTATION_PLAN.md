@@ -47,7 +47,7 @@ implementing the remaining scope.
    time dominates, so do not repeatedly compile and boot for one newly added
    case when the rest of the batch can be added first.
 8. `crate_report.md` is only for confirmed crate failures. It must never
-   contain progress, harness defects, FVP limitations, plans, or passing-test
+   contain progress, harness defects, plans, or passing-test
    summaries.
 
 ## Failure disposition rules
@@ -74,14 +74,6 @@ isolated, and failing. Append a complete entry to `crate_report.md` with the
 case, profile, command, checkout fingerprint, public APIs/source area,
 expected and actual behavior, minimal reproduction, control comparisons, and
 retained evidence paths. Never overwrite prior entries.
-
-### FVP or firmware limitation
-
-If the crate-produced state is independently correct but the model terminates,
-faults inconsistently, or cannot expose an architectural observation, retain
-the assertion and artifacts. Record the limitation in run/audit evidence, not
-`crate_report.md`. Do not add an exception branch or convert the case to a
-pass/skip.
 
 ### Unsupported capability
 
@@ -215,7 +207,7 @@ Close `BA-FAULT-009` and `BA-FAULT-010`.
 - Use destructive boots for model-terminating inputs and verify independent
   later boots still run.
 
-Accepted malformed encodings are crate/FVP observations, not reasons to alter
+Accepted malformed encodings are crate failures when an independent architectural or hardware oracle confirms the invalid state; they are not reasons to alter
 the harness expectation.
 
 ## Batch execution and validation
@@ -249,10 +241,8 @@ The implementation is complete only when:
 - every harness-caused failure is fixed and regression-tested;
 - every crate-caused failure remains enabled and is fully recorded only in
   `crate_report.md`;
-- every FVP/firmware discrepancy remains enabled, isolated, and retained
-  outside `crate_report.md`;
 - no applicable case is skipped because of a profile or adapter gap;
 - no failure prevents unrelated later identities from running;
 - all validators, doctor, two complete all-profile runs, restoration, cleanup,
   provenance, and read-only-checkout checks pass subject only to the retained
-  crate/FVP assertions above.
+  retained crate-failure assertions above.

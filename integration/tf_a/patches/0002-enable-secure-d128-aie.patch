@@ -1,0 +1,21 @@
+diff --git a/lib/el3_runtime/aarch64/context_mgmt.c b/lib/el3_runtime/aarch64/context_mgmt.c
+index 5ebbd60ab..b5d1f68ce 100644
+--- a/lib/el3_runtime/aarch64/context_mgmt.c
++++ b/lib/el3_runtime/aarch64/context_mgmt.c
+@@ -132,6 +132,16 @@ static void setup_secure_context(cpu_context_t *ctx, const struct entry_point_in
+ 		scr_el3 |= SCR_ATA_BIT;
+ 	}
+ 
++	/* Secure EL2 needs the same architectural gates as lower Non-secure
++	 * and Realm contexts before it can install D128 translation state. */
++	if (is_feat_d128_supported()) {
++		scr_el3 |= SCR_D128En_BIT;
++	}
++
++	if (is_feat_aie_supported()) {
++		scr_el3 |= SCR_AIEn_BIT;
++	}
++
+ 	write_ctx_reg(state, CTX_SCR_EL3, scr_el3);
+ 
+ 	/*

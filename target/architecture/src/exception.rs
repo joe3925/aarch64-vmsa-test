@@ -223,6 +223,12 @@ extern "C" fn vmsa_arch_handle_sync(state_address: u64) -> u64 {
         registers::write_exception_return(recovery, Some(recovery_spsr));
         return 1;
     }
+    if let Some((recovery, recovery_spsr)) =
+        transition::handle_lower_fault(exception_class, exception)
+    {
+        registers::write_exception_return(recovery, Some(recovery_spsr));
+        return 1;
+    }
     if let Some((recovery, recovery_spsr)) = transition::handle_lower_return(exception_class) {
         registers::write_exception_return(recovery, Some(recovery_spsr));
         return 1;

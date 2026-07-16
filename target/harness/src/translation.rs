@@ -396,7 +396,27 @@ pub const fn lpa2_el2_stage1_controls(
             | (6 << 16)
             | (1 << 23)
             | (1 << 31)
-            | (1 << 32),
+            | (1 << 59),
+    ))
+}
+
+pub const fn lpa2_el3_stage1_controls_4k(
+    input_bits: AddressBits,
+    output_bits: AddressBits,
+) -> Option<TranslationControls> {
+    lpa2_el3_stage1_controls(Granule::Size4KiB, input_bits, output_bits)
+}
+
+pub const fn lpa2_el3_stage1_controls(
+    granule: Granule,
+    input_bits: AddressBits,
+    output_bits: AddressBits,
+) -> Option<TranslationControls> {
+    let Some(controls) = lpa2_el2_stage1_controls(granule, input_bits, output_bits) else {
+        return None;
+    };
+    Some(TranslationControls::from_bits(
+        (controls.bits() & !(1 << 59)) | (1 << 32),
     ))
 }
 
@@ -446,7 +466,14 @@ pub const fn d128_el1_stage1_controls(
         Granule::Size64KiB => 1u64,
     };
     Some(TranslationControls::from_bits(
-        12 | (1 << 8) | (1 << 10) | (3 << 12) | (tg0 << 14) | (1 << 23) | (6 << 32),
+        12 | (1 << 8)
+            | (1 << 10)
+            | (3 << 12)
+            | (tg0 << 14)
+            | (6 << 16)
+            | (1 << 23)
+            | (1 << 31)
+            | (1 << 32),
     ))
 }
 
@@ -660,6 +687,9 @@ pub const fn vmsa64_el1_stage1_controls(
             | (3 << 12)
             | (tg0 << 14)
             | (1 << 23)
+            // TG1 uses a different encoding from TG0. Keep the disabled
+            // TTBR1 region on its valid 4 KiB encoding rather than RES0/00.
+            | (2 << 30)
             | (ips << 32),
     ))
 }
@@ -814,6 +844,8 @@ pub struct HardwareUpdateInspection {
 }
 
 pub trait TestRegime: TranslationRegime {
+    const MUTABLE_FIRMWARE_CODE: bool;
+    const CURRENT_STACK_WINDOW: u64;
     fn default_input_bits(capabilities: crate::Capabilities) -> u8;
 }
 
@@ -824,6 +856,12 @@ where
     fn raw_leaf(
         attributes: MappingAttributes,
     ) -> Result<LeafFieldsOf<Vmsa64, Self, G>, HarnessError>;
+    fn raw_leaf_for_format(
+        attributes: MappingAttributes,
+        _format: TranslationFormat,
+    ) -> Result<LeafFieldsOf<Vmsa64, Self, G>, HarnessError> {
+        Self::raw_leaf(attributes)
+    }
     fn raw_table() -> Result<TableFieldsOf<Vmsa64, Self, G>, HarnessError>;
 }
 
@@ -839,7 +877,7 @@ where
 }
 
 macro_rules! stage1_test_regime_for_granule {
-    ($regime:ty, $granule:ty) => {
+    ($regime:ty, $granule:ty, $alias_bit:expr) => {
         impl TestRegimeFor<$granule> for $regime {
             fn raw_leaf(
                 attributes: MappingAttributes,
@@ -855,7 +893,7 @@ macro_rules! stage1_test_regime_for_granule {
                     shareability: RawShareability::from_bits(0b11)
                         .map_err(|_| HarnessError::InvalidState)?,
                     access_flag: true,
-                    alias_bit: false,
+                    alias_bit: $alias_bit,
                     dirty_bit_modifier: false,
                     contiguous: false,
                     privileged_execute_never: false,
@@ -863,6 +901,13 @@ macro_rules! stage1_test_regime_for_granule {
                     guarded: false,
                     software: FourBit::new(0).map_err(|_| HarnessError::InvalidState)?,
                 })
+            }
+
+            fn raw_leaf_for_format(
+                attributes: MappingAttributes,
+                _format: TranslationFormat,
+            ) -> Result<LeafFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
+                <Self as TestRegimeFor<$granule>>::raw_leaf(attributes)
             }
 
             fn raw_table() -> Result<TableFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
@@ -900,22 +945,28 @@ macro_rules! stage1_test_regime_for_granule {
 }
 
 macro_rules! stage1_test_regime {
-    ($regime:ty) => {
+    ($regime:ty, $alias_bit:expr, $mutable_firmware_code:expr, $stack_window:expr) => {
         impl TestRegime for $regime {
+            const MUTABLE_FIRMWARE_CODE: bool = $mutable_firmware_code;
+            const CURRENT_STACK_WINDOW: u64 = $stack_window;
             fn default_input_bits(capabilities: crate::Capabilities) -> u8 {
                 capabilities.va_bits.min(48)
             }
         }
-        stage1_test_regime_for_granule!($regime, Granule4KiB);
-        stage1_test_regime_for_granule!($regime, Granule16KiB);
-        stage1_test_regime_for_granule!($regime, Granule64KiB);
+        stage1_test_regime_for_granule!($regime, Granule4KiB, $alias_bit);
+        stage1_test_regime_for_granule!($regime, Granule16KiB, $alias_bit);
+        stage1_test_regime_for_granule!($regime, Granule64KiB, $alias_bit);
     };
 }
 
-stage1_test_regime!(aarch64_vmsa::regime::NonSecureEl2Stage1);
-stage1_test_regime!(aarch64_vmsa::regime::SecureEl2Stage1);
-stage1_test_regime!(aarch64_vmsa::regime::RealmEl2Stage1);
-stage1_test_regime!(aarch64_vmsa::regime::RootEl3Stage1);
+stage1_test_regime!(aarch64_vmsa::regime::NonSecureEl2Stage1, false, false, 256 * 1024);
+stage1_test_regime!(aarch64_vmsa::regime::SecureEl2Stage1, false, false, 256 * 1024);
+stage1_test_regime!(aarch64_vmsa::regime::RealmEl2Stage1, false, false, 256 * 1024);
+// In the Root regime descriptor bit 11 is NSE, not nG. Root output PAS is
+// encoded as NS=0,NSE=1; leaving the shared runtime mapper's old zero value
+// selected Secure PAS and produced a GPT-backed EL3 permission fault as soon
+// as the candidate began fetching instructions.
+stage1_test_regime!(aarch64_vmsa::regime::RootEl3Stage1, true, true, 64 * 1024);
 
 macro_rules! two_privilege_test_regime_for_granule {
     ($regime:ty, $granule:ty) => {
@@ -983,6 +1034,8 @@ macro_rules! two_privilege_test_regime_for_granule {
 macro_rules! two_privilege_test_regime {
     ($regime:ty) => {
         impl TestRegime for $regime {
+            const MUTABLE_FIRMWARE_CODE: bool = false;
+            const CURRENT_STACK_WINDOW: u64 = 256 * 1024;
             fn default_input_bits(capabilities: crate::Capabilities) -> u8 {
                 capabilities.va_bits.min(48)
             }
@@ -1037,6 +1090,8 @@ macro_rules! stage2_test_regime_for_granule {
 macro_rules! stage2_test_regime {
     ($regime:ty) => {
         impl TestRegime for $regime {
+            const MUTABLE_FIRMWARE_CODE: bool = false;
+            const CURRENT_STACK_WINDOW: u64 = 256 * 1024;
             fn default_input_bits(capabilities: crate::Capabilities) -> u8 {
                 capabilities.pa_bits.min(48)
             }
@@ -1052,8 +1107,17 @@ stage2_test_regime!(
     aarch64_vmsa::regime::NonSecureEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>
 );
 stage2_test_regime!(aarch64_vmsa::regime::SecureEl2SecureIpaStage2);
+stage2_test_regime!(
+    aarch64_vmsa::regime::SecureEl2SecureIpaStage2<aarch64_vmsa::attrs::Stage2XnxPermissions>
+);
 stage2_test_regime!(aarch64_vmsa::regime::SecureEl2NonSecureIpaStage2);
+stage2_test_regime!(
+    aarch64_vmsa::regime::SecureEl2NonSecureIpaStage2<aarch64_vmsa::attrs::Stage2XnxPermissions>
+);
 stage2_test_regime!(aarch64_vmsa::regime::RealmEl2Stage2);
+stage2_test_regime!(
+    aarch64_vmsa::regime::RealmEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>
+);
 
 pub(crate) struct ArenaFrameProvider {
     memory: NonNull<TestMemory>,
@@ -1823,6 +1887,7 @@ pub fn prepare_lower_runtime<R>(
     setup: TranslationSetup,
     entry: u64,
     stack_top: u64,
+    stack_physical_top: u64,
 ) -> Result<(), HarnessError>
 where
     R: TestRegimeFor<Granule4KiB> + TestRegimeFor<Granule16KiB> + TestRegimeFor<Granule64KiB>,
@@ -1859,25 +1924,57 @@ where
 {
     match (setup.format, setup.granule) {
         (TranslationFormat::Vmsa64, Granule::Size4KiB) => {
-            prepare_lower_runtime_for::<R, Vmsa64, Granule4KiB>(memory, setup, entry, stack_top)
+            prepare_lower_runtime_for::<R, Vmsa64, Granule4KiB>(
+                memory,
+                setup,
+                entry,
+                stack_top,
+                stack_physical_top,
+            )
         }
         (TranslationFormat::Vmsa64, Granule::Size16KiB) => {
-            prepare_lower_runtime_for::<R, Vmsa64, Granule16KiB>(memory, setup, entry, stack_top)
+            prepare_lower_runtime_for::<R, Vmsa64, Granule16KiB>(
+                memory,
+                setup,
+                entry,
+                stack_top,
+                stack_physical_top,
+            )
         }
         (TranslationFormat::Vmsa64, Granule::Size64KiB) => {
-            prepare_lower_runtime_for::<R, Vmsa64, Granule64KiB>(memory, setup, entry, stack_top)
+            prepare_lower_runtime_for::<R, Vmsa64, Granule64KiB>(
+                memory,
+                setup,
+                entry,
+                stack_top,
+                stack_physical_top,
+            )
         }
         (TranslationFormat::Vmsa64Lpa2, Granule::Size4KiB) => {
-            prepare_lower_runtime_for::<R, Vmsa64Lpa2, Granule4KiB>(memory, setup, entry, stack_top)
+            prepare_lower_runtime_for::<R, Vmsa64Lpa2, Granule4KiB>(
+                memory,
+                setup,
+                entry,
+                stack_top,
+                stack_physical_top,
+            )
         }
         (TranslationFormat::Vmsa64Lpa2, Granule::Size16KiB) => {
             prepare_lower_runtime_for::<R, Vmsa64Lpa2, Granule16KiB>(
-                memory, setup, entry, stack_top,
+                memory,
+                setup,
+                entry,
+                stack_top,
+                stack_physical_top,
             )
         }
         (TranslationFormat::Vmsa64Lpa2, Granule::Size64KiB) => {
             prepare_lower_runtime_for::<R, Vmsa64Lpa2, Granule64KiB>(
-                memory, setup, entry, stack_top,
+                memory,
+                setup,
+                entry,
+                stack_top,
+                stack_physical_top,
             )
         }
         _ => Err(HarnessError::InvalidState),
@@ -1889,6 +1986,7 @@ fn prepare_lower_runtime_for<R, F, G>(
     setup: TranslationSetup,
     entry: u64,
     stack_top: u64,
+    stack_physical_top: u64,
 ) -> Result<(), HarnessError>
 where
     R: TestRegimeFor<G>,
@@ -1904,8 +2002,15 @@ where
         >,
     LeafFieldsOf<Vmsa64, R, G>: Copy + PartialEq,
 {
-    if setup.granule != G::GRANULE || entry == 0 || stack_top < G::SIZE {
-        return Err(HarnessError::InvalidState);
+    use crate::TransitionPreparationError;
+    if setup.granule != G::GRANULE
+        || entry == 0
+        || stack_top < G::SIZE
+        || stack_physical_top < G::SIZE
+    {
+        return Err(HarnessError::TransitionPreparation(
+            TransitionPreparationError::RecoveryMapper,
+        ));
     }
     let start_level = setup.start_level.ok_or(HarnessError::InvalidState)?;
     let root_address =
@@ -1927,8 +2032,13 @@ where
         access,
         ArenaFrameProvider::new(memory),
     )
-    .map_err(|_| HarnessError::InvalidState)?;
-    const CODE_WINDOW: u64 = 1024 * 1024;
+    .map_err(|_| {
+        HarnessError::TransitionPreparation(TransitionPreparationError::RecoveryRuntime)
+    })?;
+    // Keep the executable aliases tight enough not to capture the adjacent
+    // Realm arena.  A 16 KiB minimum contains each linked runtime component;
+    // larger translation granules necessarily map their whole page.
+    let code_window = G::SIZE.max(16 * 1024);
     let code_fields = R::raw_leaf(MappingAttributes {
         writable: false,
         executable: true,
@@ -1941,12 +2051,13 @@ where
     })?;
     let table_fields = R::raw_table()?;
     let code_windows = [
-        entry & !(CODE_WINDOW - 1),
-        vmsa_test_architecture::exception::vector_address() & !(CODE_WINDOW - 1),
-        vmsa_test_architecture::exception::runtime_code_address() & !(CODE_WINDOW - 1),
-        vmsa_test_architecture::transition::runtime_code_address() & !(CODE_WINDOW - 1),
+        entry & !(code_window - 1),
+        vmsa_test_architecture::exception::vector_address() & !(code_window - 1),
+        vmsa_test_architecture::exception::runtime_code_address() & !(code_window - 1),
+        vmsa_test_architecture::transition::runtime_code_address() & !(code_window - 1),
     ];
     let stack_page = G::align_down(stack_top - 1);
+    let stack_physical_page = G::align_down(stack_physical_top - 1);
     let state_pages = [
         G::align_down(vmsa_test_architecture::exception::runtime_state_address()),
         G::align_down(vmsa_test_architecture::transition::runtime_state_address()),
@@ -1955,7 +2066,7 @@ where
     let is_code_page = |address: u64| {
         code_windows
             .iter()
-            .any(|start| (*start..*start + CODE_WINDOW).contains(&address))
+            .any(|start| (*start..*start + code_window).contains(&address))
     };
     let arena_start = G::align_down(unsafe { memory.as_ref() }.physical_base());
     let arena_end = unsafe { memory.as_ref() }
@@ -1966,15 +2077,16 @@ where
     macro_rules! ensure_data_page {
         ($address:expr) => {{
             let address = $address;
-            if let Some(mapping) = mapper
-                .translate(WalkInputAddr::new(address))
-                .map_err(|_| HarnessError::InvalidState)?
-            {
+            if let Some(mapping) = mapper.translate(WalkInputAddr::new(address)).map_err(|_| {
+                HarnessError::TransitionPreparation(TransitionPreparationError::RecoveryInspection)
+            })? {
                 if mapping.output().0 != address
                     || mapping.level() != Level::L3
                     || *mapping.fields() != data_fields
                 {
-                    return Err(HarnessError::InvalidState);
+                    return Err(HarnessError::TransitionPreparation(
+                        TransitionPreparationError::RecoveryIdentity,
+                    ));
                 }
             } else {
                 mapper
@@ -1985,7 +2097,11 @@ where
                         data_fields,
                         table_fields,
                     )
-                    .map_err(|_| HarnessError::InvalidState)?;
+                    .map_err(|_| {
+                        HarnessError::TransitionPreparation(
+                            TransitionPreparationError::CandidateRuntime,
+                        )
+                    })?;
             }
         }};
     }
@@ -1995,19 +2111,24 @@ where
         }
         let mut address = code_windows[index];
         let end = address
-            .checked_add(CODE_WINDOW)
+            .checked_add(code_window)
             .ok_or(HarnessError::Memory)?;
         while address < end {
             if address != stack_page && !is_state_page(address) {
-                if let Some(mapping) = mapper
-                    .translate(WalkInputAddr::new(address))
-                    .map_err(|_| HarnessError::InvalidState)?
+                if let Some(mapping) =
+                    mapper.translate(WalkInputAddr::new(address)).map_err(|_| {
+                        HarnessError::TransitionPreparation(
+                            TransitionPreparationError::RecoveryInspection,
+                        )
+                    })?
                 {
                     if mapping.output().0 != address
                         || mapping.level() != Level::L3
                         || *mapping.fields() != code_fields
                     {
-                        return Err(HarnessError::InvalidState);
+                        return Err(HarnessError::TransitionPreparation(
+                            TransitionPreparationError::RecoveryIdentity,
+                        ));
                     }
                 } else {
                     mapper
@@ -2018,16 +2139,42 @@ where
                             code_fields,
                             table_fields,
                         )
-                        .map_err(|_| HarnessError::InvalidState)?;
+                        .map_err(|_| {
+                            HarnessError::TransitionPreparation(
+                                TransitionPreparationError::CandidateRuntime,
+                            )
+                        })?;
                 }
             }
             address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
         }
     }
     if is_code_page(stack_page) || is_state_page(stack_page) {
-        return Err(HarnessError::InvalidState);
+        return Err(HarnessError::TransitionPreparation(
+            TransitionPreparationError::CandidateTableAccess,
+        ));
     }
-    ensure_data_page!(stack_page);
+    if let Some(mapping) = mapper
+        .translate(WalkInputAddr::new(stack_page))
+        .map_err(|_| HarnessError::InvalidState)?
+    {
+        if mapping.output().0 != stack_physical_page
+            || mapping.level() != Level::L3
+            || *mapping.fields() != data_fields
+        {
+            return Err(HarnessError::InvalidState);
+        }
+    } else {
+        mapper
+            .map_leaf(
+                WalkInputAddr::new(stack_page),
+                PhysAddr(stack_physical_page),
+                Level::L3,
+                data_fields,
+                table_fields,
+            )
+            .map_err(|_| HarnessError::InvalidState)?;
+    }
     for index in 0..state_pages.len() {
         let page = state_pages[index];
         if state_pages[..index].contains(&page) {
@@ -2309,7 +2456,9 @@ unsafe impl TableAccess<Vmsa64, Granule4KiB> for ProbeTableAccess {
         if self.fail_read {
             Err(ProbeAccessError::Read)
         } else {
-            self.inner.table_at(location).map_err(|_| ProbeAccessError::Inner)
+            self.inner
+                .table_at(location)
+                .map_err(|_| ProbeAccessError::Inner)
         }
     }
 }
@@ -2318,7 +2467,8 @@ unsafe impl TableAccessMut<Vmsa64, Granule4KiB> for ProbeTableAccess {
     fn table_at_mut<'a>(
         &'a mut self,
         location: aarch64_vmsa::table::TableAccessLocation<Vmsa64, Granule4KiB>,
-    ) -> Result<aarch64_vmsa::table::TranslationTableMut<'a, Vmsa64, Granule4KiB>, Self::Error> {
+    ) -> Result<aarch64_vmsa::table::TranslationTableMut<'a, Vmsa64, Granule4KiB>, Self::Error>
+    {
         if self.fail_write {
             Err(ProbeAccessError::Write)
         } else {
@@ -2389,7 +2539,10 @@ pub(crate) fn verify_mapper_provider_probe(
     use aarch64_vmsa::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::translation::walk::WalkInputAddr;
 
-    let root_level = if matches!(probe, MapperProviderProbe::TableRead | MapperProviderProbe::DescriptorWrite) {
+    let root_level = if matches!(
+        probe,
+        MapperProviderProbe::TableRead | MapperProviderProbe::DescriptorWrite
+    ) {
         Level::L3
     } else {
         Level::L0
@@ -2410,14 +2563,11 @@ pub(crate) fn verify_mapper_provider_probe(
         fail_free: false,
     };
     let root = RootTable::new(root_address, root_level, input_bits, 48);
-    let Ok(mut mapper) = Mapper::<
-        Vmsa64,
-        NonSecureEl2Stage1,
-        Granule4KiB,
-        _,
-        _,
-        Offline,
-    >::new_offline(root, access, frames) else {
+    let Ok(mut mapper) =
+        Mapper::<Vmsa64, NonSecureEl2Stage1, Granule4KiB, _, _, Offline>::new_offline(
+            root, access, frames,
+        )
+    else {
         return false;
     };
     let leaf = match <NonSecureEl2Stage1 as TestRegimeFor<Granule4KiB>>::raw_leaf(
@@ -2435,12 +2585,14 @@ pub(crate) fn verify_mapper_provider_probe(
             mapper.translate(WalkInputAddr::new(0)),
             Err(MapperError::Access(ProbeAccessError::Read))
         ),
-        MapperProviderProbe::DescriptorWrite => mapper
-            .map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
-            == Err(MapperError::Access(ProbeAccessError::Write)),
-        MapperProviderProbe::FrameAllocate => mapper
-            .map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
-            == Err(MapperError::Frame(ProbeFrameError::Allocate)),
+        MapperProviderProbe::DescriptorWrite => {
+            mapper.map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
+                == Err(MapperError::Access(ProbeAccessError::Write))
+        }
+        MapperProviderProbe::FrameAllocate => {
+            mapper.map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
+                == Err(MapperError::Frame(ProbeFrameError::Allocate))
+        }
         MapperProviderProbe::FrameFree => {
             if mapper
                 .map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
@@ -3220,24 +3372,46 @@ where
     pub(crate) fn prepare_current_runtime(
         &mut self,
         entry: u64,
-        payload_data: [u64; 2],
+        payload_data: [u64; 4],
         sandbox_regions: &[(u64, u64)],
+        user_accessible: bool,
     ) -> Result<(), HarnessError> {
         const CODE_WINDOW: u64 = 1024 * 1024;
         let leaf_level = LookupLevel::new(3).ok_or(HarnessError::InvalidState)?;
-        let stack = vmsa_test_architecture::registers::stack_pointer() & !(G::SIZE - 1);
-        let stack_start = stack.saturating_sub(15 * G::SIZE);
-        let stack_end = stack.saturating_add(16 * G::SIZE);
+        let memory = self.inner.frames().memory();
+        let arena_start = G::align_down(unsafe { memory.as_ref() }.physical_base());
+        let arena_end = unsafe { memory.as_ref() }
+            .physical_base()
+            .checked_add(unsafe { memory.as_ref() }.byte_len() as u64)
+            .ok_or(HarnessError::Memory)?;
+        let stack_pointer = vmsa_test_architecture::registers::stack_pointer();
+        let stack = G::align_down(stack_pointer);
+        let (stack_start, stack_end) = if G::SIZE == 64 * 1024 {
+            (stack.saturating_sub(G::SIZE), stack.saturating_add(2 * G::SIZE))
+        } else {
+            (
+                stack.saturating_sub(R::CURRENT_STACK_WINDOW),
+                stack.saturating_add(R::CURRENT_STACK_WINDOW),
+            )
+        };
         let code_regions = [
             entry & !(CODE_WINDOW - 1),
             vmsa_test_architecture::exception::vector_address() & !(CODE_WINDOW - 1),
             vmsa_test_architecture::exception::recovery_vector_address() & !(CODE_WINDOW - 1),
+            payload_data[3] & !(CODE_WINDOW - 1),
+        ];
+        const PRIVILEGED_CODE_WINDOW: u64 = 64 * 1024;
+        let privileged_code_regions = [
+            vmsa_test_architecture::exception::vector_address() & !(PRIVILEGED_CODE_WINDOW - 1),
+            vmsa_test_architecture::exception::recovery_vector_address()
+                & !(PRIVILEGED_CODE_WINDOW - 1),
         ];
         let data_pages = [
             payload_data[0] & !(G::SIZE - 1),
             vmsa_test_architecture::exception::runtime_state_address() & !(G::SIZE - 1),
             vmsa_test_architecture::transition::runtime_state_address() & !(G::SIZE - 1),
             payload_data[1] & !(G::SIZE - 1),
+            payload_data[2] & !(G::SIZE - 1),
             0x1c09_0000 & !(G::SIZE - 1),
             0x1c0a_0000 & !(G::SIZE - 1),
         ];
@@ -3253,7 +3427,8 @@ where
             while address < end {
                 let sandbox_data = sandbox_regions.iter().any(|(input, _)| *input == address);
                 if !(stack_start..stack_end).contains(&address)
-                    && !data_pages.contains(&address)
+                    && !(arena_start..arena_end).contains(&address)
+                    && (user_accessible || !data_pages.contains(&address))
                     && !sandbox_data
                 {
                     self.map_attributes_leaf(
@@ -3261,18 +3436,43 @@ where
                         address,
                         leaf_level,
                         MappingAttributes {
-                            writable: false,
+                            writable: !user_accessible && R::MUTABLE_FIRMWARE_CODE,
                             executable: true,
-                            user_accessible: false,
+                            user_accessible: user_accessible
+                                && !privileged_code_regions.iter().any(|start| {
+                                    (*start..*start + PRIVILEGED_CODE_WINDOW).contains(&address)
+                                }),
                         },
-                    )?;
+                    )
+                    .map_err(|_| {
+                        HarnessError::TransitionPreparation(
+                            crate::TransitionPreparationError::VmsaRuntimeCode,
+                        )
+                    })?;
                 }
                 address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
             }
         }
         let mut address = stack_start;
         while address < stack_end {
-            self.map_attributes_leaf(address, address, leaf_level, MappingAttributes::READ_WRITE)?;
+            self.map_attributes_leaf(
+                address,
+                address,
+                leaf_level,
+                MappingAttributes {
+                    writable: true,
+                    executable: false,
+                    // Exception entry at EL2 can set PAN before the vector
+                    // prologue touches this stack. Keep the current-EL stack
+                    // privileged even when the candidate also serves EL0.
+                    user_accessible: false,
+                },
+            )
+            .map_err(|_| {
+                HarnessError::TransitionPreparation(
+                    crate::TransitionPreparationError::VmsaRuntimeStack,
+                )
+            })?;
             address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
         }
         for index in 0..data_pages.len() {
@@ -3292,16 +3492,38 @@ where
             let contains_code = code_regions
                 .iter()
                 .any(|region| (*region..*region + CODE_WINDOW).contains(&address));
+            let privileged_code = privileged_code_regions
+                .iter()
+                .any(|start| (*start..*start + PRIVILEGED_CODE_WINDOW).contains(&address));
+            // Executable runtime leaves were installed above. A function
+            // pointer in `payload_data` can align to the same coarse leaf; it
+            // is metadata, not a request to replace that leaf as data.
+            if contains_code && user_accessible {
+                continue;
+            }
             self.map_attributes_leaf(
                 address,
                 address,
                 leaf_level,
                 MappingAttributes {
                     writable: true,
-                    executable: contains_code,
-                    user_accessible: false,
+                    executable: contains_code
+                        && !user_accessible
+                        && R::MUTABLE_FIRMWARE_CODE,
+                    // Of these explicit data pages, only the lower payload's
+                    // stack is consumed at EL0. Runtime state, callbacks, and
+                    // UART state are accessed by the EL2 harness/vector path
+                    // and must remain usable with PAN set.
+                    user_accessible: user_accessible
+                        && address == (payload_data[2] & !(G::SIZE - 1))
+                        && !privileged_code,
                 },
-            )?;
+            )
+            .map_err(|_| {
+                HarnessError::TransitionPreparation(
+                    crate::TransitionPreparationError::VmsaRuntimeData,
+                )
+            })?;
         }
         for &(input, output) in sandbox_regions {
             if input & (G::SIZE - 1) != 0 || output & (G::SIZE - 1) != 0 {
@@ -3316,7 +3538,21 @@ where
                     return Err(HarnessError::InvalidState);
                 }
             } else {
-                self.map_attributes_leaf(input, output, leaf_level, MappingAttributes::READ_WRITE)?;
+                self.map_attributes_leaf(
+                    input,
+                    output,
+                    leaf_level,
+                    MappingAttributes {
+                        writable: true,
+                        executable: false,
+                        user_accessible,
+                    },
+                )
+                .map_err(|_| {
+                    HarnessError::TransitionPreparation(
+                        crate::TransitionPreparationError::VmsaRuntimeSandbox,
+                    )
+                })?;
             }
         }
         Ok(())
@@ -3366,7 +3602,7 @@ where
                             WalkInputAddr::new(virtual_address),
                             PhysAddr(physical_address),
                             Level::L3,
-                            R::raw_leaf(MappingAttributes::READ_WRITE)?,
+                            R::raw_leaf_for_format(MappingAttributes::READ_WRITE, F::FORMAT)?,
                             R::raw_table()?,
                         )
                         .map_err(|_| HarnessError::InvalidState)?;
@@ -3394,7 +3630,7 @@ where
                 WalkInputAddr::new(input),
                 PhysAddr(output),
                 Level::new(level.get()),
-                R::raw_leaf(attributes)?,
+                R::raw_leaf_for_format(attributes, F::FORMAT)?,
                 R::raw_table()?,
             )
             .map(|_| ())
@@ -3667,11 +3903,17 @@ where
     pub(crate) fn prepare_current_runtime_d128(
         &mut self,
         entry: u64,
-        payload_data: [u64; 2],
+        payload_data: [u64; 4],
         sandbox_regions: &[(u64, u64)],
     ) -> Result<(), HarnessError> {
         const PAGE_SIZE: u64 = 4096;
         const CODE_WINDOW: u64 = 1024 * 1024;
+        let memory = self.inner.frames().memory();
+        let arena_start = unsafe { memory.as_ref() }.physical_base() & !(PAGE_SIZE - 1);
+        let arena_end = unsafe { memory.as_ref() }
+            .physical_base()
+            .checked_add(unsafe { memory.as_ref() }.byte_len() as u64)
+            .ok_or(HarnessError::Memory)?;
         let stack = vmsa_test_architecture::registers::stack_pointer() & !(PAGE_SIZE - 1);
         let stack_start = stack.saturating_sub(15 * PAGE_SIZE);
         let stack_end = stack.saturating_add(16 * PAGE_SIZE);
@@ -3679,12 +3921,14 @@ where
             entry & !(CODE_WINDOW - 1),
             vmsa_test_architecture::exception::vector_address() & !(CODE_WINDOW - 1),
             vmsa_test_architecture::exception::recovery_vector_address() & !(CODE_WINDOW - 1),
+            payload_data[3] & !(CODE_WINDOW - 1),
         ];
         let data_pages = [
             payload_data[0] & !(PAGE_SIZE - 1),
             vmsa_test_architecture::exception::runtime_state_address() & !(PAGE_SIZE - 1),
             vmsa_test_architecture::transition::runtime_state_address() & !(PAGE_SIZE - 1),
             payload_data[1] & !(PAGE_SIZE - 1),
+            payload_data[2] & !(PAGE_SIZE - 1),
             0x1c09_0000 & !(PAGE_SIZE - 1),
             0x1c0a_0000 & !(PAGE_SIZE - 1),
         ];
@@ -3700,22 +3944,34 @@ where
             while address < end {
                 let sandbox_data = sandbox_regions.iter().any(|(input, _)| *input == address);
                 if !(stack_start..stack_end).contains(&address)
+                    && !(arena_start..arena_end).contains(&address)
                     && !data_pages.contains(&address)
                     && !sandbox_data
                 {
-                    self.map_d128_runtime_page(address, address, true)?;
+                    self.map_d128_runtime_page(address, address, true)
+                        .map_err(|_| {
+                            HarnessError::TransitionPreparation(
+                                crate::TransitionPreparationError::D128RuntimeCode,
+                            )
+                        })?;
                 }
                 address = address.checked_add(PAGE_SIZE).ok_or(HarnessError::Memory)?;
             }
         }
         let mut address = stack_start;
         while address < stack_end {
-            self.map_d128_runtime_page(address, address, false)?;
+            self.map_d128_runtime_page(address, address, false)
+                .map_err(|_| {
+                    HarnessError::TransitionPreparation(
+                        crate::TransitionPreparationError::D128RuntimeStack,
+                    )
+                })?;
             address = address.checked_add(PAGE_SIZE).ok_or(HarnessError::Memory)?;
         }
         for index in 0..data_pages.len() {
             let address = data_pages[index];
             if data_pages[..index].contains(&address)
+                || (stack_start..stack_end).contains(&address)
                 || sandbox_regions.iter().any(|(input, _)| *input == address)
             {
                 continue;
@@ -3723,7 +3979,12 @@ where
             let executable = code_regions
                 .iter()
                 .any(|region| (*region..*region + CODE_WINDOW).contains(&address));
-            self.map_d128_runtime_page(address, address, executable)?;
+            self.map_d128_runtime_page(address, address, executable)
+                .map_err(|_| {
+                    HarnessError::TransitionPreparation(
+                        crate::TransitionPreparationError::D128RuntimeData,
+                    )
+                })?;
         }
         for &(input, output) in sandbox_regions {
             if input & (PAGE_SIZE - 1) != 0 || output & (PAGE_SIZE - 1) != 0 {
@@ -3738,7 +3999,12 @@ where
                     return Err(HarnessError::InvalidState);
                 }
             } else {
-                self.map_d128_runtime_page(input, output, false)?;
+                self.map_d128_runtime_page(input, output, false)
+                    .map_err(|_| {
+                        HarnessError::TransitionPreparation(
+                            crate::TransitionPreparationError::D128RuntimeSandbox,
+                        )
+                    })?;
             }
         }
         Ok(())

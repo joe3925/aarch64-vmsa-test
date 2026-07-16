@@ -24,6 +24,16 @@ mod pas;
 #[path = "../../common/runtime_support.rs"]
 #[allow(dead_code)]
 mod runtime_support;
+#[path = "../../common/semantic_d128.rs"]
+mod semantic_d128;
+#[path = "../../common/semantic_extended.rs"]
+mod semantic_extended;
+#[path = "../../common/semantic_host.rs"]
+mod semantic_host;
+#[path = "../../common/semantic_normal.rs"]
+mod semantic_normal;
+#[path = "../../common/stage2_leaf_matrix.rs"]
+mod stage2_leaf_matrix;
 use common::{BootContext, REGIME_SECURE, define_environment, outcome_code};
 use vmsa_test_harness::adapter::{RunOptions, run_catalog_tests};
 use vmsa_test_harness::{LogicalTest, Requirements, SecurityEnvironment, TestContext, TestResult};
@@ -31,7 +41,49 @@ define_environment!(SecureEl2Environment, aarch64_vmsa::regime::SecureEl2Stage1)
 pub type CurrentEnvironment = SecureEl2Environment;
 pub type CurrentRegime = aarch64_vmsa::regime::SecureEl2Stage1;
 pub type LowerRegime = aarch64_vmsa::regime::SecureEl1Stage1;
+pub type HostRegime = aarch64_vmsa::regime::SecureEl2HostStage1;
+pub type LowerPas = aarch64_vmsa::attrs::SecureSelectablePa;
+pub type HostPas = aarch64_vmsa::attrs::SecureSelectablePa;
+pub type HostTablePas = aarch64_vmsa::attrs::SecureSelectablePa;
+pub type CurrentPas = aarch64_vmsa::attrs::SecureSelectablePa;
+pub type CurrentTablePas = aarch64_vmsa::attrs::SecureSelectablePa;
+pub const fn current_config_pas() -> CurrentPas {
+    CurrentPas::Secure
+}
+pub const fn current_pas() -> CurrentPas {
+    CurrentPas::Secure
+}
+pub const fn current_table_pas() -> CurrentTablePas {
+    CurrentTablePas::Secure
+}
+pub const fn current_d128_alias() -> aarch64_vmsa::attrs::D128Stage1AliasKind {
+    aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal
+}
+pub const fn current_regime_attributes() -> vmsa_test_harness::RegimeAttributes {
+    vmsa_test_harness::RegimeAttributes::Secure
+}
+pub const fn lower_pas() -> LowerPas {
+    LowerPas::Secure
+}
+pub const fn host_pas() -> HostPas {
+    HostPas::Secure
+}
+pub const fn host_table_pas() -> HostTablePas {
+    HostTablePas::Secure
+}
+pub const fn lower_regime_attributes() -> vmsa_test_harness::RegimeAttributes {
+    vmsa_test_harness::RegimeAttributes::Secure
+}
+pub const fn host_regime_attributes() -> vmsa_test_harness::RegimeAttributes {
+    vmsa_test_harness::RegimeAttributes::Secure
+}
 pub type Stage2Regime = aarch64_vmsa::regime::SecureEl2SecureIpaStage2;
+pub type Stage2XnxRegime =
+    aarch64_vmsa::regime::SecureEl2SecureIpaStage2<aarch64_vmsa::attrs::Stage2XnxPermissions>;
+pub type Stage2Pas = aarch64_vmsa::attrs::SecureSelectablePa;
+pub const fn stage2_pas() -> Stage2Pas {
+    Stage2Pas::Secure
+}
 fn feature_snapshot_agreement(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     features::live_snapshot_agreement(context.capabilities())
 }
@@ -68,17 +120,21 @@ fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> Test
     macro_rules! check {
         ($regime:ty) => {
             features::require_base_format!(current; $regime)
-                && features::require_extended_formats_unsupported!(current; $regime)
+                && features::require_live_format_agreement!(current; $regime, stage2 = false)
         };
     }
     features::regime_result(
         check!(SecureEl2Stage1)
             && check!(SecureEl1Stage1)
             && check!(SecureEl2HostStage1)
-            && check!(SecureEl2SecureIpaStage2<Stage2Permissions>)
-            && check!(SecureEl2SecureIpaStage2<Stage2XnxPermissions>)
-            && check!(SecureEl2NonSecureIpaStage2<Stage2Permissions>)
-            && check!(SecureEl2NonSecureIpaStage2<Stage2XnxPermissions>),
+            && features::require_base_format!(current; SecureEl2SecureIpaStage2<Stage2Permissions>)
+            && features::require_live_format_agreement!(current; SecureEl2SecureIpaStage2<Stage2Permissions>, stage2 = true)
+            && features::require_base_format!(current; SecureEl2SecureIpaStage2<Stage2XnxPermissions>)
+            && features::require_live_format_agreement!(current; SecureEl2SecureIpaStage2<Stage2XnxPermissions>, stage2 = true)
+            && features::require_base_format!(current; SecureEl2NonSecureIpaStage2<Stage2Permissions>)
+            && features::require_live_format_agreement!(current; SecureEl2NonSecureIpaStage2<Stage2Permissions>, stage2 = true)
+            && features::require_base_format!(current; SecureEl2NonSecureIpaStage2<Stage2XnxPermissions>)
+            && features::require_live_format_agreement!(current; SecureEl2NonSecureIpaStage2<Stage2XnxPermissions>, stage2 = true),
     )
 }
 fn current_access(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {

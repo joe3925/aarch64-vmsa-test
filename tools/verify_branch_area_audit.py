@@ -42,8 +42,8 @@ def main() -> None:
     source_lines = sum(len(path.read_text().splitlines()) for path in CRATE.rglob("*.rs"))
     if source_lines != 10_196:
         fail(f"expected 10,196 crate Rust lines, found {source_lines}")
-    if len(names) != 491:
-        fail(f"expected 491 catalog identities, found {len(names)}")
+    if len(names) != 543:
+        fail(f"expected 543 catalog identities, found {len(names)}")
 
     with SOURCE_INVENTORY.open(newline="") as source:
         inventory = list(csv.DictReader(source))

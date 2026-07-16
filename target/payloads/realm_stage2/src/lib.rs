@@ -77,13 +77,15 @@ fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> Test
     macro_rules! check {
         ($regime:ty) => {
             features::require_base_format!(current; $regime)
-                && features::require_extended_formats_unsupported!(current; $regime)
+                && features::require_live_format_agreement!(current; $regime, stage2 = false)
         };
     }
     features::regime_result(
         check!(RealmEl1Stage1)
-            && check!(RealmEl2Stage2<Stage2Permissions>)
-            && check!(RealmEl2Stage2<Stage2XnxPermissions>),
+            && features::require_base_format!(current; RealmEl2Stage2<Stage2Permissions>)
+            && features::require_live_format_agreement!(current; RealmEl2Stage2<Stage2Permissions>, stage2 = true)
+            && features::require_base_format!(current; RealmEl2Stage2<Stage2XnxPermissions>)
+            && features::require_live_format_agreement!(current; RealmEl2Stage2<Stage2XnxPermissions>, stage2 = true),
     )
 }
 

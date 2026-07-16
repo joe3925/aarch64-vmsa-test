@@ -342,6 +342,19 @@ impl<'a, E: Environment> TestContext<'a, E> {
         })
     }
 
+    /// Captures the inactive EL1 stage-1 bank for infrastructure regression checks.
+    ///
+    /// This is not a crate-behavior oracle.
+    pub fn infrastructure_lower_stage1_snapshot(&self) -> Option<InfrastructureStage1Snapshot> {
+        let state = vmsa_test_architecture::registers::current_el1_stage1_state()?;
+        Some(InfrastructureStage1Snapshot {
+            ttbr0: state.ttbr0,
+            tcr: state.tcr,
+            mair: state.mair,
+            sctlr: state.sctlr,
+        })
+    }
+
     /// Captures inactive-EL1 D128 controls for explicit infrastructure tests.
     ///
     /// This is not a crate-behavior oracle.
@@ -415,15 +428,53 @@ impl<'a, E: Environment> TestContext<'a, E> {
         address: u64,
         access: crate::TranslationQueryAccess,
     ) -> crate::TranslationQueryResult {
-        match self.lower_el(LowerElRequest::translate(
-            address,
-            access == crate::TranslationQueryAccess::Write,
-        )) {
-            AccessResult::Completed { value: par } => {
-                crate::TranslationQueryResult::from_par(address, par)
+        let access = match access {
+            crate::TranslationQueryAccess::Read => {
+                vmsa_test_architecture::translation::TranslationAccess::Read
             }
-            _ => crate::TranslationQueryResult::Unsupported,
-        }
+            crate::TranslationQueryAccess::Write => {
+                vmsa_test_architecture::translation::TranslationAccess::Write
+            }
+        };
+        vmsa_test_architecture::translation::lower_stage1(address, access)
+            .map_or(crate::TranslationQueryResult::Unsupported, |par| {
+                crate::TranslationQueryResult::from_par(address, par)
+            })
+    }
+
+    pub fn translate_lower_stage1_d128_raw(
+        &self,
+        address: u64,
+        access: crate::TranslationQueryAccess,
+    ) -> Option<(u64, u64)> {
+        let access = match access {
+            crate::TranslationQueryAccess::Read => {
+                vmsa_test_architecture::translation::TranslationAccess::Read
+            }
+            crate::TranslationQueryAccess::Write => {
+                vmsa_test_architecture::translation::TranslationAccess::Write
+            }
+        };
+        vmsa_test_architecture::translation::lower_stage1_d128(address, access)
+    }
+
+    pub fn translate_active_host_el0_stage1(
+        &self,
+        address: u64,
+        access: crate::TranslationQueryAccess,
+    ) -> crate::TranslationQueryResult {
+        let access = match access {
+            crate::TranslationQueryAccess::Read => {
+                vmsa_test_architecture::translation::TranslationAccess::Read
+            }
+            crate::TranslationQueryAccess::Write => {
+                vmsa_test_architecture::translation::TranslationAccess::Write
+            }
+        };
+        vmsa_test_architecture::translation::active_host_el0_stage1(address, access)
+            .map_or(crate::TranslationQueryResult::Unsupported, |par| {
+                crate::TranslationQueryResult::from_par(address, par)
+            })
     }
     pub fn allocate_page(&self) -> Result<Page, HarnessError> {
         self.allocate_page_in(self.native_pas())
@@ -1010,10 +1061,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         self.with_environment(|environment| environment.memory().allocation_count())
     }
 
-    fn verify_mapper_provider_probe(
-        &self,
-        probe: crate::translation::MapperProviderProbe,
-    ) -> bool {
+    fn verify_mapper_provider_probe(&self, probe: crate::translation::MapperProviderProbe) -> bool {
         let Ok(mut root) = self.allocate_root() else {
             return false;
         };
@@ -1353,6 +1401,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         &self,
         mapper: &mut TestMapper<R, G, F>,
         entry: u64,
+        user_accessible: bool,
     ) -> Result<TransitionSandbox, HarnessError>
     where
         R: TestRegimeFor<G>,
@@ -1418,12 +1467,42 @@ impl<'a, E: Environment> TestContext<'a, E> {
                     (stack.phys_addr(), stack.phys_addr()),
                     (mailbox.phys_addr(), mailbox.phys_addr()),
                 ],
+                user_accessible,
             )
             .map_err(|_| {
                 HarnessError::TransitionPreparation(
                     crate::TransitionPreparationError::CandidateRuntime,
                 )
             })?;
+        // Lower-EL commands allocate their mailbox and exception stack after
+        // the candidate translation is installed.  Identity-map the owning
+        // arena now so those later allocations remain reachable under the
+        // candidate EL2&0 translation.
+        let (arena_start, arena_bytes) = self.with_environment(|environment| {
+            let memory = environment.memory();
+            (memory.physical_base(), memory.byte_len() as u64)
+        });
+        let mut arena_page = arena_start & !(G::SIZE - 1);
+        let arena_end = arena_start
+            .checked_add(arena_bytes)
+            .ok_or(HarnessError::Memory)?;
+        while arena_page < arena_end {
+            if mapper.translate(arena_page)?.is_none() {
+                mapper.map_attributes_leaf(
+                    arena_page,
+                    arena_page,
+                    crate::LookupLevel::new(3).ok_or(HarnessError::InvalidState)?,
+                    crate::MappingAttributes {
+                        writable: true,
+                        executable: false,
+                        user_accessible,
+                    },
+                )?;
+            }
+            arena_page = arena_page
+                .checked_add(G::SIZE)
+                .ok_or(HarnessError::Memory)?;
+        }
         mapper.prepare_transition_table_access().map_err(|_| {
             HarnessError::TransitionPreparation(
                 crate::TransitionPreparationError::CandidateTableAccess,
@@ -1457,11 +1536,16 @@ impl<'a, E: Environment> TestContext<'a, E> {
                         ),
                         (mailbox.phys_addr(), mailbox.phys_addr()),
                     ],
+                    user_accessible,
                 )
-                .map_err(|_| {
-                    HarnessError::TransitionPreparation(
-                        crate::TransitionPreparationError::RecoveryRuntime,
-                    )
+                .map_err(|error| {
+                    if matches!(error, HarnessError::TransitionPreparation(_)) {
+                        error
+                    } else {
+                        HarnessError::TransitionPreparation(
+                            crate::TransitionPreparationError::RecoveryRuntime,
+                        )
+                    }
                 })?;
             for address in [
                 entry,
@@ -1559,10 +1643,14 @@ impl<'a, E: Environment> TestContext<'a, E> {
                     (mailbox.phys_addr(), mailbox.phys_addr()),
                 ],
             )
-            .map_err(|_| {
-                HarnessError::TransitionPreparation(
-                    crate::TransitionPreparationError::CandidateRuntime,
-                )
+            .map_err(|error| {
+                if matches!(error, HarnessError::TransitionPreparation(_)) {
+                    error
+                } else {
+                    HarnessError::TransitionPreparation(
+                        crate::TransitionPreparationError::CandidateRuntime,
+                    )
+                }
             })?;
         mapper.prepare_transition_table_access_d128().map_err(|_| {
             HarnessError::TransitionPreparation(
@@ -1594,11 +1682,16 @@ impl<'a, E: Environment> TestContext<'a, E> {
                         (stack.phys_addr(), stack.phys_addr()),
                         (mailbox.phys_addr(), mailbox.phys_addr()),
                     ],
+                    false,
                 )
-                .map_err(|_| {
-                    HarnessError::TransitionPreparation(
-                        crate::TransitionPreparationError::RecoveryRuntime,
-                    )
+                .map_err(|error| {
+                    if matches!(error, HarnessError::TransitionPreparation(_)) {
+                        error
+                    } else {
+                        HarnessError::TransitionPreparation(
+                            crate::TransitionPreparationError::RecoveryRuntime,
+                        )
+                    }
                 })?;
             for address in [
                 entry,

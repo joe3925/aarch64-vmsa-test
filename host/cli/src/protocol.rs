@@ -21,10 +21,19 @@ pub enum Event {
     Run {
         name: String,
     },
+    Terminal {
+        name: String,
+    },
     Pass {
         name: String,
     },
     Fail {
+        name: String,
+        reason: String,
+        expected: u64,
+        actual: u64,
+    },
+    InfrastructureFailure {
         name: String,
         reason: String,
         expected: u64,
@@ -129,6 +138,21 @@ impl Parser {
                 self.active = Some(name.clone());
                 Event::Run { name }
             }
+            "TERMINAL" => {
+                let name = protocol_name(
+                    one_word(&mut words, "TERMINAL test name")?,
+                    "TERMINAL test name",
+                )?
+                .to_owned();
+                no_more(words)?;
+                if self.active.as_deref() != Some(name.as_str()) {
+                    return Err(format!(
+                        "TERMINAL test {name} does not match active test {:?}",
+                        self.active
+                    ));
+                }
+                Event::Terminal { name }
+            }
             "PASS" => {
                 let name = completion_name(self, &mut words)?;
                 self.counts.passed = self
@@ -148,6 +172,16 @@ impl Parser {
                     .checked_add(1)
                     .ok_or("fail counter overflow")?;
                 Event::Fail {
+                    name,
+                    reason,
+                    expected,
+                    actual,
+                }
+            }
+            "INFRA" => {
+                let name = completion_name_first(self, &mut words)?;
+                let (reason, expected, actual) = failure_fields(words)?;
+                Event::InfrastructureFailure {
                     name,
                     reason,
                     expected,
@@ -235,6 +269,7 @@ pub fn validate_parser() -> Result<(), String> {
         "@@VMSA BEGIN protocol=1 target=self-check",
         "@@VMSA CAP rme=1",
         "@@VMSA RUN host.pass",
+        "@@VMSA INFRA host.pass reason=cleanup expected=1 actual=0",
         "@@VMSA PASS host.pass",
         "@@VMSA SKIP host.skip reason=unsupported",
         "@@VMSA END passed=1 failed=0 skipped=1",

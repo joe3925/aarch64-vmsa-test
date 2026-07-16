@@ -100,12 +100,34 @@ where
         let reset_failed = environment.memory().reset(memory_scope).is_err();
         if cleanup_failed || reset_failed {
             environment.mark_corrupted();
-            environment.report(ReportEvent::Fail {
+            environment.report(ReportEvent::InfrastructureFailure {
                 name,
                 reason: "cleanup",
-                expected: 0,
-                actual: 0,
+                expected: cleanup_failed as u64,
+                actual: reset_failed as u64,
             });
+            match result {
+                Some(TestResult::Fail(failure)) => environment.report(ReportEvent::Fail {
+                    name,
+                    reason: failure_reason(failure),
+                    expected: failure.expected,
+                    actual: failure.actual,
+                }),
+                None => environment.report(ReportEvent::Fail {
+                    name,
+                    reason: "adapter-missing",
+                    expected: 0,
+                    actual: 0,
+                }),
+                Some(TestResult::Pass | TestResult::Skip(_)) => {
+                    environment.report(ReportEvent::Fail {
+                        name,
+                        reason: "cleanup",
+                        expected: cleanup_failed as u64,
+                        actual: reset_failed as u64,
+                    });
+                }
+            }
             failed = failed.saturating_add(1);
             corrupted = true;
             break;

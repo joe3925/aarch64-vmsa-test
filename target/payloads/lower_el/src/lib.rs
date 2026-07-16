@@ -44,6 +44,32 @@ pub unsafe extern "C" fn vmsa_lower_el_entry(mailbox: *mut LowerElMailbox) -> ! 
             wait_forever()
         }
     };
+    if mailbox.operation == 11 {
+        if target != LowerElTarget::El1 {
+            mailbox.status = 2;
+            return_to_owner(return_conduit, target)
+        }
+        let sctlr: u64;
+        // SAFETY: This command executes at EL1 and hands the disabled regime
+        // directly back to the owning EL2 adapter without another EL1 access.
+        unsafe {
+            asm!(
+                "mrs {saved}, SCTLR_EL1",
+                "bic x9, {saved}, #1",
+                "bic x9, x9, #4",
+                "bic x9, x9, #0x1000",
+                "dsb sy",
+                "msr SCTLR_EL1, x9",
+                "isb",
+                saved = out(reg) sctlr,
+                out("x9") _,
+                options(nostack, preserves_flags)
+            )
+        };
+        mailbox.status = 0;
+        mailbox.result = sctlr;
+        return_to_owner(return_conduit, target)
+    }
     if matches!(mailbox.operation, 9 | 10) {
         let result = guarded_pair_with_state(
             mailbox.exception_state,

@@ -1,0 +1,29 @@
+diff --git a/lib/arch/include/arch_features.h b/lib/arch/include/arch_features.h
+index 175fab70..d1ed0671 100644
+--- a/lib/arch/include/arch_features.h
++++ b/lib/arch/include/arch_features.h
+@@ -163,6 +163,8 @@
+ 	MASK(ID_AA64MMFR3_EL1_S1POE)			| \
+ 	MASK(ID_AA64MMFR3_EL1_S2PIE)			| \
+ 	MASK(ID_AA64MMFR3_EL1_S2POE)			| \
++	MASK(ID_AA64MMFR3_EL1_D128)			| \
++	MASK(ID_AA64MMFR3_EL1_D128_2)			| \
+ 	MASK(ID_AA64MMFR3_EL1_MEC)			| \
+ 	MASK(ID_AA64MMFR3_EL1_SNERR)			| \
+ 	MASK(ID_AA64MMFR3_EL1_ANERR)			| \
+diff --git a/lib/arch/src/arch_features.c b/lib/arch/src/arch_features.c
+index d61e7a13..a9cae275 100644
+--- a/lib/arch/src/arch_features.c
++++ b/lib/arch/src/arch_features.c
+@@ -123,6 +123,11 @@ static void update_id_aa64mmfr3_el1(struct cached_idreg_info *ptr)
+ 		ptr->id_aa64mmfr3_el1 &= ~MASK(ID_AA64MMFR3_EL1_TCRX);
+ 	}
+ 
++	if (EXTRACT_BIT(SMC_FEAT_SCR_D128, value) == 0U) {
++		ptr->id_aa64mmfr3_el1 &= ~MASK(ID_AA64MMFR3_EL1_D128);
++		ptr->id_aa64mmfr3_el1 &= ~MASK(ID_AA64MMFR3_EL1_D128_2);
++	}
++
+ 	if (EXTRACT_BIT(SMC_FEAT_SCR_MEC, value) == 0U) {
+ 		ptr->id_aa64mmfr3_el1 &= ~MASK(ID_AA64MMFR3_EL1_MEC);
+ 	}

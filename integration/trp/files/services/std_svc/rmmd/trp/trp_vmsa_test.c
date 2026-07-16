@@ -7,7 +7,7 @@
 #include "vmsa_filter.h"
 #include "vmsa_test_abi.h"
 
-#define VMSA_ARENA_BYTES (256U * 1024U)
+#define VMSA_ARENA_BYTES (2U * 1024U * 1024U)
 #define VMSA_LOWER_STACK_BYTES (64U * 1024U)
 /* In the R-EL2 stage-1 regime, descriptor PAS bits 00 select Realm PAS. */
 #define VMSA_R_EL2_PAS MT_SECURE

@@ -6,17 +6,19 @@
 #include <lib/gpt_rme/gpt_rme.h>
 #include <lib/smccc.h>
 #include <lib/xlat_tables/xlat_tables_v2.h>
+#include <platform_def.h>
 
 #include "vmsa_filter.h"
 #include "vmsa_test_abi.h"
 
-#define VMSA_ARENA_BYTES (64U * 1024U)
+#define VMSA_ARENA_BYTES (1024U * 1024U)
+#define VMSA_ARENA_PHYSICAL (PLAT_ARM_TRUSTED_DRAM_BASE + UINT64_C(0x01000000))
+#define VMSA_ARENA_VIRTUAL UINT64_C(0x61000000)
 #define VMSA_PAS_PAGE UINT64_C(0x87ff0000)
 #define VMSA_PAS_VIRTUAL UINT64_C(0x60000000)
 #define VMSA_PAS_NON_SECURE UINT32_C(0)
 #define VMSA_PAS_DELEGATED_REALM UINT32_C(5)
 
-static uint8_t vmsa_arena[VMSA_ARENA_BYTES] __attribute__((aligned(4096)));
 static bool vmsa_pas_page_owned;
 static uint32_t vmsa_pas_page_kind;
 
@@ -94,9 +96,9 @@ void fvp_vmsa_root_test(void)
 	vmsa_boot_context_t context = {
 		.abi_version = VMSA_BOOT_CONTEXT_ABI_VERSION,
 		.abi_size = (uint32_t)sizeof(vmsa_boot_context_t),
-		.memory_virtual = vmsa_arena,
-		.memory_physical = (uintptr_t)vmsa_arena,
-		.memory_bytes = sizeof(vmsa_arena),
+		.memory_virtual = (void *)(uintptr_t)VMSA_ARENA_VIRTUAL,
+		.memory_physical = VMSA_ARENA_PHYSICAL,
+		.memory_bytes = VMSA_ARENA_BYTES,
 		.uart_write = vmsa_uart_write,
 		.lower_el_entry = 0U,
 		.lower_el_stack = 0U,
@@ -105,6 +107,13 @@ void fvp_vmsa_root_test(void)
 		.pas_page_acquire = vmsa_pas_page_acquire,
 		.pas_page_release = vmsa_pas_page_release,
 	};
+
+	if (mmap_add_dynamic_region(VMSA_ARENA_PHYSICAL, VMSA_ARENA_VIRTUAL,
+				    VMSA_ARENA_BYTES,
+				    MT_MEMORY | MT_RW | MT_ROOT) != 0) {
+		vmsa_write_message("VMSA-INFRA HARNESS_FAILURE result=root-arena-map\n");
+		return;
+	}
 
 	saved_cptr_el3 = read_cptr_el3();
 	write_cptr_el3(saved_cptr_el3 & ~TFP_BIT);
