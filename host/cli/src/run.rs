@@ -326,6 +326,7 @@ fn classify_failure(error: process::Failure) -> (&'static str, ExitCode, String)
         process::Failure::Build(detail) => ("build-error", ExitCode::BuildFailed, detail),
         process::Failure::Startup(detail) => ("startup-error", ExitCode::StartupFailed, detail),
         process::Failure::Capability(detail) => ("unsupported", ExitCode::Capability, detail),
+        process::Failure::Harness(detail) => ("harness-error", ExitCode::Malformed, detail),
         process::Failure::Malformed(detail) => ("malformed", ExitCode::Malformed, detail),
         process::Failure::Timeout(detail) => ("timeout", ExitCode::Timeout, detail),
         process::Failure::Io(detail) => ("startup-error", ExitCode::StartupFailed, detail),

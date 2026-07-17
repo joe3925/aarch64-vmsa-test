@@ -29,6 +29,7 @@ pub enum Failure {
     Build(String),
     Startup(String),
     Capability(String),
+    Harness(String),
     Malformed(String),
     Timeout(String),
     Io(String),
@@ -308,9 +309,11 @@ fn supervise(
                     return Err(terminate_then(
                         child,
                         container_name,
-                        Failure::Malformed(
-                            "guest reported an unrecoverable harness exception".into(),
-                        ),
+                        Failure::Harness(format!(
+                            "guest reported an unrecoverable harness exception while {} was active: {}",
+                            parser.active_test().unwrap_or("no test"),
+                            line.text
+                        )),
                     ));
                 }
                 match parser.parse_line(&line.text) {
@@ -464,6 +467,20 @@ pub fn validate_lifecycle(output_root: &Path) -> Result<(), String> {
         if !matches!(before_begin, Err(Failure::Startup(_))) {
             return Err(format!(
                 "exit-before-BEGIN self-check was not rejected exactly: {before_begin:?}"
+            ));
+        }
+
+        let harness_failure = run_lifecycle_case(
+            &root,
+            "guest-harness-failure",
+            "printf '%s\n' 'VMSA-INFRA HARNESS_FAILURE kind=unexpected'; sleep 10",
+        );
+        if !matches!(
+            harness_failure,
+            Err(Failure::Harness(ref detail)) if detail.contains("kind=unexpected")
+        ) {
+            return Err(format!(
+                "guest harness failure was not classified exactly: {harness_failure:?}"
             ));
         }
 
@@ -733,6 +750,7 @@ fn add_context(previous: Option<Failure>, context: &str) -> Failure {
         Failure::Build(detail) => Failure::Build(format!("{detail}; {context}")),
         Failure::Startup(detail) => Failure::Startup(format!("{detail}; {context}")),
         Failure::Capability(detail) => Failure::Capability(format!("{detail}; {context}")),
+        Failure::Harness(detail) => Failure::Harness(format!("{detail}; {context}")),
         Failure::Malformed(detail) => Failure::Malformed(format!("{detail}; {context}")),
         Failure::Timeout(detail) => Failure::Timeout(format!("{detail}; {context}")),
         Failure::Io(detail) => Failure::Io(format!("{detail}; {context}")),

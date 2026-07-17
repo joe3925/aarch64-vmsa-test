@@ -5,7 +5,9 @@ use vmsa_test_abi::{
     REALM_REC_MUTATION_IDLE, REALM_REC_MUTATION_NONE, REALM_REC_RUN_CATALOG,
     REALM_REC_STATUS_RUNNING, RealmRecRecord,
 };
-use vmsa_test_architecture::exception::{FatalExceptionGuard, RawFault, VectorGuard};
+use vmsa_test_architecture::exception::{
+    FatalExceptionGuard, FatalExceptionKind, RawFault, VectorGuard,
+};
 use vmsa_test_architecture::registers::{
     self, D128Stage1State, D128Stage2State, GeometryStage1State, SecureStage2State, Stage1State,
     Stage2State,
@@ -524,6 +526,8 @@ impl AdapterCore {
                 unsafe { core::slice::from_raw_parts(context.filter, context.filter_bytes) };
             Some(core::str::from_utf8(bytes).map_err(|_| AdapterError::InvalidContext)?)
         };
+        vmsa_test_architecture::transition::initialize_runtime_state();
+        vmsa_test_architecture::exception::initialize_runtime_state();
         PANIC_CALLBACK.store(callback as usize, Ordering::Release);
         let capabilities = read_capabilities();
         let fatal_exceptions = FatalExceptionGuard::install(fatal_exception);
@@ -559,7 +563,6 @@ impl AdapterCore {
             pas_page_release: context.pas_page_release,
             scoped_pas_page: None,
         };
-        vmsa_test_architecture::exception::initialize_runtime_state();
         core.initialize()?;
         Ok((core, filter))
     }
@@ -2002,7 +2005,7 @@ impl AdapterCore {
                     .map(|active| &active.saved),
                 Some(SavedTranslation::LowerStage1D128(_))
             );
-            for (index, (address, access)) in [
+            for (address, access) in [
                 (
                     self.lower_el_entry,
                     vmsa_test_architecture::translation::TranslationAccess::Read,
@@ -2023,9 +2026,11 @@ impl AdapterCore {
                     vmsa_test_architecture::exception::runtime_state_address(),
                     vmsa_test_architecture::translation::TranslationAccess::Write,
                 ),
+                (
+                    vmsa_test_architecture::transition::runtime_state_address(),
+                    vmsa_test_architecture::translation::TranslationAccess::Write,
+                ),
             ]
-            .into_iter()
-            .enumerate()
             {
                 let par = if d128 {
                     vmsa_test_architecture::translation::lower_stage1_d128(address, access)
@@ -2473,7 +2478,17 @@ unsafe extern "C" fn fatal_exception(
                 b"@@VMSA TERMINAL faults.unexpected-exception-destructive\n",
             );
         }
-        write_bytes(callback, b"VMSA-INFRA HARNESS_FAILURE esr=0x");
+        let kind = match vmsa_test_architecture::exception::fatal_exception_kind() {
+            FatalExceptionKind::Unexpected => b"unexpected" as &[u8],
+            FatalExceptionKind::InvalidRuntimeState => b"invalid-runtime-state",
+            FatalExceptionKind::DoubleFault => b"double-fault",
+            FatalExceptionKind::GuardStateViolation => b"guard-state-violation",
+            FatalExceptionKind::LowerElRecoveryFault => b"lower-el-recovery-fault",
+        };
+        write_bytes(callback, b"VMSA-INFRA HARNESS_FAILURE kind=");
+        write_bytes(callback, kind);
+        write_bytes(callback, b"\n");
+        write_bytes(callback, b"VMSA-INFRA EXCEPTION esr=0x");
         write_hex(callback, esr);
         write_bytes(callback, b" far=0x");
         write_hex(callback, far);

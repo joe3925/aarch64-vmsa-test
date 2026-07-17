@@ -2,13 +2,14 @@
 
 use core::arch::asm;
 use vmsa_test_abi::LowerElMailbox;
-use vmsa_test_architecture::transition::LowerElReturnConduit;
+use vmsa_test_architecture::transition::{
+    LowerElReturnConduit, LowerElTarget, configured_return_conduit, configured_target,
+};
 use vmsa_test_architecture::{
     AccessWidth, GuardedPairResult, GuardedResult, guarded_execute_with_state,
     guarded_ordered_with_state, guarded_pair_with_state, guarded_read_with_state,
     guarded_write_with_state,
 };
-use vmsa_test_harness::adapter::LowerElTarget;
 
 #[unsafe(no_mangle)]
 /// Processes one mailbox command at lower EL and returns through the selected conduit.
@@ -17,23 +18,25 @@ use vmsa_test_harness::adapter::LowerElTarget;
 ///
 /// `mailbox` must be writable, aligned, and live until the owning EL regains control.
 pub unsafe extern "C" fn vmsa_lower_el_entry(mailbox: *mut LowerElMailbox) -> ! {
+    let fallback_conduit = configured_return_conduit();
+    let fallback_target = configured_target();
     if mailbox.is_null()
         || !mailbox
             .addr()
             .is_multiple_of(core::mem::align_of::<LowerElMailbox>())
     {
-        wait_forever()
+        return_to_owner(fallback_conduit, fallback_target)
     }
     // SAFETY: Nullness and alignment were checked; the owning adapter provides
     // a writable page that remains live until this entry returns.
     let mailbox = unsafe { &mut *mailbox };
     let Some(return_conduit) = LowerElReturnConduit::from_raw(mailbox.return_conduit) else {
         mailbox.status = 2;
-        wait_forever()
+        return_to_owner(fallback_conduit, fallback_target)
     };
     if !mailbox.fields_valid() {
         mailbox.status = 2;
-        return_to_owner(return_conduit, LowerElTarget::El1)
+        return_to_owner(fallback_conduit, fallback_target)
     }
     let target = match mailbox.target {
         0 => LowerElTarget::El1,
@@ -41,7 +44,7 @@ pub unsafe extern "C" fn vmsa_lower_el_entry(mailbox: *mut LowerElMailbox) -> ! 
         2 => LowerElTarget::El2El0,
         _ => {
             mailbox.status = 2;
-            wait_forever()
+            return_to_owner(fallback_conduit, fallback_target)
         }
     };
     if mailbox.operation == 11 {
@@ -196,12 +199,5 @@ fn return_to_owner(conduit: LowerElReturnConduit, target: LowerElTarget) -> ! {
             // SAFETY: The owning EL2 adapter routes EL1 SMC to EL2 and expects EC 0x17.
             unsafe { asm!("smc #0", options(noreturn)) }
         }
-    }
-}
-
-fn wait_forever() -> ! {
-    loop {
-        // SAFETY: WFE only changes the processor's wait state.
-        unsafe { asm!("wfe", options(nomem, nostack, preserves_flags)) }
     }
 }

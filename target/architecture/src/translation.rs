@@ -215,8 +215,8 @@ pub fn lower_el0_stage1(address: u64, access: TranslationAccess) -> Option<u64> 
 /// Queries the active EL2&0 stage-1 regime while the caller owns HCR_EL2.
 ///
 /// Unlike [`lower_el0_stage1`], this helper deliberately leaves HCR_EL2
-/// untouched. It is used by the EL2&0 transition's synchronous-return handler
-/// before the transition restores its saved architectural state.
+/// untouched. It is used immediately after the bounded EL2&0 transition
+/// returns and before the transition restores its saved architectural state.
 pub fn active_host_el0_stage1(address: u64, access: TranslationAccess) -> Option<u64> {
     if crate::registers::current_el() != 2 {
         return None;
