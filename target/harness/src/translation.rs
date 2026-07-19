@@ -505,13 +505,7 @@ pub const fn lpa2_el1_stage1_controls(
         Granule::Size64KiB => 1u64,
     };
     Some(TranslationControls::from_bits(
-        12 | (1 << 8)
-            | (1 << 10)
-            | (3 << 12)
-            | (tg0 << 14)
-            | (1 << 23)
-            | (ips << 32)
-            | (1 << 59),
+        12 | (1 << 8) | (1 << 10) | (3 << 12) | (tg0 << 14) | (1 << 23) | (ips << 32) | (1 << 59),
     ))
 }
 
@@ -2117,6 +2111,7 @@ where
     LeafFieldsOf<Vmsa64, R, G>: Copy + PartialEq,
 {
     use crate::TransitionPreparationError;
+
     if setup.granule != G::GRANULE
         || entry == 0
         || stack_top < G::SIZE
@@ -2128,21 +2123,26 @@ where
             TransitionPreparationError::RecoveryMapper,
         ));
     }
+
     let start_level = setup.start_level.ok_or(HarnessError::InvalidState)?;
     let root_address =
         TablePhysAddr::new(PhysAddr(setup.root.get())).map_err(|_| HarnessError::Memory)?;
     let memory = NonNull::from(memory);
+
     // SAFETY: The adapter supplies the same reserved contiguous arena used by
     // the frame provider and keeps it live through lower translation restore.
     let offset = unsafe { memory.as_ref() }.physical_to_virtual_offset();
+
     // SAFETY: The offset maps every adapter-owned table frame in the arena.
     let access = unsafe { OffsetTableAccess::new(VirtAddr(offset)) };
+
     let root = RootTable::new(
         root_address,
         Level::new(start_level.get()),
         setup.input_bits.get(),
         setup.output_bits.get(),
     );
+
     let mut mapper = Mapper::<F, R, G, _, _, Offline>::new_offline(
         root,
         access,
@@ -2151,60 +2151,72 @@ where
     .map_err(|_| {
         HarnessError::TransitionPreparation(TransitionPreparationError::RecoveryRuntime)
     })?;
-    // Rust monomorphization and link-time optimization can place callees well
-    // away from the small assembly entry points.  Cover the bounded linked
-    // code region containing each anchor, while excluding all known runtime
-    // data and adapter-owned arena pages below.
+
     const LINKED_CODE_REGION: u64 = 1024 * 1024;
+    const RUNTIME_DATA_WINDOW: u64 = 64 * 1024;
+
     let code_window = G::SIZE.max(LINKED_CODE_REGION);
+
     let code_fields = R::raw_leaf(MappingAttributes {
         writable: false,
         executable: true,
         user_accessible: true,
     })?;
+
     let data_fields = R::raw_leaf(MappingAttributes {
         writable: true,
         executable: false,
         user_accessible: true,
     })?;
+
     let exception_stack_fields = R::raw_leaf(MappingAttributes {
         writable: true,
         executable: false,
         user_accessible: false,
     })?;
+
     let table_fields = R::raw_table()?;
+
     let code_windows = [
         entry & !(code_window - 1),
         vmsa_test_architecture::exception::vector_address() & !(code_window - 1),
+        vmsa_test_architecture::exception::recovery_vector_address() & !(code_window - 1),
         vmsa_test_architecture::exception::runtime_code_address() & !(code_window - 1),
         vmsa_test_architecture::transition::runtime_code_address() & !(code_window - 1),
     ];
+
     let stack_page = G::align_down(stack_top - 1);
     let stack_physical_page = G::align_down(stack_physical_top - 1);
     let exception_stack_page = G::align_down(exception_stack_top - 1);
     let exception_stack_physical_page = G::align_down(exception_stack_physical_top - 1);
+
     let state_pages = [
         G::align_down(vmsa_test_architecture::exception::runtime_state_address()),
         G::align_down(vmsa_test_architecture::transition::runtime_state_address()),
     ];
-    const RUNTIME_DATA_WINDOW: u64 = 64 * 1024;
+
     let data_windows = [
         runtime_data[0] & !(RUNTIME_DATA_WINDOW - 1),
         runtime_data[1] & !(RUNTIME_DATA_WINDOW - 1),
+        vmsa_test_architecture::exception::linkage_data_address() & !(RUNTIME_DATA_WINDOW - 1),
     ];
+
     let is_state_page = |address: u64| state_pages.contains(&address);
+
     let is_data_window_page = |address: u64| {
         data_windows
             .iter()
             .any(|start| (*start..start.saturating_add(RUNTIME_DATA_WINDOW)).contains(&address))
             || is_state_page(address)
     };
+
     let arena_start = G::align_down(unsafe { memory.as_ref() }.physical_base());
     let arena_end = unsafe { memory.as_ref() }
         .physical_base()
         .checked_add(unsafe { memory.as_ref() }.byte_len() as u64)
         .ok_or(HarnessError::Memory)?;
     let arena_last = G::align_down(arena_end.saturating_sub(1));
+
     let is_code_page = |address: u64| {
         code_windows
             .iter()
@@ -2212,9 +2224,11 @@ where
             && !is_data_window_page(address)
             && !(arena_start..=arena_last).contains(&address)
     };
+
     macro_rules! ensure_data_page {
         ($address:expr) => {{
             let address = $address;
+
             if let Some(mapping) = mapper.translate(WalkInputAddr::new(address)).map_err(|_| {
                 HarnessError::TransitionPreparation(TransitionPreparationError::RecoveryInspection)
             })? {
@@ -2243,14 +2257,17 @@ where
             }
         }};
     }
+
     for index in 0..code_windows.len() {
         if code_windows[..index].contains(&code_windows[index]) {
             continue;
         }
+
         let mut address = code_windows[index];
         let end = address
             .checked_add(code_window)
             .ok_or(HarnessError::Memory)?;
+
         while address < end {
             if is_code_page(address)
                 && address != stack_page
@@ -2288,14 +2305,17 @@ where
                         })?;
                 }
             }
+
             address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
         }
     }
+
     if is_code_page(stack_page) || is_state_page(stack_page) {
         return Err(HarnessError::TransitionPreparation(
             TransitionPreparationError::CandidateTableAccess,
         ));
     }
+
     if let Some(mapping) = mapper
         .translate(WalkInputAddr::new(stack_page))
         .map_err(|_| HarnessError::InvalidState)?
@@ -2317,11 +2337,13 @@ where
             )
             .map_err(|_| HarnessError::InvalidState)?;
     }
+
     if is_code_page(exception_stack_page) || is_state_page(exception_stack_page) {
         return Err(HarnessError::TransitionPreparation(
             TransitionPreparationError::CandidateTableAccess,
         ));
     }
+
     if let Some(mapping) = mapper
         .translate(WalkInputAddr::new(exception_stack_page))
         .map_err(|_| HarnessError::InvalidState)?
@@ -2343,26 +2365,29 @@ where
             )
             .map_err(|_| HarnessError::InvalidState)?;
     }
+
     for index in 0..state_pages.len() {
         let page = state_pages[index];
+
         if state_pages[..index].contains(&page) {
             continue;
         }
+
         ensure_data_page!(page);
     }
-    // Rust and PIE payload code reaches its runtime state through a bounded
-    // relocation/GOT data neighborhood. Mapping only the final state object
-    // leaves those indirect loads vulnerable to a recursive translation
-    // fault in the exception path.
+
     for index in 0..data_windows.len() {
         let start = data_windows[index];
+
         if data_windows[..index].contains(&start) {
             continue;
         }
+
         let end = start
             .checked_add(RUNTIME_DATA_WINDOW)
             .ok_or(HarnessError::Memory)?;
         let mut page = start;
+
         while page < end {
             if page != stack_page
                 && page != exception_stack_page
@@ -2371,10 +2396,13 @@ where
             {
                 ensure_data_page!(page);
             }
+
             page = page.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
         }
     }
+
     let mut address = arena_start;
+
     while address <= arena_last {
         if !is_code_page(address)
             && address != stack_page
@@ -2383,8 +2411,10 @@ where
         {
             ensure_data_page!(address);
         }
+
         address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
     }
+
     for uart_page in [
         G::align_down(0x1c09_0000),
         G::align_down(0x1c0a_0000),
@@ -2400,12 +2430,14 @@ where
             ensure_data_page!(uart_page);
         }
     }
+
     if !vmsa_test_architecture::barriers::clean_data_cache_range(
         unsafe { memory.as_ref() }.virtual_base(),
         unsafe { memory.as_ref() }.byte_len(),
     ) {
         return Err(HarnessError::Environment);
     }
+
     vmsa_test_architecture::barriers::dsb_ish();
     Ok(())
 }
