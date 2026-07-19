@@ -2085,7 +2085,6 @@ where
         _ => Err(HarnessError::InvalidState),
     }
 }
-
 fn prepare_lower_runtime_for<R, F, G>(
     memory: &mut TestMemory,
     setup: TranslationSetup,
@@ -2127,6 +2126,7 @@ where
     let start_level = setup.start_level.ok_or(HarnessError::InvalidState)?;
     let root_address =
         TablePhysAddr::new(PhysAddr(setup.root.get())).map_err(|_| HarnessError::Memory)?;
+
     let memory = NonNull::from(memory);
 
     // SAFETY: The adapter supplies the same reserved contiguous arena used by
@@ -2195,10 +2195,11 @@ where
         G::align_down(vmsa_test_architecture::transition::runtime_state_address()),
     ];
 
+    let linkage_page = G::align_down(vmsa_test_architecture::exception::linkage_data_address());
+
     let data_windows = [
         runtime_data[0] & !(RUNTIME_DATA_WINDOW - 1),
         runtime_data[1] & !(RUNTIME_DATA_WINDOW - 1),
-        vmsa_test_architecture::exception::linkage_data_address() & !(RUNTIME_DATA_WINDOW - 1),
     ];
 
     let is_state_page = |address: u64| state_pages.contains(&address);
@@ -2208,6 +2209,7 @@ where
             .iter()
             .any(|start| (*start..start.saturating_add(RUNTIME_DATA_WINDOW)).contains(&address))
             || is_state_page(address)
+            || address == linkage_page
     };
 
     let arena_start = G::align_down(unsafe { memory.as_ref() }.physical_base());
@@ -2401,6 +2403,13 @@ where
         }
     }
 
+    if linkage_page != stack_page
+        && linkage_page != exception_stack_page
+        && !is_state_page(linkage_page)
+    {
+        ensure_data_page!(linkage_page);
+    }
+
     let mut address = arena_start;
 
     while address <= arena_last {
@@ -2441,7 +2450,6 @@ where
     vmsa_test_architecture::barriers::dsb_ish();
     Ok(())
 }
-
 #[doc(hidden)]
 pub fn prepare_lower_runtime_d128<R, G>(
     memory: &mut TestMemory,
