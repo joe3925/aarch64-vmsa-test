@@ -36,7 +36,9 @@ pub mod adapter {
         crate::TranslationControls::from_bits(bits)
     }
 
-    pub const fn stage1_memory_registers(controls: crate::Stage1MemoryControls) -> (u64, u64) {
+    pub const fn stage1_memory_registers(
+        controls: crate::Stage1MemoryControls,
+    ) -> (u64, u64, u64, u64) {
         controls.registers()
     }
 
@@ -90,9 +92,10 @@ pub use translation::{
     TranslationStage, UnmapResult, Vmid, WalkDescriptorInspection, WalkDescriptorKind,
     WalkInspection, d128_el1_stage1_controls, d128_el1_stage1_controls_4k,
     d128_el2_stage1_controls_4k, d128_stage2_controls, d128_stage2_controls_4k,
-    lpa2_el1_stage1_controls, lpa2_el1_stage1_controls_4k, lpa2_el2_stage1_controls,
-    lpa2_el2_stage1_controls_4k, lpa2_el3_stage1_controls,
-    lpa2_el3_stage1_controls_4k, lpa2_stage2_controls, lpa2_stage2_controls_4k,
-    vmsa64_el1_stage1_controls, vmsa64_el1_stage1_controls_4k, vmsa64_el2_stage1_controls,
-    vmsa64_stage2_controls, vmsa64_stage2_controls_4k,
+    lpa2_current_stage1_controls_4k, lpa2_el1_stage1_controls,
+    lpa2_el1_stage1_controls_4k, lpa2_el2_stage1_controls, lpa2_el2_stage1_controls_4k,
+    lpa2_el3_stage1_controls, lpa2_el3_stage1_controls_4k,
+    lpa2_stage2_controls, lpa2_stage2_controls_4k, vmsa64_el1_stage1_controls,
+    vmsa64_el1_stage1_controls_4k, vmsa64_el2_stage1_controls, vmsa64_stage2_controls,
+    vmsa64_stage2_controls_4k,
 };

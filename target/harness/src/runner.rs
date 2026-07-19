@@ -231,6 +231,9 @@ const fn failure_reason(failure: crate::TestFailure) -> &'static str {
             0x103 => "transition-recovery-identity",
             0x104 => "transition-candidate-runtime",
             0x105 => "transition-candidate-table-access",
+            0x10c => "transition-vmsa-runtime-data",
+            0x10e => "transition-vmsa-runtime-linkage-data",
+            0x10f => "transition-vmsa-runtime-data-page",
             _ => "harness",
         },
     }

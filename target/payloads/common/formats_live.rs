@@ -100,7 +100,8 @@ where
                     G,
                 >,
             >,
-    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, CurrentRegime, G>: Copy,
+    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, CurrentRegime, G>:
+        Copy + PartialEq,
     aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
             F,
             CurrentRegime,
@@ -352,7 +353,8 @@ where
                     G,
                 >,
             >,
-    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, CurrentRegime, G>: Copy,
+    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, CurrentRegime, G>:
+        Copy + PartialEq,
     aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
             F,
             CurrentRegime,
@@ -696,7 +698,8 @@ where
     CurrentRegime: vmsa_test_harness::adapter::TestRegimeFor<G>,
     aarch64_vmsa::descriptor::Vmsa64:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>,
-    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, CurrentRegime, G>: Copy,
+    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, CurrentRegime, G>:
+        Copy + PartialEq,
     aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
             aarch64_vmsa::descriptor::Vmsa64,
             CurrentRegime,
@@ -907,7 +910,8 @@ where
                 G,
             >,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, CurrentRegime, G>: Copy,
+    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, CurrentRegime, G>:
+        Copy + PartialEq,
     aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
             aarch64_vmsa::descriptor::Vmsa64Lpa2,
             CurrentRegime,
@@ -1264,42 +1268,30 @@ where
                 vmsa_test_harness::TranslationQueryAccess::Read,
             )
             .map(|(low, high)| {
-                (
-                    vmsa_test_harness::TranslationQueryResult::from_raw_par_for_test(
-                        access_address,
-                        low,
-                    ),
+                vmsa_test_harness::TranslationQueryResult::from_raw_par128_for_test(
+                    access_address,
+                    low,
                     high,
                 )
             }) {
-            Some((
-                vmsa_test_harness::TranslationQueryResult::Success {
-                    physical_address, ..
-                },
-                _,
-            )) if physical_address == target_physical => TestResult::Pass,
-            Some((
-                vmsa_test_harness::TranslationQueryResult::Success {
-                    physical_address, ..
-                },
-                high,
-            )) => TestResult::Fail(vmsa_test_harness::TestFailure {
+            Some(vmsa_test_harness::TranslationQueryResult::Success {
+                physical_address, ..
+            }) if physical_address == target_physical => TestResult::Pass,
+            Some(vmsa_test_harness::TranslationQueryResult::Success {
+                physical_address, ..
+            }) => TestResult::Fail(vmsa_test_harness::TestFailure {
                 kind: vmsa_test_harness::FailureKind::WrongValue,
                 expected: target_physical,
-                actual: if physical_address == 0 {
-                    high
-                } else {
-                    physical_address
-                },
+                actual: physical_address,
             }),
-            Some((vmsa_test_harness::TranslationQueryResult::Fault { raw, .. }, _)) => {
+            Some(vmsa_test_harness::TranslationQueryResult::Fault { raw, .. }) => {
                 TestResult::Fail(vmsa_test_harness::TestFailure {
                     kind: vmsa_test_harness::FailureKind::WrongValue,
                     expected: target_physical,
                     actual: raw,
                 })
             }
-            Some((vmsa_test_harness::TranslationQueryResult::Unsupported, _)) | None => {
+            Some(vmsa_test_harness::TranslationQueryResult::Unsupported) | None => {
                 vmsa_test_harness::HarnessError::InvalidState.into()
             }
         },

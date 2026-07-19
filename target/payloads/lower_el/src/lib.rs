@@ -2,13 +2,11 @@
 
 use core::arch::asm;
 use vmsa_test_abi::LowerElMailbox;
-use vmsa_test_architecture::transition::{
-    LowerElReturnConduit, LowerElTarget, configured_return_conduit, configured_target,
-};
+use vmsa_test_architecture::transition::{LowerElReturnConduit, LowerElTarget};
 use vmsa_test_architecture::{
-    AccessWidth, GuardedPairResult, GuardedResult, guarded_execute_with_state,
-    guarded_ordered_with_state, guarded_pair_with_state, guarded_read_with_state,
-    guarded_write_with_state,
+    AccessWidth, GuardedPairResult, GuardedResult, guarded_execute_with_state_at_el,
+    guarded_ordered_with_state_at_el, guarded_pair_with_state_at_el, guarded_read_with_state_at_el,
+    guarded_write_with_state_at_el,
 };
 
 #[unsafe(no_mangle)]
@@ -18,35 +16,27 @@ use vmsa_test_architecture::{
 ///
 /// `mailbox` must be writable, aligned, and live until the owning EL regains control.
 pub unsafe extern "C" fn vmsa_lower_el_entry(mailbox: *mut LowerElMailbox) -> ! {
-    let fallback_conduit = configured_return_conduit();
-    let fallback_target = configured_target();
     if mailbox.is_null()
         || !mailbox
             .addr()
             .is_multiple_of(core::mem::align_of::<LowerElMailbox>())
     {
-        return_to_owner(fallback_conduit, fallback_target)
+        invalid_entry()
     }
     // SAFETY: Nullness and alignment were checked; the owning adapter provides
     // a writable page that remains live until this entry returns.
     let mailbox = unsafe { &mut *mailbox };
     let Some(return_conduit) = LowerElReturnConduit::from_raw(mailbox.return_conduit) else {
-        mailbox.status = 2;
-        return_to_owner(fallback_conduit, fallback_target)
+        invalid_entry()
+    };
+    let Some(target) = LowerElTarget::from_raw(mailbox.target) else {
+        invalid_entry()
     };
     if !mailbox.fields_valid() {
         mailbox.status = 2;
-        return_to_owner(fallback_conduit, fallback_target)
+        return_to_owner(return_conduit, target)
     }
-    let target = match mailbox.target {
-        0 => LowerElTarget::El1,
-        1 => LowerElTarget::El0,
-        2 => LowerElTarget::El2El0,
-        _ => {
-            mailbox.status = 2;
-            return_to_owner(fallback_conduit, fallback_target)
-        }
-    };
+    let origin_el = u8::from(target == LowerElTarget::El1);
     if mailbox.operation == 11 {
         if target != LowerElTarget::El1 {
             mailbox.status = 2;
@@ -74,12 +64,13 @@ pub unsafe extern "C" fn vmsa_lower_el_entry(mailbox: *mut LowerElMailbox) -> ! 
         return_to_owner(return_conduit, target)
     }
     if matches!(mailbox.operation, 9 | 10) {
-        let result = guarded_pair_with_state(
+        let result = guarded_pair_with_state_at_el(
             mailbox.exception_state,
             mailbox.address,
             mailbox.value,
             mailbox.second_value,
             mailbox.operation == 10,
+            origin_el,
         );
         match result {
             Ok(GuardedPairResult::Completed { first, second }) => {
@@ -98,21 +89,27 @@ pub unsafe extern "C" fn vmsa_lower_el_entry(mailbox: *mut LowerElMailbox) -> ! 
                 mailbox.status = 2;
                 return_to_owner(return_conduit, target)
             };
-            guarded_read_with_state(mailbox.exception_state, mailbox.address, width)
+            guarded_read_with_state_at_el(
+                mailbox.exception_state,
+                mailbox.address,
+                width,
+                origin_el,
+            )
         }
         1 => {
             let Some(width) = width(mailbox.width) else {
                 mailbox.status = 2;
                 return_to_owner(return_conduit, target)
             };
-            guarded_write_with_state(
+            guarded_write_with_state_at_el(
                 mailbox.exception_state,
                 mailbox.address,
                 width,
                 mailbox.value,
+                origin_el,
             )
         }
-        2 => guarded_execute_with_state(mailbox.exception_state, mailbox.address),
+        2 => guarded_execute_with_state_at_el(mailbox.exception_state, mailbox.address, origin_el),
         3 => {
             mailbox.status = 0;
             return_to_owner(return_conduit, target)
@@ -136,10 +133,34 @@ pub unsafe extern "C" fn vmsa_lower_el_entry(mailbox: *mut LowerElMailbox) -> ! 
             }
             return_to_owner(return_conduit, target)
         }
-        5 => guarded_ordered_with_state(mailbox.exception_state, mailbox.address, 0, 0),
-        6 => guarded_ordered_with_state(mailbox.exception_state, mailbox.address, mailbox.value, 1),
-        7 => guarded_ordered_with_state(mailbox.exception_state, mailbox.address, mailbox.value, 2),
-        8 => guarded_ordered_with_state(mailbox.exception_state, mailbox.address, mailbox.value, 3),
+        5 => guarded_ordered_with_state_at_el(
+            mailbox.exception_state,
+            mailbox.address,
+            0,
+            0,
+            origin_el,
+        ),
+        6 => guarded_ordered_with_state_at_el(
+            mailbox.exception_state,
+            mailbox.address,
+            mailbox.value,
+            1,
+            origin_el,
+        ),
+        7 => guarded_ordered_with_state_at_el(
+            mailbox.exception_state,
+            mailbox.address,
+            mailbox.value,
+            2,
+            origin_el,
+        ),
+        8 => guarded_ordered_with_state_at_el(
+            mailbox.exception_state,
+            mailbox.address,
+            mailbox.value,
+            3,
+            origin_el,
+        ),
         _ => {
             mailbox.status = 2;
             return_to_owner(return_conduit, target)
@@ -158,6 +179,13 @@ pub unsafe extern "C" fn vmsa_lower_el_entry(mailbox: *mut LowerElMailbox) -> ! 
     }
 
     return_to_owner(return_conduit, target)
+}
+
+fn invalid_entry() -> ! {
+    // A missing or undecodable mailbox leaves no trustworthy return conduit.
+    // Trap into the owner's active lower-EL recovery instead of consulting
+    // privileged transition globals from an EL0-accessible payload mapping.
+    unsafe { asm!("brk #0", options(noreturn)) }
 }
 
 fn record_fault(mailbox: &mut LowerElMailbox, fault: vmsa_test_architecture::exception::RawFault) {

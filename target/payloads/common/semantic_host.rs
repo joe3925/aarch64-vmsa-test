@@ -17,7 +17,8 @@ where
     HostRegime: vmsa_test_harness::adapter::TestRegimeFor<G>,
     aarch64_vmsa::descriptor::Vmsa64:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>,
-    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, HostRegime, G>: Copy,
+    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, HostRegime, G>:
+        Copy + PartialEq,
     aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
             aarch64_vmsa::descriptor::Vmsa64,
             HostRegime,

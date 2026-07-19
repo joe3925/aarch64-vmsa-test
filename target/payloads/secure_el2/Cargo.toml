@@ -9,7 +9,7 @@ test = false
 bench = false
 [dependencies]
 aarch64-vmsa = { path = "../../external/aarch64-vmsa" }
-vmsa-test-architecture = { path = "../../architecture" }
+vmsa-test-architecture = { path = "../../architecture", features = ["runtime-64k-alignment"] }
 vmsa-test-abi = { path = "../../abi" }
 vmsa-test-harness = { path = "../../harness" }
 vmsa-test-lower-el = { path = "../lower_el" }

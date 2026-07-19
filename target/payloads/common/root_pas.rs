@@ -139,7 +139,19 @@ fn active_case(
     };
     const ADDRESS: u64 = 0x6d00_0000;
     const VALUE: u64 = 0x524f_4f54_5041_5353;
-    let page = context.allocate_page_in(vmsa_test_harness::PhysicalAddressSpace::Root)?;
+    let backing_pas = match pas {
+        aarch64_vmsa::attrs::RootExtendedPa::Secure => {
+            vmsa_test_harness::PhysicalAddressSpace::Secure
+        }
+        aarch64_vmsa::attrs::RootExtendedPa::NonSecure => {
+            vmsa_test_harness::PhysicalAddressSpace::NonSecure
+        }
+        aarch64_vmsa::attrs::RootExtendedPa::Root => vmsa_test_harness::PhysicalAddressSpace::Root,
+        aarch64_vmsa::attrs::RootExtendedPa::Realm => {
+            vmsa_test_harness::PhysicalAddressSpace::Realm
+        }
+    };
+    let page = context.allocate_page_in(backing_pas)?;
     let seeded = context.write_u64(page.virtual_address() as u64, VALUE);
     if !matches!(seeded, vmsa_test_harness::AccessResult::Completed { .. }) {
         return vmsa_test_harness::expect_completed(seeded);
@@ -304,10 +316,10 @@ pub(super) fn delegated_realm_root_fault(
     delegated_realm_case(context, aarch64_vmsa::attrs::RootExtendedPa::Root)
 }
 
-pub(super) fn unavailable_secure_pool_rejected(
+pub(super) fn unavailable_firmware_shared_pool_rejected(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
-    if context.allocate_page_in(vmsa_test_harness::PhysicalAddressSpace::Secure)
+    if context.allocate_page_in(vmsa_test_harness::PhysicalAddressSpace::FirmwareShared)
         == Err(vmsa_test_harness::HarnessError::InvalidState)
     {
         TestResult::Pass

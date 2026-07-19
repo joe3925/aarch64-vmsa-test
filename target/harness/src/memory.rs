@@ -247,6 +247,10 @@ impl TestMemory {
         self.physical_base
     }
 
+    pub(crate) fn virtual_base(&self) -> u64 {
+        self.virtual_base.as_ptr() as u64
+    }
+
     pub(crate) const fn byte_len(&self) -> usize {
         self.bytes
     }

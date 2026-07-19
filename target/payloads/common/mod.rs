@@ -476,6 +476,8 @@ pub struct AdapterCore {
     lower_el_stack: u64,
     installed_lower_stack: Option<u64>,
     installed_lower_stack_physical: Option<u64>,
+    installed_lower_exception_stack: Option<u64>,
+    installed_lower_exception_stack_physical: Option<u64>,
     lower_el_stage1: LowerElStage1Mode,
     lower_el_return: LowerElReturnConduit,
     regime: u8,
@@ -547,6 +549,8 @@ impl AdapterCore {
             lower_el_stack: context.lower_el_stack,
             installed_lower_stack: None,
             installed_lower_stack_physical: None,
+            installed_lower_exception_stack: None,
+            installed_lower_exception_stack_physical: None,
             lower_el_stage1,
             lower_el_return,
             regime,
@@ -1025,7 +1029,7 @@ impl AdapterCore {
                     (None, None) => 0,
                     _ => return Err(AdapterError::ArchitecturalState),
                 };
-                let (configured_mair, configured_mair2) =
+                let (configured_mair, configured_mair2, configured_pir, configured_pire0) =
                     vmsa_test_harness::adapter::stage1_memory_registers(setup.stage1_memory);
                 let (tcr, mair, mair2) = if setup.controls.preserves_current() {
                     let current = registers::current_stage1_state()
@@ -1061,8 +1065,8 @@ impl AdapterCore {
                             ttbr_high,
                             tcr,
                             registers::Stage1MemoryRegisters { mair, mair2 },
-                            0xeeee_eeee_eeee_eeee,
-                            0xeeee_eeee_eeee_eeee,
+                            configured_pir,
+                            configured_pire0,
                             transition_stack.map(|stack| registers::TransitionStack {
                                 physical_top: stack.physical_top(),
                                 virtual_top: stack.virtual_top(),
@@ -1393,12 +1397,15 @@ impl AdapterCore {
             _ => return Err(AdapterError::ArchitecturalState),
         };
         let bytes = setup.granule.bytes() as usize;
-        let stack_page = self
+        let stack_pages = self
             .memory
-            .allocate_aligned_pages(bytes / 4096, bytes)
+            .allocate_aligned_pages(2 * bytes / 4096, bytes)
             .map_err(|_| AdapterError::ArchitecturalState)?;
-        let lower_stack_physical = stack_page
+        let lower_stack_physical = stack_pages
             .phys_addr()
+            .checked_add(bytes as u64)
+            .ok_or(AdapterError::ArchitecturalState)?;
+        let lower_exception_stack_physical = lower_stack_physical
             .checked_add(bytes as u64)
             .ok_or(AdapterError::ArchitecturalState)?;
         let lower_stack = if setup.format == vmsa_test_harness::TranslationFormat::Vmsa128 {
@@ -1408,7 +1415,16 @@ impl AdapterCore {
                 .checked_add(bytes as u64)
                 .ok_or(AdapterError::ArchitecturalState)?
         };
-        let (configured_mair, configured_mair2) =
+        let lower_exception_stack = if setup.format == vmsa_test_harness::TranslationFormat::Vmsa128
+        {
+            lower_exception_stack_physical
+        } else {
+            lower_stack
+                .checked_add(bytes as u64)
+                .ok_or(AdapterError::ArchitecturalState)?
+        };
+        let transition_runtime_data = self.transition_runtime_data();
+        let (configured_mair, configured_mair2, configured_pir, configured_pire0) =
             vmsa_test_harness::adapter::stage1_memory_registers(setup.stage1_memory);
         let (tcr, mair, mair2) = if setup.controls.preserves_current() {
             let current =
@@ -1435,14 +1451,24 @@ impl AdapterCore {
                     setup.output_bits,
                 )
                 .ok_or(AdapterError::ArchitecturalState)?;
-                prepare_lower_runtime::<R>(
+                let prepared = prepare_lower_runtime::<R>(
                     &mut self.memory,
                     setup,
                     self.lower_el_entry,
                     lower_stack,
                     lower_stack_physical,
-                )
-                .map_err(lower_runtime_adapter_error)?;
+                    lower_exception_stack,
+                    lower_exception_stack_physical,
+                    transition_runtime_data,
+                );
+                if let Err(error) = prepared {
+                    use core::fmt::Write;
+                    let _ = writeln!(
+                        self.reporter,
+                        "VMSA-INFRA CRUMB lower-runtime-error={error:?}"
+                    );
+                    return Err(lower_runtime_adapter_error(error));
+                }
                 (controls.bits(), 0x0000_44ff, configured_mair2)
             }
         } else {
@@ -1456,6 +1482,7 @@ impl AdapterCore {
                             setup,
                             self.lower_el_entry,
                             lower_stack,
+                            lower_exception_stack,
                             lower_runtime_state,
                         )
                     }
@@ -1465,6 +1492,7 @@ impl AdapterCore {
                             setup,
                             self.lower_el_entry,
                             lower_stack,
+                            lower_exception_stack,
                             lower_runtime_state,
                         )
                     }
@@ -1474,20 +1502,31 @@ impl AdapterCore {
                             setup,
                             self.lower_el_entry,
                             lower_stack,
+                            lower_exception_stack,
                             lower_runtime_state,
                         )
                     }
                 }
                 .map_err(|_| AdapterError::ArchitecturalState)?;
             } else {
-                prepare_lower_runtime::<R>(
+                let prepared = prepare_lower_runtime::<R>(
                     &mut self.memory,
                     setup,
                     self.lower_el_entry,
                     lower_stack,
                     lower_stack_physical,
-                )
-                .map_err(lower_runtime_adapter_error)?;
+                    lower_exception_stack,
+                    lower_exception_stack_physical,
+                    transition_runtime_data,
+                );
+                if let Err(error) = prepared {
+                    use core::fmt::Write;
+                    let _ = writeln!(
+                        self.reporter,
+                        "VMSA-INFRA CRUMB lower-runtime-error={error:?}"
+                    );
+                    return Err(lower_runtime_adapter_error(error));
+                }
             }
             (setup.controls.bits(), configured_mair, configured_mair2)
         };
@@ -1522,8 +1561,8 @@ impl AdapterCore {
                     ttbr_high,
                     tcr,
                     registers::Stage1MemoryRegisters { mair, mair2 },
-                    0xeeee_eeee_eeee_eeee,
-                    0xeeee_eeee_eeee_eeee,
+                    configured_pir,
+                    configured_pire0,
                 )
             }
             .ok_or(AdapterError::UnsupportedStage)?;
@@ -1558,6 +1597,8 @@ impl AdapterCore {
         self.installed_lower_stage1 = Some(ActiveTranslation { token, saved });
         self.installed_lower_stack = Some(lower_stack);
         self.installed_lower_stack_physical = Some(lower_stack_physical);
+        self.installed_lower_exception_stack = Some(lower_exception_stack);
+        self.installed_lower_exception_stack_physical = Some(lower_exception_stack_physical);
         self.state = AdapterState::TranslationInstalled;
         Ok(token)
     }
@@ -1612,6 +1653,8 @@ impl AdapterCore {
             if restoring_lower {
                 self.installed_lower_stack = None;
                 self.installed_lower_stack_physical = None;
+                self.installed_lower_exception_stack = None;
+                self.installed_lower_exception_stack_physical = None;
             }
             self.state = if self.installed_current_stage1.is_some()
                 || self.installed_lower_stage1.is_some()
@@ -1717,6 +1760,8 @@ impl AdapterCore {
         }
         self.installed_lower_stack = None;
         self.installed_lower_stack_physical = None;
+        self.installed_lower_exception_stack = None;
+        self.installed_lower_exception_stack_physical = None;
         self.state = AdapterState::TestScoped;
     }
 
@@ -1951,29 +1996,72 @@ impl AdapterCore {
     }
 
     fn run_lower_el_active(&mut self, request: LowerElRequest) -> AccessResult {
+        if self.lower_el_entry == 0 {
+            return AccessResult::HarnessFailure(HarnessError::Environment);
+        }
+        // An installed lower-stage translation owns a stack mapping tailored
+        // to that regime.  Otherwise use a command-scoped arena page instead
+        // of the firmware's shared boot stack.  The arena is included in every
+        // prepared current-EL candidate and the owned page prevents one lower
+        // execution from retaining stack state for the next.
+        let command_stack_page = if self.installed_lower_stack.is_none() {
+            match self.memory.allocate_page() {
+                Ok(page) => Some(page),
+                Err(_) => return AccessResult::HarnessFailure(HarnessError::Memory),
+            }
+        } else {
+            None
+        };
         let lower_stack = if matches!(request.command, LowerElCommand::DisableStage1)
             && self.installed_lower_stage1.is_some()
         {
             self.installed_lower_stack_physical
                 .or(self.installed_lower_stack)
-                .unwrap_or(self.lower_el_stack)
         } else {
-            self.installed_lower_stack.unwrap_or(self.lower_el_stack)
-        };
-        if self.lower_el_entry == 0 || lower_stack == 0 {
-            return AccessResult::HarnessFailure(HarnessError::Environment);
+            self.installed_lower_stack
         }
+        .or_else(|| {
+            command_stack_page
+                .as_ref()
+                .and_then(|page| page.phys_addr().checked_add(4096))
+        });
+        let Some(lower_stack) = lower_stack else {
+            return AccessResult::HarnessFailure(HarnessError::Memory);
+        };
+        use core::fmt::Write;
+        let _ = writeln!(
+            self.reporter,
+            "VMSA-INFRA CRUMB lower-stack=0x{lower_stack:016x} boot-stack=0x{:016x} owned={}",
+            self.lower_el_stack,
+            command_stack_page.is_some() as u8,
+        );
         let mailbox_page = match self.memory.allocate_page() {
             Ok(page) => page,
             Err(_) => return AccessResult::HarnessFailure(HarnessError::Memory),
         };
-        let exception_stack_page = match self.memory.allocate_page() {
-            Ok(page) => page,
-            Err(_) => return AccessResult::HarnessFailure(HarnessError::Memory),
+        let command_exception_stack_page = if self.installed_lower_exception_stack.is_none() {
+            match self.memory.allocate_page() {
+                Ok(page) => Some(page),
+                Err(_) => return AccessResult::HarnessFailure(HarnessError::Memory),
+            }
+        } else {
+            None
         };
-        let exception_stack = match exception_stack_page.phys_addr().checked_add(4096) {
-            Some(top) => top,
-            None => return AccessResult::HarnessFailure(HarnessError::Memory),
+        let exception_stack = if matches!(request.command, LowerElCommand::DisableStage1)
+            && self.installed_lower_stage1.is_some()
+        {
+            self.installed_lower_exception_stack_physical
+                .or(self.installed_lower_exception_stack)
+        } else {
+            self.installed_lower_exception_stack
+        }
+        .or_else(|| {
+            command_exception_stack_page
+                .as_ref()
+                .and_then(|page| page.phys_addr().checked_add(4096))
+        });
+        let Some(exception_stack) = exception_stack else {
+            return AccessResult::HarnessFailure(HarnessError::Memory);
         };
         let mailbox_pointer = mailbox_page.virtual_address().cast::<LowerElMailbox>();
         let mailbox = lower_el_mailbox(
@@ -2030,8 +2118,7 @@ impl AdapterCore {
                     vmsa_test_architecture::transition::runtime_state_address(),
                     vmsa_test_architecture::translation::TranslationAccess::Write,
                 ),
-            ]
-            {
+            ] {
                 let par = if d128 {
                     vmsa_test_architecture::translation::lower_stage1_d128(address, access)
                         .map(|(low, _)| low)
@@ -2086,6 +2173,17 @@ impl AdapterCore {
                 Some(par)
             }
             Ok(vmsa_test_architecture::transition::LowerElOutcome::Fault(fault)) => {
+                use core::fmt::Write;
+                let _ = writeln!(
+                    self.reporter,
+                    "VMSA-INFRA CRUMB lower-fault esr=0x{:016x} far=0x{:016x} hpfar=0x{:016x} valid={} elr=0x{:016x} spsr=0x{:016x}",
+                    fault.esr,
+                    fault.far,
+                    fault.hpfar.unwrap_or(0),
+                    fault.hpfar.is_some() as u8,
+                    fault.elr,
+                    fault.spsr,
+                );
                 return AccessResult::Fault(normalize_fault(fault, access_kind(request)));
             }
             Err(_) => return AccessResult::HarnessFailure(HarnessError::Environment),
@@ -2104,16 +2202,27 @@ impl AdapterCore {
                 first: mailbox.result,
                 second: mailbox.second_result,
             },
-            1 if mailbox.hpfar_valid <= 1 => AccessResult::Fault(normalize_fault(
-                RawFault {
+            1 if mailbox.hpfar_valid <= 1 => {
+                use core::fmt::Write;
+                let fault = RawFault {
                     esr: mailbox.esr,
                     far: mailbox.far,
                     hpfar: (mailbox.hpfar_valid == 1).then_some(mailbox.hpfar),
                     elr: mailbox.elr,
                     spsr: mailbox.spsr,
-                },
-                access_kind(request),
-            )),
+                };
+                let _ = writeln!(
+                    self.reporter,
+                    "VMSA-INFRA CRUMB mailbox-fault esr=0x{:016x} far=0x{:016x} hpfar=0x{:016x} valid={} elr=0x{:016x} spsr=0x{:016x}",
+                    fault.esr,
+                    fault.far,
+                    fault.hpfar.unwrap_or(0),
+                    fault.hpfar.is_some() as u8,
+                    fault.elr,
+                    fault.spsr,
+                );
+                AccessResult::Fault(normalize_fault(fault, access_kind(request)))
+            }
             _ => AccessResult::HarnessFailure(HarnessError::InvalidState),
         }
     }

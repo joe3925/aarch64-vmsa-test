@@ -162,9 +162,13 @@ impl ExceptionRuntimeState {
     }
 }
 
-#[repr(C, align(4096))]
+#[cfg_attr(feature = "runtime-64k-alignment", repr(C, align(65536)))]
+#[cfg_attr(not(feature = "runtime-64k-alignment"), repr(C, align(4096)))]
 struct ExceptionRuntimeStorage(ExceptionRuntimeState);
 
+#[cfg(feature = "runtime-64k-alignment")]
+const _: () = assert!(core::mem::size_of::<ExceptionRuntimeStorage>() == 65536);
+#[cfg(not(feature = "runtime-64k-alignment"))]
 const _: () = assert!(core::mem::size_of::<ExceptionRuntimeStorage>() == 4096);
 
 #[unsafe(no_mangle)]
@@ -175,6 +179,8 @@ static VMSA_EXCEPTION_RUNTIME_STATE: ExceptionRuntimeStorage =
 unsafe extern "C" {
     static vmsa_exception_vectors: u8;
     static vmsa_recovery_vectors: u8;
+    #[link_name = "_GLOBAL_OFFSET_TABLE_"]
+    static VMSA_GLOBAL_OFFSET_TABLE: u8;
 }
 
 pub fn vector_address() -> u64 {
@@ -183,6 +189,13 @@ pub fn vector_address() -> u64 {
 
 pub fn recovery_vector_address() -> u64 {
     core::ptr::addr_of!(vmsa_recovery_vectors) as u64
+}
+
+/// Returns an address in the relocation-backed linkage data used by this
+/// linked payload. Candidate translations must keep this data readable while
+/// harness helpers and exception dispatch are active.
+pub fn linkage_data_address() -> u64 {
+    core::ptr::addr_of!(VMSA_GLOBAL_OFFSET_TABLE) as u64
 }
 
 pub fn primary_vectors_active() -> bool {
@@ -296,8 +309,8 @@ impl Drop for VectorGuard {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn vmsa_guard_begin(recovery: u64, state_address: u64) -> u64 {
-    if recovery == 0 || recovery & 0x3 != 0 {
+extern "C" fn vmsa_guard_begin(recovery: u64, state_address: u64, origin_el: u64) -> u64 {
+    if recovery == 0 || recovery & 0x3 != 0 || origin_el > 3 {
         return 0;
     }
     let Some(state) = passed_runtime_state(state_address) else {
@@ -316,9 +329,7 @@ extern "C" fn vmsa_guard_begin(recovery: u64, state_address: u64) -> u64 {
         return 0;
     }
     unsafe { *state.guard_fault.0.get() = None };
-    state
-        .guard_origin_el
-        .store(registers::current_el() as u64, Ordering::Release);
+    state.guard_origin_el.store(origin_el, Ordering::Release);
     state.guard_recovery.store(recovery, Ordering::Release);
     1
 }
@@ -384,17 +395,18 @@ extern "C" fn vmsa_arch_handle_sync(state_address: u64) -> u64 {
     0
 }
 
-fn dispatch_sync(
-    state_address: u64,
-    exception: (u64, u64, Option<u64>, u64, u64),
-) -> bool {
+fn dispatch_sync(state_address: u64, exception: (u64, u64, Option<u64>, u64, u64)) -> bool {
     let exception_class = ((exception.0 >> 26) & 0x3f) as u8;
 
-    if let Some((recovery, recovery_spsr)) = transition::handle_lower_el0_return(exception_class, exception.4) {
+    if let Some((recovery, recovery_spsr)) =
+        transition::handle_lower_el0_return(exception_class, exception.4)
+    {
         registers::write_exception_return(recovery, Some(recovery_spsr));
         return true;
     }
-    if let Some((recovery, recovery_spsr)) = transition::handle_lower_return(exception_class, exception.4) {
+    if let Some((recovery, recovery_spsr)) =
+        transition::handle_lower_return(exception_class, exception.4)
+    {
         registers::write_exception_return(recovery, Some(recovery_spsr));
         return true;
     }
@@ -414,9 +426,8 @@ fn dispatch_sync(
 }
 
 fn guard_in_progress(state_address: u64) -> bool {
-    passed_runtime_state(state_address).is_some_and(|state| {
-        state.guard_phase.load(Ordering::Acquire) != GuardPhase::Idle as u64
-    })
+    passed_runtime_state(state_address)
+        .is_some_and(|state| state.guard_phase.load(Ordering::Acquire) != GuardPhase::Idle as u64)
 }
 
 fn handle_guarded_fault(

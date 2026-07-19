@@ -103,11 +103,9 @@ vmsa_enter_lower_el_asm:
     orr x12, x12, #HCR_TGE
 .Llower_hcr_ready:
     msr HCR_EL2, x12
-    ldr x12, [sp, #144]
-    cmp x12, #1
-    csel x13, x27, x21, eq
-    msr SP_EL1, x13
-    cbz x12, .Llower_stack_ready
+    // Every lower payload runs in an SP0 mode. Keep its command-owned stack
+    // in SP_EL0 and reserve SP_EL1 for synchronous exception entry.
+    msr SP_EL1, x27
     msr SP_EL0, x21
 .Llower_stack_ready:
     msr ELR_EL2, x20

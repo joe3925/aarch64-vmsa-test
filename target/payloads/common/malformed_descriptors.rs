@@ -271,7 +271,8 @@ where
                 G,
             >,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, CurrentRegime, G>: Copy,
+    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, CurrentRegime, G>:
+        Copy + PartialEq,
     aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
             aarch64_vmsa::descriptor::Vmsa64Lpa2,
             CurrentRegime,
@@ -309,7 +310,18 @@ where
         return vmsa_test_harness::expect_completed(write);
     }
     let input = AddressBits::new(52).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let output = AddressBits::new(52).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    // Keep the input region at 52 bits so that the LPA2-only lookup geometry
+    // is exercised, but constrain the configured output size for the address
+    // mutation. The mutated descriptor then exceeds TCR.PS architecturally
+    // and faults in the PE instead of issuing an out-of-platform transaction
+    // to the Base FVP's 48-bit CCI-550.
+    let output_width = if matches!(mutation, Lpa2MalformedLeaf::Address) {
+        48
+    } else {
+        52
+    };
+    let output =
+        AddressBits::new(output_width).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let controls = vmsa_test_harness::lpa2_el2_stage1_controls(granule, input, output)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let mut root = context.allocate_root_in(context.native_pas(), granule)?;
@@ -319,7 +331,7 @@ where
             CurrentRegime,
             G,
             aarch64_vmsa::descriptor::Vmsa64Lpa2,
-        >(&mut root, start_level, 52, 52)?;
+        >(&mut root, start_level, 52, output_width)?;
         mapper.map_attributes_leaf(
             ADDRESS,
             page.phys_addr(),
@@ -388,7 +400,7 @@ where
             CurrentRegime,
             G,
             aarch64_vmsa::descriptor::Vmsa64Lpa2,
-        >(&mut root, start_level, 52, 52)?;
+        >(&mut root, start_level, 52, output_width)?;
         mapper.map_attributes_leaf(
             fresh_address,
             page.phys_addr(),

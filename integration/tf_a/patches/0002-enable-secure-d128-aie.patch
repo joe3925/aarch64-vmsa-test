@@ -19,3 +19,14 @@ index 5ebbd60ab..b5d1f68ce 100644
  	write_ctx_reg(state, CTX_SCR_EL3, scr_el3);
  
  	/*
+@@ -191,6 +201,10 @@ static void setup_realm_context(cpu_context_t *ctx, const struct entry_point_inf
+ 		scr_el3 |= SCR_D128En_BIT;
+ 	}
+ 
++	if (is_feat_aie_supported()) {
++		scr_el3 |= SCR_AIEn_BIT;
++	}
++
+ 	write_ctx_reg(state, CTX_SCR_EL3, scr_el3);
+ 
+ 	if (is_feat_fgt2_supported()) {

@@ -12,7 +12,7 @@
 #include "../vmsa_filter.h"
 
 #define VMSA_BOOT_CONTEXT_ABI_VERSION UINT32_C(4)
-#define VMSA_ARENA_BYTES (2U * 1024U * 1024U)
+#define VMSA_ARENA_BYTES (512U * 1024U)
 
 typedef void (*vmsa_uart_write_t)(uint8_t byte);
 typedef int32_t (*vmsa_pas_page_acquire_t)(uint32_t pas, uint64_t *virtual_address,

@@ -12,11 +12,13 @@
 #include "vmsa_test_abi.h"
 
 #define VMSA_ARENA_BYTES (1024U * 1024U)
-#define VMSA_ARENA_PHYSICAL (PLAT_ARM_TRUSTED_DRAM_BASE + UINT64_C(0x01000000))
-#define VMSA_ARENA_VIRTUAL UINT64_C(0x61000000)
+#define VMSA_ARENA_PHYSICAL (ARM_EL3_TZC_DRAM1_BASE + UINT64_C(0x00100000))
+#define VMSA_ARENA_VIRTUAL VMSA_ARENA_PHYSICAL
 #define VMSA_PAS_PAGE UINT64_C(0x87ff0000)
 #define VMSA_PAS_VIRTUAL UINT64_C(0x60000000)
 #define VMSA_PAS_NON_SECURE UINT32_C(0)
+#define VMSA_PAS_SECURE UINT32_C(1)
+#define VMSA_PAS_REALM UINT32_C(2)
 #define VMSA_PAS_DELEGATED_REALM UINT32_C(5)
 
 static bool vmsa_pas_page_owned;
@@ -43,7 +45,8 @@ static int32_t vmsa_pas_page_acquire(uint32_t pas, uint64_t *virtual_address,
 	volatile uint64_t *page = (volatile uint64_t *)(uintptr_t)VMSA_PAS_VIRTUAL;
 
 	if (vmsa_pas_page_owned || virtual_address == NULL || physical == NULL ||
-	    (pas != VMSA_PAS_NON_SECURE && pas != VMSA_PAS_DELEGATED_REALM)) {
+	    (pas != VMSA_PAS_NON_SECURE && pas != VMSA_PAS_SECURE &&
+	     pas != VMSA_PAS_REALM && pas != VMSA_PAS_DELEGATED_REALM)) {
 		return -1;
 	}
 	if (mmap_add_dynamic_region(VMSA_PAS_PAGE, VMSA_PAS_VIRTUAL, 4096U,
@@ -53,15 +56,20 @@ static int32_t vmsa_pas_page_acquire(uint32_t pas, uint64_t *virtual_address,
 	for (size_t index = 0U; index < 4096U / sizeof(*page); ++index) {
 		page[index] = 0U;
 	}
-	if (pas == VMSA_PAS_DELEGATED_REALM) {
+	if (pas != VMSA_PAS_NON_SECURE) {
+		unsigned int source = pas == VMSA_PAS_SECURE ? SMC_FROM_SECURE :
+							       SMC_FROM_REALM;
+		unsigned int attributes = pas == VMSA_PAS_SECURE ? MT_SECURE :
+								      MT_REALM;
+
 		if (mmap_remove_dynamic_region(VMSA_PAS_VIRTUAL, 4096U) != 0 ||
-		    gpt_delegate_pas(VMSA_PAS_PAGE, 4096U, SMC_FROM_REALM) != 0) {
+		    gpt_delegate_pas(VMSA_PAS_PAGE, 4096U, source) != 0) {
 			return -1;
 		}
 		if (mmap_add_dynamic_region(VMSA_PAS_PAGE, VMSA_PAS_VIRTUAL,
-					    4096U, MT_MEMORY | MT_RW | MT_REALM) != 0) {
+					    4096U, MT_MEMORY | MT_RW | attributes) != 0) {
 			(void)gpt_undelegate_pas(VMSA_PAS_PAGE, 4096U,
-						 SMC_FROM_REALM);
+						 source);
 			return -1;
 		}
 	}
@@ -81,9 +89,13 @@ static int32_t vmsa_pas_page_release(uint32_t pas, uint64_t physical)
 	if (mmap_remove_dynamic_region(VMSA_PAS_VIRTUAL, 4096U) != 0) {
 		return -1;
 	}
-	if (pas == VMSA_PAS_DELEGATED_REALM &&
-	    gpt_undelegate_pas(VMSA_PAS_PAGE, 4096U, SMC_FROM_REALM) != 0) {
-		return -1;
+	if (pas != VMSA_PAS_NON_SECURE) {
+		unsigned int source = pas == VMSA_PAS_SECURE ? SMC_FROM_SECURE :
+							       SMC_FROM_REALM;
+
+		if (gpt_undelegate_pas(VMSA_PAS_PAGE, 4096U, source) != 0) {
+			return -1;
+		}
 	}
 	vmsa_pas_page_owned = false;
 	return 0;
@@ -107,13 +119,6 @@ void fvp_vmsa_root_test(void)
 		.pas_page_acquire = vmsa_pas_page_acquire,
 		.pas_page_release = vmsa_pas_page_release,
 	};
-
-	if (mmap_add_dynamic_region(VMSA_ARENA_PHYSICAL, VMSA_ARENA_VIRTUAL,
-				    VMSA_ARENA_BYTES,
-				    MT_MEMORY | MT_RW | MT_ROOT) != 0) {
-		vmsa_write_message("VMSA-INFRA HARNESS_FAILURE result=root-arena-map\n");
-		return;
-	}
 
 	saved_cptr_el3 = read_cptr_el3();
 	write_cptr_el3(saved_cptr_el3 & ~TFP_BIT);

@@ -10,4 +10,7 @@ path = "src/lib.rs"
 test = false
 bench = false
 
+[features]
+runtime-64k-alignment = []
+
 [dependencies]

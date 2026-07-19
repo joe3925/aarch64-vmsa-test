@@ -93,9 +93,8 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         if offline != leaf {
             return vmsa_test_harness::HarnessError::EnvironmentDetail(0x13).into();
         }
-        sandbox = context
-            .prepare_transition_runtime(&mut mapper, lpa2_stage1 as *const () as u64, false)
-            .map_err(|_| vmsa_test_harness::HarnessError::EnvironmentDetail(0x1b))?;
+        sandbox =
+            context.prepare_transition_runtime(&mut mapper, lpa2_stage1 as *const () as u64, false)?;
     }
     let root_address = PhysicalAddress::new(root.phys_addr());
     let mut translation = context
@@ -111,7 +110,7 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
                 start_level: Some(start),
                 asid: None,
                 vmid: None,
-                controls: vmsa_test_harness::lpa2_el2_stage1_controls_4k(bits, bits)
+                controls: vmsa_test_harness::lpa2_current_stage1_controls_4k(bits, bits)
                     .ok_or(vmsa_test_harness::HarnessError::EnvironmentDetail(0x18))?,
                 stage1_memory: vmsa_test_harness::Stage1MemoryControls::empty().with_raw_attribute(
                     vmsa_test_harness::MemoryAttributeSlot::new(0)
@@ -170,8 +169,12 @@ pub fn d128_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
     }
     let mut stage1_root = context.allocate_root()?;
     let mut stage2_root = context.allocate_root()?;
-    let physical_region = stage1_root.phys_addr() & !0x3fff_ffff;
-    let target_region = physical_region ^ 0x4000_0000;
+    // A 4 KiB D128 walk consumes eight input bits per table level. An L1
+    // block therefore covers 2^(12 + 2*8) = 256 MiB, rather than the 1 GiB
+    // covered by an L1 block in the 64-bit descriptor format.
+    const D128_L1_BYTES: u64 = 1 << 28;
+    let physical_region = stage1_root.phys_addr() & !(D128_L1_BYTES - 1);
+    let target_region = physical_region ^ D128_L1_BYTES;
     let target_ipa = target_region | (page.phys_addr() - physical_region);
     {
         let mut mapper = context

@@ -13,6 +13,7 @@ vmsa_guarded_read:
     mov x20, x1
     adr x0, .Lread_recovery
     mov x1, x18
+    mov x2, x3
     bl vmsa_guard_begin
     cbz x0, .Lbusy
     cmp x20, #0
@@ -66,6 +67,7 @@ vmsa_guarded_write:
     mov x21, x2
     adr x0, .Lwrite_recovery
     mov x1, x18
+    mov x2, x4
     bl vmsa_guard_begin
     cbz x0, .Lwrite_busy
     cmp x20, #0
@@ -157,6 +159,7 @@ vmsa_guarded_ordered:
     mov x21, x2
     adr x0, .Lordered_recovery
     mov x1, x18
+    mov x2, x4
     bl vmsa_guard_begin
     cbz x0, .Lordered_busy
     cmp x21, #0
@@ -219,6 +222,7 @@ vmsa_guarded_pair:
     mov x23, x4
     adr x0, .Lpair_recovery
     mov x1, x18
+    mov x2, x6
     bl vmsa_guard_begin
     cbz x0, .Lpair_busy
     cbnz x22, .Lpair_write

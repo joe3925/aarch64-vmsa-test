@@ -67,6 +67,11 @@ vmsa_sync_vector:
     stp x26, x27, [sp, #208]
     stp x28, x29, [sp, #224]
     str x30, [sp, #240]
+    // Exception entry can set PAN while the interrupted candidate maps shared
+    // helper text/rodata as EL0-accessible. The privileged dispatcher must be
+    // able to read that linked state. ERET restores the interrupted PAN value
+    // from SPSR, so clearing the live handler state does not weaken the test.
+    msr pan, #0
     ldr x0, [sp, #144]
     bl vmsa_arch_handle_sync
     cbz x0, vmsa_unexpected_saved
@@ -94,5 +99,6 @@ vmsa_sync_vector:
 vmsa_unexpected_saved:
     add sp, sp, #256
 vmsa_unexpected_vector:
+    msr pan, #0
     bl vmsa_arch_unexpected_exception
     b .

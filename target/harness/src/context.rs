@@ -1426,7 +1426,8 @@ impl<'a, E: Environment> TestContext<'a, E> {
                         G,
                     >,
                 >,
-        aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
+        aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>:
+            Copy + PartialEq,
         aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::regime::StageOf<R>,
                 aarch64_vmsa::address::Granule4KiB,
@@ -1435,7 +1436,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
             aarch64_vmsa::descriptor::Vmsa64,
             R,
             aarch64_vmsa::address::Granule4KiB,
-        >: Copy,
+        >: Copy + PartialEq,
     {
         const STACK_ADDRESS: u64 = 0x6b00_0000;
         const MAILBOX_ADDRESS: u64 = 0x6b10_0000;
@@ -1469,10 +1470,14 @@ impl<'a, E: Environment> TestContext<'a, E> {
                 ],
                 user_accessible,
             )
-            .map_err(|_| {
-                HarnessError::TransitionPreparation(
-                    crate::TransitionPreparationError::CandidateRuntime,
-                )
+            .map_err(|error| {
+                if matches!(error, HarnessError::TransitionPreparation(_)) {
+                    error
+                } else {
+                    HarnessError::TransitionPreparation(
+                        crate::TransitionPreparationError::CandidateRuntime,
+                    )
+                }
             })?;
         // Lower-EL commands allocate their mailbox and exception stack after
         // the candidate translation is installed.  Identity-map the owning
@@ -1502,6 +1507,21 @@ impl<'a, E: Environment> TestContext<'a, E> {
             arena_page = arena_page
                 .checked_add(G::SIZE)
                 .ok_or(HarnessError::Memory)?;
+        }
+        let lower_stack_page = self.environment().transition_runtime_data()[2] & !(G::SIZE - 1);
+        for address in [
+            lower_stack_page,
+            arena_start & !(G::SIZE - 1),
+            (arena_end - 1) & !(G::SIZE - 1),
+        ] {
+            if mapper
+                .translate(address)?
+                .is_none_or(|mapping| mapping.output != address)
+            {
+                return Err(HarnessError::TransitionPreparation(
+                    crate::TransitionPreparationError::CandidateRuntime,
+                ));
+            }
         }
         mapper.prepare_transition_table_access().map_err(|_| {
             HarnessError::TransitionPreparation(
@@ -1615,7 +1635,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
             aarch64_vmsa::descriptor::Vmsa64,
             R,
             aarch64_vmsa::address::Granule4KiB,
-        >: Copy,
+        >: Copy + PartialEq,
     {
         const STACK_ADDRESS: u64 = 0x6b00_0000;
         const MAILBOX_ADDRESS: u64 = 0x6b10_0000;

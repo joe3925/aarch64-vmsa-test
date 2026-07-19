@@ -133,6 +133,35 @@ impl ObservedFault {
             FaultStatus::Other(value) => 0x100 | value as u64,
         }
     }
+
+    /// Compact, stable diagnostics for a fault that failed a matcher.
+    ///
+    /// The protocol previously reported only the normalized status, which made
+    /// class, access, stage, and lookup-level mismatches indistinguishable. The
+    /// low byte remains the existing status code; the remaining bytes describe
+    /// the other normalized fields without exposing architecture-private state.
+    pub const fn diagnostic_code(self) -> u64 {
+        let class = match self.class {
+            FaultClass::DataAbort => 1,
+            FaultClass::InstructionAbort => 2,
+            FaultClass::Other(value) => 0x80 | value as u64,
+        };
+        let access = match self.access {
+            AccessKind::Read => 1,
+            AccessKind::Write => 2,
+            AccessKind::Execute => 3,
+        };
+        let stage = match self.stage {
+            FaultStage::Stage1 => 1,
+            FaultStage::Stage2 => 2,
+            FaultStage::Unknown => 3,
+        };
+        let level = match self.level {
+            Some(level) => level.get() as u8 as u64,
+            None => 0xff,
+        };
+        self.status_code() | (class << 16) | (access << 24) | (stage << 32) | (level << 40)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -31,6 +31,8 @@ pub enum TransitionPreparationError {
     VmsaRuntimeStack,
     VmsaRuntimeData,
     VmsaRuntimeSandbox,
+    VmsaRuntimeLinkageData,
+    VmsaRuntimeDataPage,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -148,7 +150,7 @@ pub fn expect_matching_fault(result: AccessResult, expected: FaultMatcher) -> Te
         AccessResult::Fault(fault) => TestResult::Fail(TestFailure {
             kind: FailureKind::WrongFault,
             expected: 1,
-            actual: fault.status_code(),
+            actual: fault.diagnostic_code(),
         }),
         AccessResult::Completed { value } => TestResult::Fail(TestFailure {
             kind: FailureKind::MissingFault,

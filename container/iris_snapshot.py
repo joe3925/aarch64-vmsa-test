@@ -225,11 +225,25 @@ def main() -> int:
                 if breakpoint_address is not None
                 else cpu.add_bpt_reg(breakpoint_register, on_read=False, on_write=True)
             )
-            hits = model.run(blocking=True, timeout=5)
-            print(
-                "breakpoint-hit="
-                + str(any(hit.number == breakpoint.number for hit in hits))
-            )
+            requested_hits = int(os.environ.get("VMSA_IRIS_BREAKPOINT_HITS", "1"), 0)
+            match_register = os.environ.get("VMSA_IRIS_MATCH_REGISTER")
+            match_value = os.environ.get("VMSA_IRIS_MATCH_VALUE")
+            if (match_register is None) != (match_value is None):
+                raise RuntimeError("both IRIS match-register variables are required")
+            if match_register is not None:
+                requested_hits = int(os.environ.get("VMSA_IRIS_MATCH_MAX_HITS", "10000"), 0)
+                match_value = int(match_value, 0)
+            matched = False
+            for _ in range(requested_hits):
+                hits = model.run(blocking=True, timeout=20)
+                matched = any(hit.number == breakpoint.number for hit in hits)
+                if not matched:
+                    break
+                if match_register is not None:
+                    matched = cpu.read_register(match_register) == match_value
+                    if matched:
+                        break
+            print("breakpoint-hit=" + str(matched))
             if os.environ.get("VMSA_IRIS_STEPS") is not None:
                 breakpoint.delete()
                 cpu.client.irisCall().step_syncStep(
@@ -247,7 +261,40 @@ def main() -> int:
         for register in [
             "PC",
             "PSTATE",
+            "SPSel",
             "SP",
+            "X0",
+            "X1",
+            "X2",
+            "X3",
+            "X4",
+            "X5",
+            "X6",
+            "X7",
+            "X8",
+            "X9",
+            "X10",
+            "X11",
+            "X12",
+            "X13",
+            "X14",
+            "X15",
+            "X16",
+            "X17",
+            "X18",
+            "X19",
+            "X20",
+            "X21",
+            "X22",
+            "X23",
+            "X24",
+            "X25",
+            "X26",
+            "X27",
+            "X28",
+            "X29",
+            "X30",
+            "SP_EL0",
             "SP_EL1",
             "SP_EL2",
             "ESR_EL1",
@@ -296,6 +343,40 @@ def main() -> int:
                 print(f"{register}=0x{cpu.read_register(register):016x}")
             except Exception as error:
                 print(f"{register}=unavailable:{error}")
+        lower_address = os.environ.get("VMSA_IRIS_LOWER_ADDRESS")
+        if lower_address is not None:
+            address = int(lower_address, 0)
+            tcr = cpu.read_register("TCR_EL1")
+            tg0 = (tcr >> 14) & 0x3
+            if tg0 == 0b00:
+                granule_shift, index_bits, all_shifts = 12, 9, (39, 30, 21, 12)
+            elif tg0 == 0b10:
+                granule_shift, index_bits, all_shifts = 14, 11, (47, 36, 25, 14)
+            elif tg0 == 0b01:
+                granule_shift, index_bits, all_shifts = 16, 13, (42, 29, 16)
+            else:
+                raise RuntimeError(f"reserved lower TG0 encoding {tg0}")
+            if granule_shift == 12 and tcr & (1 << 59):
+                all_shifts = (48, 39, 30, 21, 12)
+            input_bits = 64 - (tcr & 0x3F)
+            shifts = tuple(shift for shift in all_shifts if shift < input_bits)
+            first_level = len(all_shifts) - len(shifts) - (1 if len(all_shifts) == 5 else 0)
+            table = cpu.read_register("TTBR0_EL1") & ~((1 << granule_shift) - 1)
+            table &= 0x0000_FFFF_FFFF_FFFF
+            for level, shift in enumerate(shifts, start=first_level):
+                index = (address >> shift) & ((1 << index_bits) - 1)
+                raw = int.from_bytes(
+                    cpu.read_memory(
+                        table + index * 8,
+                        memory_space=physical_memory_space,
+                        size=8,
+                    ),
+                    "little",
+                )
+                print(f"lower-requested-l{level}=0x{raw:016x}")
+                if raw & 0b11 != 0b11:
+                    break
+                table = raw & 0x0000_FFFF_FFFF_FFFF & ~((1 << granule_shift) - 1)
         if cpu.read_register("HCR_EL2") & 1:
             table = cpu.read_register("VTTBR_EL2") & 0x0000_FFFF_FFFF_F000
             address = cpu.read_register("FAR_EL2")
@@ -313,6 +394,69 @@ def main() -> int:
                 if raw & 0b11 != 0b11:
                     break
                 table = raw & 0x0000_FFFF_FFFF_F000
+        if (
+            cpu.read_register("HCR_EL2") & 1
+            and cpu.read_register("VTCR_EL2") & (1 << 38)
+        ):
+            # Iris exposes the low VTTBR word here. Bits[63:48] are VMID,
+            # not D128 BADDR; roots above 48 bits additionally require the
+            # high word, which this low-address Base FVP arena does not use.
+            root = cpu.read_register("VTTBR_EL2") & 0x0000_FFFF_FFFF_FFE0
+            input_bits = 64 - (cpu.read_register("VTCR_EL2") & 0x3F)
+            levels = (input_bits - 12 + 7) // 8
+            start_level = 4 - levels
+            for name, address in {
+                "stage2-entry": cpu.read_register("ELR_EL2"),
+                "stage2-stack": cpu.read_register("SP_EL1"),
+            }.items():
+                table = root
+                for level in range(start_level, 4):
+                    shift = 12 + 8 * (3 - level)
+                    index = (address >> shift) & 0xFF
+                    descriptor_address = table + index * 16
+                    low = int.from_bytes(
+                        cpu.read_memory(
+                            descriptor_address,
+                            memory_space=physical_memory_space,
+                            size=8,
+                        ),
+                        "little",
+                    )
+                    high = int.from_bytes(
+                        cpu.read_memory(
+                            descriptor_address + 8,
+                            memory_space=physical_memory_space,
+                            size=8,
+                        ),
+                        "little",
+                    )
+                    raw = low | high << 64
+                    print(f"{name}-l{level}=0x{raw:032x}")
+                    if raw & 1 == 0:
+                        for scan_index in range(256):
+                            scan_low = int.from_bytes(
+                                cpu.read_memory(
+                                    table + scan_index * 16,
+                                    memory_space=physical_memory_space,
+                                    size=8,
+                                ),
+                                "little",
+                            )
+                            scan_high = int.from_bytes(
+                                cpu.read_memory(
+                                    table + scan_index * 16 + 8,
+                                    memory_space=physical_memory_space,
+                                    size=8,
+                                ),
+                                "little",
+                            )
+                            if scan_low or scan_high:
+                                print(
+                                    f"{name}-missing-l{level}-entry-{scan_index}="
+                                    f"0x{(scan_low | scan_high << 64):032x}"
+                                )
+                        break
+                    table = raw & 0x00FF_FFFF_FFFF_F000
         if cpu.read_register("TCR2_EL2") & (1 << 5):
             root = cpu.read_register("TTBR0_EL2") & 0x00FF_FFFF_FFFF_FFE0
             addresses = {
@@ -321,6 +465,8 @@ def main() -> int:
                 "fault": cpu.read_register("FAR_EL2"),
                 "vector": cpu.read_register("VBAR_EL2"),
             }
+            if os.environ.get("VMSA_IRIS_ADDRESS") is not None:
+                addresses["requested"] = int(os.environ["VMSA_IRIS_ADDRESS"], 0)
             input_bits = 64 - (cpu.read_register("TCR_EL2") & 0x3F)
             levels = (input_bits - 12 + 7) // 8
             start_level = 4 - levels
@@ -351,6 +497,28 @@ def main() -> int:
                     )
                     raw = low | high << 64
                     print(f"{name}-l{level}=0x{raw:032x}")
+                    if raw & 1 == 0:
+                        if name == "stack":
+                            for scan_index in range(256):
+                                scan_low = cpu.read_memory(
+                                    table + scan_index * 16,
+                                    memory_space=physical_memory_space,
+                                    size=8,
+                                )
+                                scan_high = cpu.read_memory(
+                                    table + scan_index * 16 + 8,
+                                    memory_space=physical_memory_space,
+                                    size=8,
+                                )
+                                if any(scan_low) or any(scan_high):
+                                    scan_raw = int.from_bytes(scan_low, "little") | (
+                                        int.from_bytes(scan_high, "little") << 64
+                                    )
+                                    print(
+                                        f"stack-missing-l{level}-entry-{scan_index}="
+                                        f"0x{scan_raw:032x}"
+                                    )
+                        break
                     table = raw & 0x00FF_FFFF_FFFF_F000
         else:
             current_el = "EL3" if target == "root-el3" else "EL2"
@@ -364,7 +532,12 @@ def main() -> int:
                 granule_shift, index_bits, all_shifts = 16, 13, (42, 29, 16)
             else:
                 raise RuntimeError(f"reserved TG0 encoding {tg0}")
-            root = cpu.read_register(f"TTBR0_{current_el}") & ~((1 << granule_shift) - 1)
+            configured_root = os.environ.get("VMSA_IRIS_ROOT")
+            root = (
+                int(configured_root, 0)
+                if configured_root is not None
+                else cpu.read_register(f"TTBR0_{current_el}")
+            ) & ~((1 << granule_shift) - 1)
             input_bits = 64 - (tcr & 0x3F)
             ds = tcr & (1 << (32 if current_el == "EL3" else 59))
             if granule_shift == 12 and ds:
@@ -392,7 +565,7 @@ def main() -> int:
                         "little",
                     )
                     print(f"{name}-l{level}=0x{raw:016x}")
-                    table = raw & ~((1 << granule_shift) - 1)
+                    table = raw & 0x0000_FFFF_FFFF_FFFF & ~((1 << granule_shift) - 1)
                     if raw & 0b11 != 0b11:
                         break
         return 0

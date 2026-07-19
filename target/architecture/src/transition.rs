@@ -33,6 +33,11 @@ struct LowerRuntimeState {
     recovery_spsr: AtomicU64,
     return_exception_class: AtomicU64,
     target: AtomicU64,
+    host_translation_address: AtomicU64,
+    host_translation_access: AtomicU64,
+    host_translation_requested: AtomicBool,
+    host_translation_par: AtomicU64,
+    host_translation_valid: AtomicBool,
     fault: FaultSlot,
     fault_valid: AtomicBool,
 }
@@ -45,6 +50,11 @@ impl LowerRuntimeState {
             recovery_spsr: AtomicU64::new(0),
             return_exception_class: AtomicU64::new(0),
             target: AtomicU64::new(LowerElTarget::El1 as u64),
+            host_translation_address: AtomicU64::new(0),
+            host_translation_access: AtomicU64::new(0),
+            host_translation_requested: AtomicBool::new(false),
+            host_translation_par: AtomicU64::new(0),
+            host_translation_valid: AtomicBool::new(false),
             fault: FaultSlot(UnsafeCell::new(None)),
             fault_valid: AtomicBool::new(false),
         }
@@ -54,6 +64,7 @@ impl LowerRuntimeState {
         &self,
         return_exception_class: u8,
         target: LowerElTarget,
+        host_el0_translation: Option<HostEl0Translation>,
     ) -> Result<(), TransitionError> {
         if self
             .phase
@@ -72,6 +83,18 @@ impl LowerRuntimeState {
         self.return_exception_class
             .store(return_exception_class as u64, Ordering::Release);
         self.target.store(target as u64, Ordering::Release);
+        self.host_translation_address.store(
+            host_el0_translation.map_or(0, |request| request.address),
+            Ordering::Release,
+        );
+        self.host_translation_access.store(
+            host_el0_translation.map_or(0, |request| request.access as u64),
+            Ordering::Release,
+        );
+        self.host_translation_requested
+            .store(host_el0_translation.is_some(), Ordering::Release);
+        self.host_translation_par.store(0, Ordering::Release);
+        self.host_translation_valid.store(false, Ordering::Release);
         self.fault_valid.store(false, Ordering::Release);
         unsafe { *self.fault.0.get() = None };
         Ok(())
@@ -83,10 +106,15 @@ impl LowerRuntimeState {
         self.return_exception_class.store(0, Ordering::Release);
         self.target
             .store(LowerElTarget::El1 as u64, Ordering::Release);
+        self.host_translation_address.store(0, Ordering::Release);
+        self.host_translation_access.store(0, Ordering::Release);
+        self.host_translation_requested
+            .store(false, Ordering::Release);
+        self.host_translation_par.store(0, Ordering::Release);
+        self.host_translation_valid.store(false, Ordering::Release);
         self.fault_valid.store(false, Ordering::Release);
         unsafe { *self.fault.0.get() = None };
-        self.phase
-            .store(LowerPhase::Idle as u64, Ordering::Release);
+        self.phase.store(LowerPhase::Idle as u64, Ordering::Release);
     }
 
     fn phase(&self) -> u64 {
@@ -136,8 +164,7 @@ impl LowerRuntimeState {
     }
 
     fn target(&self) -> LowerElTarget {
-        LowerElTarget::from_raw(self.target.load(Ordering::Acquire))
-            .unwrap_or(LowerElTarget::El1)
+        LowerElTarget::from_raw(self.target.load(Ordering::Acquire)).unwrap_or(LowerElTarget::El1)
     }
 
     fn return_conduit(&self) -> LowerElReturnConduit {
@@ -146,11 +173,41 @@ impl LowerRuntimeState {
             _ => LowerElReturnConduit::Hvc,
         }
     }
+
+    fn query_host_translation(&self) -> bool {
+        if !self.host_translation_requested.load(Ordering::Acquire) {
+            return true;
+        }
+        let access = match self.host_translation_access.load(Ordering::Acquire) {
+            0 => crate::translation::TranslationAccess::Read,
+            1 => crate::translation::TranslationAccess::Write,
+            _ => return false,
+        };
+        let Some(par) = crate::translation::active_host_el0_stage1(
+            self.host_translation_address.load(Ordering::Acquire),
+            access,
+        ) else {
+            return false;
+        };
+        self.host_translation_par.store(par, Ordering::Release);
+        self.host_translation_valid.store(true, Ordering::Release);
+        true
+    }
+
+    fn take_host_translation(&self) -> Option<u64> {
+        self.host_translation_valid
+            .swap(false, Ordering::AcqRel)
+            .then(|| self.host_translation_par.load(Ordering::Acquire))
+    }
 }
 
-#[repr(C, align(4096))]
+#[cfg_attr(feature = "runtime-64k-alignment", repr(C, align(65536)))]
+#[cfg_attr(not(feature = "runtime-64k-alignment"), repr(C, align(4096)))]
 struct LowerRuntimeStorage(LowerRuntimeState);
 
+#[cfg(feature = "runtime-64k-alignment")]
+const _: () = assert!(core::mem::size_of::<LowerRuntimeStorage>() == 65536);
+#[cfg(not(feature = "runtime-64k-alignment"))]
 const _: () = assert!(core::mem::size_of::<LowerRuntimeStorage>() == 4096);
 
 #[unsafe(link_section = ".data.vmsa_lower_runtime_state")]
@@ -312,9 +369,10 @@ pub fn enter_lower_el(
         LowerElTarget::El2El0 => EXCEPTION_CLASS_SVC_AARCH64,
         LowerElTarget::El1 | LowerElTarget::El0 => return_conduit.exception_class(),
     };
-    if let Err(error) = LOWER_RUNTIME_STATE
-        .0
-        .prepare(return_exception_class, target)
+    if let Err(error) =
+        LOWER_RUNTIME_STATE
+            .0
+            .prepare(return_exception_class, target, host_el0_translation)
     {
         restore_environment(saved_stage1, saved_smc_routing);
         return Err(error);
@@ -322,7 +380,10 @@ pub fn enter_lower_el(
 
     let lower_vectors = VectorGuard::install_el1();
     let (spsr, target_el0) = match target {
-        LowerElTarget::El1 => (0x3c5, 0),
+        // Run EL1 payload code with SP_EL0 so synchronous exceptions use the
+        // separately-owned SP_EL1 exception stack. This keeps a candidate
+        // fault from recursively faulting while the vector saves registers.
+        LowerElTarget::El1 => (0x3c4, 0),
         LowerElTarget::El0 => (0x3c0, 1),
         LowerElTarget::El2El0 => (0x3c0, 2),
     };
@@ -339,13 +400,7 @@ pub fn enter_lower_el(
     };
 
     let fault = LOWER_RUNTIME_STATE.0.take_fault();
-    let host_el0_par = if status == 0 && fault.is_none() {
-        host_el0_translation.and_then(|request| {
-            crate::translation::active_host_el0_stage1(request.address, request.access)
-        })
-    } else {
-        None
-    };
+    let host_el0_par = LOWER_RUNTIME_STATE.0.take_host_translation();
     LOWER_RUNTIME_STATE.0.reset();
     drop(lower_vectors);
 
@@ -398,8 +453,8 @@ fn restore_environment(
     stage1: Option<crate::registers::El1Stage1State>,
     smc_routing: Option<crate::registers::El1SmcRoutingState>,
 ) -> bool {
-    let routing_restored = smc_routing
-        .is_none_or(|state| unsafe { registers::restore_el1_smc_routing(state) });
+    let routing_restored =
+        smc_routing.is_none_or(|state| unsafe { registers::restore_el1_smc_routing(state) });
     restore_stage1(stage1) && routing_restored
 }
 
@@ -473,10 +528,7 @@ extern "C" fn vmsa_lower_complete() {
     state.recovery_spsr.store(0, Ordering::Release);
 }
 
-pub(crate) fn handle_lower_return(
-    exception_class: u8,
-    exception_spsr: u64,
-) -> Option<(u64, u64)> {
+pub(crate) fn handle_lower_return(exception_class: u8, exception_spsr: u64) -> Option<(u64, u64)> {
     let state = &LOWER_RUNTIME_STATE.0;
     if registers::current_el() != 2 {
         return None;
@@ -496,7 +548,7 @@ pub(crate) fn handle_lower_return(
     }
     let recovery = state.recovery.load(Ordering::Acquire);
     let recovery_spsr = state.recovery_spsr.load(Ordering::Acquire);
-    if recovery == 0 || !state.begin_return() {
+    if recovery == 0 || !state.begin_return() || !state.query_host_translation() {
         return None;
     }
     Some((recovery, recovery_spsr))

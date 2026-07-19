@@ -49,15 +49,26 @@ struct AssemblyAccessResult {
 }
 
 unsafe extern "C" {
-    fn vmsa_guarded_read(address: u64, width: u64, state: u64) -> AssemblyAccessResult;
-    fn vmsa_guarded_write(address: u64, width: u64, value: u64, state: u64)
-    -> AssemblyAccessResult;
-    fn vmsa_guarded_execute(address: u64, state: u64) -> AssemblyAccessResult;
+    fn vmsa_guarded_read(
+        address: u64,
+        width: u64,
+        state: u64,
+        origin_el: u64,
+    ) -> AssemblyAccessResult;
+    fn vmsa_guarded_write(
+        address: u64,
+        width: u64,
+        value: u64,
+        state: u64,
+        origin_el: u64,
+    ) -> AssemblyAccessResult;
+    fn vmsa_guarded_execute(address: u64, state: u64, origin_el: u64) -> AssemblyAccessResult;
     fn vmsa_guarded_ordered(
         address: u64,
         value: u64,
         operation: u64,
         state: u64,
+        origin_el: u64,
     ) -> AssemblyAccessResult;
     fn vmsa_guarded_pair(
         address: u64,
@@ -66,6 +77,7 @@ unsafe extern "C" {
         write: u64,
         result: *mut [u64; 2],
         state: u64,
+        origin_el: u64,
     ) -> u64;
 }
 
@@ -104,10 +116,23 @@ pub fn guarded_read_with_state(
     address: u64,
     width: AccessWidth,
 ) -> Result<GuardedResult, GuardError> {
+    guarded_read_with_state_at_el(state, address, width, registers::current_el())
+}
+
+#[doc(hidden)]
+pub fn guarded_read_with_state_at_el(
+    state: u64,
+    address: u64,
+    width: AccessWidth,
+    origin_el: u8,
+) -> Result<GuardedResult, GuardError> {
+    if origin_el > 3 {
+        return Err(GuardError::UnexpectedState);
+    }
     // SAFETY: The owning adapter supplies the address of its live exception
     // state and the assembly encloses the access in its guarded interval.
     decode_assembly_result(
-        unsafe { vmsa_guarded_read(address, width as u64, state) },
+        unsafe { vmsa_guarded_read(address, width as u64, state, origin_el as u64) },
         state,
     )
 }
@@ -129,9 +154,23 @@ pub fn guarded_write_with_state(
     width: AccessWidth,
     value: u64,
 ) -> Result<GuardedResult, GuardError> {
+    guarded_write_with_state_at_el(state, address, width, value, registers::current_el())
+}
+
+#[doc(hidden)]
+pub fn guarded_write_with_state_at_el(
+    state: u64,
+    address: u64,
+    width: AccessWidth,
+    value: u64,
+    origin_el: u8,
+) -> Result<GuardedResult, GuardError> {
+    if origin_el > 3 {
+        return Err(GuardError::UnexpectedState);
+    }
     // SAFETY: See guarded_read_with_state.
     decode_assembly_result(
-        unsafe { vmsa_guarded_write(address, width as u64, value, state) },
+        unsafe { vmsa_guarded_write(address, width as u64, value, state, origin_el as u64) },
         state,
     )
 }
@@ -144,8 +183,23 @@ pub fn guarded_execute(address: u64) -> Result<GuardedResult, GuardError> {
 
 #[doc(hidden)]
 pub fn guarded_execute_with_state(state: u64, address: u64) -> Result<GuardedResult, GuardError> {
+    guarded_execute_with_state_at_el(state, address, registers::current_el())
+}
+
+#[doc(hidden)]
+pub fn guarded_execute_with_state_at_el(
+    state: u64,
+    address: u64,
+    origin_el: u8,
+) -> Result<GuardedResult, GuardError> {
+    if origin_el > 3 {
+        return Err(GuardError::UnexpectedState);
+    }
     // SAFETY: See guarded_read_with_state.
-    decode_assembly_result(unsafe { vmsa_guarded_execute(address, state) }, state)
+    decode_assembly_result(
+        unsafe { vmsa_guarded_execute(address, state, origin_el as u64) },
+        state,
+    )
 }
 
 pub fn guarded_read_acquire(address: u64) -> Result<GuardedResult, GuardError> {
@@ -171,13 +225,24 @@ pub fn guarded_ordered_with_state(
     value: u64,
     operation: u64,
 ) -> Result<GuardedResult, GuardError> {
-    if operation > 3 {
+    guarded_ordered_with_state_at_el(state, address, value, operation, registers::current_el())
+}
+
+#[doc(hidden)]
+pub fn guarded_ordered_with_state_at_el(
+    state: u64,
+    address: u64,
+    value: u64,
+    operation: u64,
+    origin_el: u8,
+) -> Result<GuardedResult, GuardError> {
+    if operation > 3 || origin_el > 3 {
         return Err(GuardError::UnexpectedState);
     }
     // SAFETY: The owning adapter supplies a live mapped exception state; the
     // assembly encloses the selected ordered/atomic access in recovery.
     decode_assembly_result(
-        unsafe { vmsa_guarded_ordered(address, value, operation, state) },
+        unsafe { vmsa_guarded_ordered(address, value, operation, state, origin_el as u64) },
         state,
     )
 }
@@ -217,11 +282,42 @@ pub fn guarded_pair_with_state(
     second: u64,
     write: bool,
 ) -> Result<GuardedPairResult, GuardError> {
+    guarded_pair_with_state_at_el(
+        state,
+        address,
+        first,
+        second,
+        write,
+        registers::current_el(),
+    )
+}
+
+#[doc(hidden)]
+pub fn guarded_pair_with_state_at_el(
+    state: u64,
+    address: u64,
+    first: u64,
+    second: u64,
+    write: bool,
+    origin_el: u8,
+) -> Result<GuardedPairResult, GuardError> {
+    if origin_el > 3 {
+        return Err(GuardError::UnexpectedState);
+    }
     let mut values = [0u64; 2];
     // SAFETY: The assembly follows AAPCS64, writes exactly two u64 values to
     // `values` after a completed access, and encloses the LDP/STP in recovery.
-    let status =
-        unsafe { vmsa_guarded_pair(address, first, second, write as u64, &mut values, state) };
+    let status = unsafe {
+        vmsa_guarded_pair(
+            address,
+            first,
+            second,
+            write as u64,
+            &mut values,
+            state,
+            origin_el as u64,
+        )
+    };
     match status {
         0 => Ok(GuardedPairResult::Completed {
             first: values[0],
