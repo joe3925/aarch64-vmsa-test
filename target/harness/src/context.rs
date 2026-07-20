@@ -4070,10 +4070,25 @@ impl<'a, E: Environment> CombinedTranslation<'a, E> {
                 vmsa_test_architecture::translation::TranslationAccess::Write
             }
         };
-        vmsa_test_architecture::translation::combined_stage1_stage2(address, access)
-            .map_or(crate::TranslationQueryResult::Unsupported, |par| {
-                crate::TranslationQueryResult::from_par(address, par)
-            })
+
+        let Some(format) = self.stage2.as_ref().map(|stage2| stage2.setup.format) else {
+            return crate::TranslationQueryResult::Unsupported;
+        };
+
+        match format {
+            crate::TranslationFormat::Vmsa128 => {
+                vmsa_test_architecture::translation::combined_stage1_stage2_d128(address, access)
+                    .map_or(crate::TranslationQueryResult::Unsupported, |(low, high)| {
+                        crate::TranslationQueryResult::from_par128(address, low, high)
+                    })
+            }
+            crate::TranslationFormat::Vmsa64 | crate::TranslationFormat::Vmsa64Lpa2 => {
+                vmsa_test_architecture::translation::combined_stage1_stage2(address, access)
+                    .map_or(crate::TranslationQueryResult::Unsupported, |par| {
+                        crate::TranslationQueryResult::from_par(address, par)
+                    })
+            }
+        }
     }
 
     pub fn restore(mut self) -> Result<(), HarnessError> {

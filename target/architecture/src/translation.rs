@@ -304,3 +304,55 @@ pub fn lower_stage1_d128(address: u64, access: TranslationAccess) -> Option<(u64
     }
     Some((low, high))
 }
+pub fn combined_stage1_stage2_d128(address: u64, access: TranslationAccess) -> Option<(u64, u64)> {
+    if crate::registers::current_el() != 2 {
+        return None;
+    }
+
+    let low: u64;
+    let high: u64;
+    unsafe {
+        match access {
+            TranslationAccess::Read => asm!(
+                ".arch_extension d128",
+                "mrs {saved_hcr}, HCR_EL2",
+                "bic {guest_hcr}, {saved_hcr}, #0x08000000",
+                "bic {guest_hcr}, {guest_hcr}, #0x400000000",
+                "msr HCR_EL2, {guest_hcr}",
+                "isb",
+                "at s12e1r, {address}",
+                "isb",
+                "mrrs x2, x3, PAR_EL1",
+                "msr HCR_EL2, {saved_hcr}",
+                "isb",
+                address = in(reg) address,
+                saved_hcr = out(reg) _,
+                guest_hcr = out(reg) _,
+                out("x2") low,
+                out("x3") high,
+                options(nostack, preserves_flags),
+            ),
+            TranslationAccess::Write => asm!(
+                ".arch_extension d128",
+                "mrs {saved_hcr}, HCR_EL2",
+                "bic {guest_hcr}, {saved_hcr}, #0x08000000",
+                "bic {guest_hcr}, {guest_hcr}, #0x400000000",
+                "msr HCR_EL2, {guest_hcr}",
+                "isb",
+                "at s12e1w, {address}",
+                "isb",
+                "mrrs x2, x3, PAR_EL1",
+                "msr HCR_EL2, {saved_hcr}",
+                "isb",
+                address = in(reg) address,
+                saved_hcr = out(reg) _,
+                guest_hcr = out(reg) _,
+                out("x2") low,
+                out("x3") high,
+                options(nostack, preserves_flags),
+            ),
+        }
+    }
+
+    Some((low, high))
+}

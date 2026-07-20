@@ -851,7 +851,8 @@ impl InstalledTranslation {
 }
 
 use aarch64_vmsa::address::{
-    Granule4KiB, Granule16KiB, Granule64KiB, Level, PhysAddr, TranslationGranule, VirtAddr,
+    Granule4KiB, Granule16KiB, Granule64KiB, GranuleKind, Level, PhysAddr, TranslationGranule,
+    VirtAddr,
 };
 use aarch64_vmsa::descriptor::{
     DescriptorFormat, DescriptorLayout, HasLayout, Vmsa64, Vmsa64Lpa2, Vmsa128,
@@ -933,6 +934,11 @@ where
     fn raw_table() -> Result<TableFieldsOf<Vmsa64, Self, G>, HarnessError>;
 }
 
+fn lpa2_uses_ds<G: TranslationGranule>(format: TranslationFormat) -> bool {
+    matches!(format, TranslationFormat::Vmsa64Lpa2)
+        && matches!(G::kind(), GranuleKind::Size4KiB | GranuleKind::Size16KiB)
+}
+
 pub trait HardwareManagedStage1Regime<G: TranslationGranule>: TestRegimeFor<G>
 where
     Vmsa64: HasLayout<StageOf<Self>, G>,
@@ -973,9 +979,14 @@ macro_rules! stage1_test_regime_for_granule {
 
             fn raw_leaf_for_format(
                 attributes: MappingAttributes,
-                _format: TranslationFormat,
+                format: TranslationFormat,
             ) -> Result<LeafFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
-                <Self as TestRegimeFor<$granule>>::raw_leaf(attributes)
+                let mut fields = <Self as TestRegimeFor<$granule>>::raw_leaf(attributes)?;
+                if lpa2_uses_ds::<$granule>(format) {
+                    fields.shareability =
+                        RawShareability::from_bits(0).map_err(|_| HarnessError::InvalidState)?;
+                }
+                Ok(fields)
             }
 
             fn raw_table() -> Result<TableFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
@@ -1080,6 +1091,18 @@ macro_rules! two_privilege_test_regime_for_granule {
                 })
             }
 
+            fn raw_leaf_for_format(
+                attributes: MappingAttributes,
+                format: TranslationFormat,
+            ) -> Result<LeafFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
+                let mut fields = <Self as TestRegimeFor<$granule>>::raw_leaf(attributes)?;
+                if lpa2_uses_ds::<$granule>(format) {
+                    fields.shareability =
+                        RawShareability::from_bits(0).map_err(|_| HarnessError::InvalidState)?;
+                }
+                Ok(fields)
+            }
+
             fn raw_table() -> Result<TableFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
                 Ok(RawVmsa64Stage1TableAttrs {
                     privileged_execute_never_limit: false,
@@ -1159,6 +1182,18 @@ macro_rules! stage2_test_regime_for_granule {
                     .map_err(|_| HarnessError::InvalidState)?,
                     software: FourBit::new(0).map_err(|_| HarnessError::InvalidState)?,
                 })
+            }
+
+            fn raw_leaf_for_format(
+                attributes: MappingAttributes,
+                format: TranslationFormat,
+            ) -> Result<LeafFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
+                let mut fields = <Self as TestRegimeFor<$granule>>::raw_leaf(attributes)?;
+                if lpa2_uses_ds::<$granule>(format) {
+                    fields.shareability =
+                        RawShareability::from_bits(0).map_err(|_| HarnessError::InvalidState)?;
+                }
+                Ok(fields)
             }
 
             fn raw_table() -> Result<TableFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
@@ -2157,23 +2192,32 @@ where
 
     let code_window = G::SIZE.max(LINKED_CODE_REGION);
 
-    let code_fields = R::raw_leaf(MappingAttributes {
-        writable: false,
-        executable: true,
-        user_accessible: true,
-    })?;
+    let code_fields = R::raw_leaf_for_format(
+        MappingAttributes {
+            writable: false,
+            executable: true,
+            user_accessible: true,
+        },
+        setup.format,
+    )?;
 
-    let data_fields = R::raw_leaf(MappingAttributes {
-        writable: true,
-        executable: false,
-        user_accessible: true,
-    })?;
+    let data_fields = R::raw_leaf_for_format(
+        MappingAttributes {
+            writable: true,
+            executable: false,
+            user_accessible: true,
+        },
+        setup.format,
+    )?;
 
-    let exception_stack_fields = R::raw_leaf(MappingAttributes {
-        writable: true,
-        executable: false,
-        user_accessible: false,
-    })?;
+    let exception_stack_fields = R::raw_leaf_for_format(
+        MappingAttributes {
+            writable: true,
+            executable: false,
+            user_accessible: false,
+        },
+        setup.format,
+    )?;
 
     let table_fields = R::raw_table()?;
 
@@ -2260,6 +2304,49 @@ where
         }};
     }
 
+    macro_rules! ensure_runtime_stack_page {
+        ($input:expr, $output:expr, $fields:expr) => {{
+            let input = $input;
+            let output = $output;
+            let fields = $fields;
+
+            if let Some(mapping) = mapper
+                .translate(WalkInputAddr::new(input))
+                .map_err(|_| HarnessError::InvalidState)?
+            {
+                if mapping.level() != Level::L3 {
+                    return Err(HarnessError::InvalidState);
+                }
+
+                if mapping.output().0 != output || *mapping.fields() != fields {
+                    mapper
+                        .unmap(WalkInputAddr::new(input))
+                        .map_err(|_| HarnessError::InvalidState)?;
+
+                    mapper
+                        .map_leaf(
+                            WalkInputAddr::new(input),
+                            PhysAddr(output),
+                            Level::L3,
+                            fields,
+                            table_fields,
+                        )
+                        .map_err(|_| HarnessError::InvalidState)?;
+                }
+            } else {
+                mapper
+                    .map_leaf(
+                        WalkInputAddr::new(input),
+                        PhysAddr(output),
+                        Level::L3,
+                        fields,
+                        table_fields,
+                    )
+                    .map_err(|_| HarnessError::InvalidState)?;
+            }
+        }};
+    }
+
     for index in 0..code_windows.len() {
         if code_windows[..index].contains(&code_windows[index]) {
             continue;
@@ -2318,27 +2405,7 @@ where
         ));
     }
 
-    if let Some(mapping) = mapper
-        .translate(WalkInputAddr::new(stack_page))
-        .map_err(|_| HarnessError::InvalidState)?
-    {
-        if mapping.output().0 != stack_physical_page
-            || mapping.level() != Level::L3
-            || *mapping.fields() != data_fields
-        {
-            return Err(HarnessError::InvalidState);
-        }
-    } else {
-        mapper
-            .map_leaf(
-                WalkInputAddr::new(stack_page),
-                PhysAddr(stack_physical_page),
-                Level::L3,
-                data_fields,
-                table_fields,
-            )
-            .map_err(|_| HarnessError::InvalidState)?;
-    }
+    ensure_runtime_stack_page!(stack_page, stack_physical_page, data_fields);
 
     if is_code_page(exception_stack_page) || is_state_page(exception_stack_page) {
         return Err(HarnessError::TransitionPreparation(
@@ -2346,27 +2413,11 @@ where
         ));
     }
 
-    if let Some(mapping) = mapper
-        .translate(WalkInputAddr::new(exception_stack_page))
-        .map_err(|_| HarnessError::InvalidState)?
-    {
-        if mapping.output().0 != exception_stack_physical_page
-            || mapping.level() != Level::L3
-            || *mapping.fields() != exception_stack_fields
-        {
-            return Err(HarnessError::InvalidState);
-        }
-    } else {
-        mapper
-            .map_leaf(
-                WalkInputAddr::new(exception_stack_page),
-                PhysAddr(exception_stack_physical_page),
-                Level::L3,
-                exception_stack_fields,
-                table_fields,
-            )
-            .map_err(|_| HarnessError::InvalidState)?;
-    }
+    ensure_runtime_stack_page!(
+        exception_stack_page,
+        exception_stack_physical_page,
+        exception_stack_fields
+    );
 
     for index in 0..state_pages.len() {
         let page = state_pages[index];
