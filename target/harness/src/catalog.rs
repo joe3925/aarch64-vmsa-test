@@ -140,19 +140,37 @@ const fn same_name(left: &str, right: &str) -> bool {
     true
 }
 
+const CATALOG_NAME_SLOTS: usize = 4096;
+
+const fn catalog_name_hash(name: &str) -> usize {
+    let bytes = name.as_bytes();
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    let mut index = 0;
+    while index < bytes.len() {
+        hash ^= bytes[index] as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        index += 1;
+    }
+    hash as usize
+}
+
 const _: () = {
+    assert!(TEST_CATALOG.len() < CATALOG_NAME_SLOTS);
+    let mut occupied = [usize::MAX; CATALOG_NAME_SLOTS];
     let mut index = 0;
     while index < TEST_CATALOG.len() {
-        assert!(valid_catalog_name(TEST_CATALOG[index].name));
-        let mut other = index + 1;
-        while other < TEST_CATALOG.len() {
-            assert!(TEST_CATALOG[index].id as u16 != TEST_CATALOG[other].id as u16);
-            assert!(!same_name(
-                TEST_CATALOG[index].name,
-                TEST_CATALOG[other].name
-            ));
-            other += 1;
+        let name = TEST_CATALOG[index].name;
+        assert!(valid_catalog_name(name));
+
+        let mut slot = catalog_name_hash(name) & (CATALOG_NAME_SLOTS - 1);
+        let mut probes = 0;
+        while occupied[slot] != usize::MAX {
+            assert!(!same_name(name, TEST_CATALOG[occupied[slot]].name));
+            slot = (slot + 1) & (CATALOG_NAME_SLOTS - 1);
+            probes += 1;
+            assert!(probes < CATALOG_NAME_SLOTS);
         }
+        occupied[slot] = index;
         index += 1;
     }
 };

@@ -1,14 +1,13 @@
 # `aarch64-vmsa` crate failure report
 
 This file contains only failures for which the observed disagreement is attributable to a public
-`aarch64-vmsa` API. Cases whose ownership is not yet established are recorded in `triage.md`.
+`aarch64-vmsa` API. Untriaged failures are not recorded here.
 
 ## Current confirmation context
 
-- Latest full command: `cargo run test all --crate "/Users/boden/Documents/aarch64-vmsa"`
-- Latest NS-EL2 result: `passed=463 failed=7 skipped=0`
-- Latest retained NS-EL2 evidence:
-  `output/runs/ns-el2-00001784524182676390-74198/`
+- Latest multi-profile campaign command:
+  `cargo run --manifest-path host/Cargo.toml -- test all --crate /Users/boden/Documents/aarch64-vmsa`
+- Latest NS-EL2 result: `passed=428 failed=4 skipped=0`
 - Reference crate checkout used by this campaign:
   - HEAD: `ada32824cd813c16ab6ea30322ee396aad3aaa75`
   - Dirty content fingerprint: `fnv1a64:efe950d65438f158`
@@ -16,9 +15,12 @@ This file contains only failures for which the observed disagreement is attribut
   D128, D128 stage 2, extended input and output addresses, 4/16/64 KiB granules,
   52-bit VA and PA; RME absent.
 - The tested crate checkout is mounted read-only by the harness.
+- That all-profile invocation executed NS EL2, Secure EL2, Realm EL2, and Realm stage 2 before
+  exposing an unrelated Root EL3 payload compile error. After removing the stale unused Root
+  declaration, a fresh Root EL3 invocation passed `26/26`.
 
-The seven latest NS-EL2 failures consist of the four confirmed crate-failure cases documented
-below and three unresolved descriptor cases documented in `triage.md`.
+The four latest NS-EL2 failures are exactly the four confirmed crate-failure cases documented
+below. No unresolved failures remain from that campaign.
 
 ## AVMSA-ATTR-001 — MAIR encode/decode disagreement for non-allocating cacheable memory
 
@@ -71,10 +73,9 @@ participates in this offline round trip.
 
 ### Evidence
 
-- Original isolated reproduction:
-  `output/runs/ns-el2-00001784190368690663-85891/`
-- Latest full confirmation:
-  `output/runs/ns-el2-00001784524182676390-74198/`
+- 2026-07-21 full-profile confirmation:
+  `attributes.mair-normal-matrix` failed with
+  `reason=wrong-value expected=0 actual=56`.
 
 The catalog case remains registered, exhaustive, and failing.
 
@@ -128,10 +129,9 @@ is involved.
 
 ### Evidence
 
-- Original isolated/full reproduction:
-  `output/runs/ns-el2-00001784190399878456-86151/`
-- Latest full confirmation:
-  `output/runs/ns-el2-00001784524182676390-74198/`
+- 2026-07-21 full-profile confirmation:
+  `mapper.max-skl-extended-root` failed with
+  `reason=wrong-value expected=4 actual=0`.
 
 The catalog case remains registered and failing. Neighboring step-by-one, bounded-SKL, ordinary
 maximum-SKL, D128 transition-matrix, and mapper execution cases pass.
@@ -142,7 +142,12 @@ maximum-SKL, D128 transition-matrix, and mapper execution cases pass.
 - Catalog cases:
   - `descriptors.malformed-d128-address`
   - `descriptors.malformed-d128-res0`
-- Profile: Normal EL2 (`ns-el2`)
+- Equivalent coverage aliases that reproduce the same public-API defect:
+  - `coverage.faults.secure-d128-address`
+  - `coverage.faults.secure-d128-res0`
+  - `coverage.faults.realm-d128-address`
+  - `coverage.faults.realm-d128-res0`
+- Profiles: Normal EL2 (`ns-el2`), Secure EL2 (`secure-el2`), and Realm EL2 (`realm-el2`)
 - Reproduction command:
   `host/target/release/vmsa-test test ns-el2 --crate /Users/boden/Documents/aarch64-vmsa --filter descriptors.malformed --keep`
 - Latest full-run results:
@@ -212,9 +217,9 @@ The following neighboring cases pass:
 
 ### Evidence
 
-- Original malformed-descriptor family:
-  `output/runs/ns-el2-00001784190427877626-86399/`
-- Latest full confirmation:
-  `output/runs/ns-el2-00001784524182676390-74198/`
+- 2026-07-21 all-profile confirmation:
+  - Normal address and RES0 cases failed with `reason=missing-fault expected=1 actual=0`.
+  - Secure address and RES0 aliases failed with `reason=missing-fault expected=1 actual=0`.
+  - Realm address and RES0 aliases failed with `reason=missing-fault expected=1 actual=0`.
 
-Both assertions remain registered and failing.
+Both underlying assertions remain registered and failing in every applicable profile.

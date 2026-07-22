@@ -1508,12 +1508,17 @@ impl<'a, E: Environment> TestContext<'a, E> {
                 .checked_add(G::SIZE)
                 .ok_or(HarnessError::Memory)?;
         }
-        let lower_stack_page = self.environment().transition_runtime_data()[2] & !(G::SIZE - 1);
+        let runtime_data = self.environment().transition_runtime_data();
+        let lower_stack_page =
+            (runtime_data[2] != 0).then(|| runtime_data[2] & !(G::SIZE - 1));
         for address in [
             lower_stack_page,
-            arena_start & !(G::SIZE - 1),
-            (arena_end - 1) & !(G::SIZE - 1),
-        ] {
+            Some(arena_start & !(G::SIZE - 1)),
+            Some((arena_end - 1) & !(G::SIZE - 1)),
+        ]
+        .into_iter()
+        .flatten()
+        {
             if mapper
                 .translate(address)?
                 .is_none_or(|mapping| mapping.output != address)
@@ -1528,6 +1533,39 @@ impl<'a, E: Environment> TestContext<'a, E> {
                 crate::TransitionPreparationError::CandidateTableAccess,
             )
         })?;
+        let mut arena_page = arena_start & !(G::SIZE - 1);
+        while arena_page < arena_end {
+            let table_page = self.with_environment(|environment| {
+                environment
+                    .memory()
+                    .address_is_table_allocation(arena_page)
+            });
+            let expected_arena_attributes = crate::MappingAttributes {
+                writable: true,
+                executable: false,
+                user_accessible: user_accessible && !table_page,
+            };
+            if !mapper.mapping_matches_attributes(
+                arena_page,
+                arena_page,
+                expected_arena_attributes,
+            )? {
+                mapper
+                    .unmap_exact(arena_page)
+                    .map_err(|_| HarnessError::TransitionPreparation(
+                        crate::TransitionPreparationError::CandidateRuntime,
+                    ))?;
+                mapper.map_attributes_leaf(
+                    arena_page,
+                    arena_page,
+                    crate::LookupLevel::new(3).ok_or(HarnessError::InvalidState)?,
+                    expected_arena_attributes,
+                )?;
+            }
+            arena_page = arena_page
+                .checked_add(G::SIZE)
+                .ok_or(HarnessError::Memory)?;
+        }
         let mut recovery_root = self.allocate_root()?;
         {
             let mut recovery_mapper = self.offline_mapper_for_format_with_geometry::<

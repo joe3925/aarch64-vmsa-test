@@ -251,11 +251,12 @@ def prepare(target: str) -> dict[str, Path]:
     repositories: dict[str, Path] = {}
     try:
         repositories["tf-a"] = prepare_repository("tf-a", TF_A_URL, TF_A_REVISION, run_root)
-        repositories["tf-a-tests"] = prepare_repository(
-            "tf-a-tests", TF_A_TESTS_URL, TF_A_TESTS_REVISION, run_root
-        )
         apply_integration(repositories["tf-a"], "tf_a")
-        apply_integration(repositories["tf-a-tests"], "tf_a_tests")
+        if target != "root-el3":
+            repositories["tf-a-tests"] = prepare_repository(
+                "tf-a-tests", TF_A_TESTS_URL, TF_A_TESTS_REVISION, run_root
+            )
+            apply_integration(repositories["tf-a-tests"], "tf_a_tests")
 
         if target == "realm-el2":
             apply_integration(repositories["tf-a"], "trp")

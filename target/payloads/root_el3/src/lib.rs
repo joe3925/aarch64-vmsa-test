@@ -7,6 +7,9 @@ mod access;
 mod address_translation;
 #[path = "../../common/mod.rs"]
 mod common;
+#[path = "../../common/coherency.rs"]
+#[allow(dead_code)]
+mod coherency;
 #[path = "../../common/faults.rs"]
 #[allow(dead_code)]
 mod faults;
@@ -75,6 +78,15 @@ fn d128_reserved_rejection(_: &mut TestContext<'_, CurrentEnvironment>) -> TestR
 }
 fn d128_permission_indirection(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     root_cases::d128_permission_indirection(context)
+}
+fn multi_pe_visibility(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    coherency::multi_pe_translation_visibility(context, vmsa_test_harness::RegimeAttributes::Root)
+}
+fn live_break_before_make(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    mapper_live::live_break_before_make(
+        context,
+        vmsa_test_harness::RegimeAttributes::Root,
+    )
 }
 fn translation_cycle(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     invalidation::stage1_translation_cycle(c, vmsa_test_harness::RegimeAttributes::Root)

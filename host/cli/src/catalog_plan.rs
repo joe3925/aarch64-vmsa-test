@@ -72,8 +72,20 @@ pub fn plan(target: Target, filter: Option<&str>) -> Result<Vec<BootPlan>, Strin
         Target::RealmStage2 => 3,
         Target::RootEl3 => 4,
     };
+    let exact = filter.is_some_and(|wanted| {
+        cases
+            .iter()
+            .any(|case| case.targets[target_index] && case.name == wanted)
+    });
     let selected = |case: &&CatalogCase| {
-        case.targets[target_index] && filter.is_none_or(|wanted| case.name.contains(wanted))
+        case.targets[target_index]
+            && filter.is_none_or(|wanted| {
+                if exact {
+                    case.name == wanted
+                } else {
+                    case.name.contains(wanted)
+                }
+            })
     };
     let mut plans = Vec::new();
     if cases

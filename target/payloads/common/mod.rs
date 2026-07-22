@@ -593,11 +593,17 @@ impl AdapterCore {
         }
     }
     pub fn transition_runtime_data(&self) -> [u64; 4] {
+        let environment_entry = if self.lower_el_entry != 0 {
+            self.lower_el_entry
+        } else {
+            self.run_on_secondary
+                .map_or(0, |run| run as usize as u64)
+        };
         [
             self as *const Self as u64,
             panic_callback_address(),
             self.lower_el_stack.saturating_sub(1),
-            self.lower_el_entry,
+            environment_entry,
         ]
     }
     pub fn realm_rec_is_current(&self) -> bool {
@@ -1003,6 +1009,8 @@ impl AdapterCore {
         }
         if setup.stage == TranslationStage::Stage1
             && setup.asid.is_some()
+            && setup.format != vmsa_test_harness::TranslationFormat::Vmsa128
+            && transition_stack.is_none()
             && !registers::current_stage1_uses_asid()
         {
             return Err(AdapterError::ArchitecturalState);
@@ -1104,7 +1112,13 @@ impl AdapterCore {
                         recovery_vector: stack.recovery_vector(),
                     });
                     let state = unsafe {
-                        registers::install_current_stage1_geometry(ttbr, tcr, mair, stack)
+                        registers::install_current_stage1_geometry(
+                            ttbr,
+                            tcr,
+                            mair,
+                            setup.asid.is_some(),
+                            stack,
+                        )
                     };
                     let state = state.ok_or(AdapterError::UnsupportedStage)?;
                     SavedTranslation::Stage1Geometry(state)
@@ -1164,7 +1178,12 @@ impl AdapterCore {
                         setup.output_bits.get(),
                     )?;
                     let stage2_controls = if secure_bank {
-                        setup.controls.bits() & 0x8000_00ff
+                        // VSTCR_EL2 supplies SL2, TG0, SL0, and T0SZ for the
+                        // Secure IPA bank. DS, cacheability/shareability, and
+                        // output size remain in the common VTCR_EL2. Project
+                        // every banked geometry bit: losing TG0 forces 4 KiB,
+                        // while losing SL2 breaks level -1 4 KiB walks.
+                        setup.controls.bits() & 0x0000_0002_8000_c0ff
                     } else {
                         setup.controls.bits()
                     };
@@ -2129,6 +2148,12 @@ impl AdapterCore {
                     return AccessResult::HarnessFailure(HarnessError::Environment);
                 };
                 if par & 1 != 0 {
+                    use core::fmt::Write;
+                    let _ = writeln!(
+                        self.reporter,
+                        "VMSA-INFRA CRUMB lower-preflight-fault address=0x{address:016x} par=0x{par:016x} d128={}",
+                        d128 as u8,
+                    );
                     return AccessResult::HarnessFailure(HarnessError::Environment);
                 }
             }
@@ -2581,39 +2606,71 @@ unsafe extern "C" fn fatal_exception(
     if callback != 0 {
         // SAFETY: The value originates from the validated live boot context.
         let callback: unsafe extern "C" fn(u8) = unsafe { core::mem::transmute(callback) };
-        if vmsa_test_architecture::take_deliberate_unexpected_exception() {
-            write_bytes(
-                callback,
-                b"@@VMSA TERMINAL faults.unexpected-exception-destructive\n",
-            );
+        let deliberate = vmsa_test_architecture::take_deliberate_unexpected_exception();
+        let kind = vmsa_test_architecture::exception::fatal_exception_kind();
+        if deliberate {
+            write_bytes(callback, b"VMSA-INFRA EXPECTED_EXCEPTION kind=");
+            write_bytes(callback, fatal_exception_kind_name(kind));
+            write_bytes(callback, b"\n");
+            write_exception_registers(callback, esr, far, hpfar, hpfar_valid, elr, spsr);
+            if kind == FatalExceptionKind::Unexpected {
+                write_bytes(
+                    callback,
+                    b"@@VMSA PASS faults.unexpected-exception-destructive\n",
+                );
+            } else {
+                write_bytes(
+                    callback,
+                    b"@@VMSA FAIL faults.unexpected-exception-destructive \
+reason=wrong-fatal-kind expected=0 actual=",
+                );
+                write_decimal(callback, kind as u64);
+                write_bytes(callback, b"\n");
+            }
+        } else {
+            write_bytes(callback, b"VMSA-INFRA HARNESS_FAILURE kind=");
+            write_bytes(callback, fatal_exception_kind_name(kind));
+            write_bytes(callback, b"\n");
+            write_exception_registers(callback, esr, far, hpfar, hpfar_valid, elr, spsr);
         }
-        let kind = match vmsa_test_architecture::exception::fatal_exception_kind() {
-            FatalExceptionKind::Unexpected => b"unexpected" as &[u8],
-            FatalExceptionKind::InvalidRuntimeState => b"invalid-runtime-state",
-            FatalExceptionKind::DoubleFault => b"double-fault",
-            FatalExceptionKind::GuardStateViolation => b"guard-state-violation",
-            FatalExceptionKind::LowerElRecoveryFault => b"lower-el-recovery-fault",
-        };
-        write_bytes(callback, b"VMSA-INFRA HARNESS_FAILURE kind=");
-        write_bytes(callback, kind);
-        write_bytes(callback, b"\n");
-        write_bytes(callback, b"VMSA-INFRA EXCEPTION esr=0x");
-        write_hex(callback, esr);
-        write_bytes(callback, b" far=0x");
-        write_hex(callback, far);
-        write_bytes(callback, b" hpfar=0x");
-        write_hex(callback, hpfar);
-        write_bytes(callback, b" hpfar_valid=0x");
-        write_hex(callback, hpfar_valid);
-        write_bytes(callback, b" elr=0x");
-        write_hex(callback, elr);
-        write_bytes(callback, b" spsr=0x");
-        write_hex(callback, spsr);
-        write_bytes(callback, b"\n");
     }
     loop {
         core::hint::spin_loop();
     }
+}
+
+const fn fatal_exception_kind_name(kind: FatalExceptionKind) -> &'static [u8] {
+    match kind {
+        FatalExceptionKind::Unexpected => b"unexpected",
+        FatalExceptionKind::InvalidRuntimeState => b"invalid-runtime-state",
+        FatalExceptionKind::DoubleFault => b"double-fault",
+        FatalExceptionKind::GuardStateViolation => b"guard-state-violation",
+        FatalExceptionKind::LowerElRecoveryFault => b"lower-el-recovery-fault",
+    }
+}
+
+fn write_exception_registers(
+    callback: unsafe extern "C" fn(u8),
+    esr: u64,
+    far: u64,
+    hpfar: u64,
+    hpfar_valid: u64,
+    elr: u64,
+    spsr: u64,
+) {
+    write_bytes(callback, b"VMSA-INFRA EXCEPTION esr=0x");
+    write_hex(callback, esr);
+    write_bytes(callback, b" far=0x");
+    write_hex(callback, far);
+    write_bytes(callback, b" hpfar=0x");
+    write_hex(callback, hpfar);
+    write_bytes(callback, b" hpfar_valid=0x");
+    write_hex(callback, hpfar_valid);
+    write_bytes(callback, b" elr=0x");
+    write_hex(callback, elr);
+    write_bytes(callback, b" spsr=0x");
+    write_hex(callback, spsr);
+    write_bytes(callback, b"\n");
 }
 
 fn write_bytes(callback: unsafe extern "C" fn(u8), bytes: &[u8]) {
@@ -2621,6 +2678,20 @@ fn write_bytes(callback: unsafe extern "C" fn(u8), bytes: &[u8]) {
         // SAFETY: Callback originates from the validated live boot context.
         unsafe { callback(*byte) }
     }
+}
+
+fn write_decimal(callback: unsafe extern "C" fn(u8), mut value: u64) {
+    let mut digits = [0u8; 20];
+    let mut index = digits.len();
+    loop {
+        index -= 1;
+        digits[index] = b'0' + (value % 10) as u8;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    write_bytes(callback, &digits[index..]);
 }
 
 fn write_hex(callback: unsafe extern "C" fn(u8), value: u64) {

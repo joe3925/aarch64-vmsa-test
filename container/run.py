@@ -47,6 +47,14 @@ def fvp_command(images: build.FirmwareImages, target: str) -> list[str]:
         "-C", "bp.terminal_2.start_telnet=0",
         "-C", "bp.terminal_3.start_telnet=0",
         "-C", "pctl.startup=0.0.0.0",
+        # TF-A's warm-boot context code is built with FEAT_CSV2_2 support and
+        # restores SCXTNUM_EL2 on every secondary PE.  Keep the model feature
+        # contract identical for every profile that can issue CPU_ON, rather
+        # than relying on a profile-specific launch to happen to enable it.
+        "-C", "cluster0.restriction_on_speculative_execution=2",
+        "-C", "cluster1.restriction_on_speculative_execution=2",
+        "-C", "cluster0.restriction_on_speculative_execution_aarch32=2",
+        "-C", "cluster1.restriction_on_speculative_execution_aarch32=2",
     ]
     if target == "secure-el2":
         command.extend(["-C", "bp.secure_memory=1"])
@@ -151,10 +159,6 @@ def fvp_command(images: build.FirmwareImages, target: str) -> list[str]:
             "-C", "cluster1.gicv3.without-DS-support=1",
             "-C", "cluster0.gicv4.mask-virtual-interrupt=1",
             "-C", "cluster1.gicv4.mask-virtual-interrupt=1",
-            "-C", "cluster0.restriction_on_speculative_execution=2",
-            "-C", "cluster1.restriction_on_speculative_execution=2",
-            "-C", "cluster0.restriction_on_speculative_execution_aarch32=2",
-            "-C", "cluster1.restriction_on_speculative_execution_aarch32=2",
         ])
     if target == "realm-stage2":
         command.extend([
@@ -300,13 +304,13 @@ def main() -> int:
     (OUTPUT / "firmware.log").write_bytes(b"")
     repositories: dict[str, Path] = {}
     try:
-        images = build.restore_cached_build(arguments.target, arguments.filter)
+        images = build.restore_cached_build(arguments.target)
         if images is None:
             print("VMSA-INFRA PHASE prepare-start", flush=True)
             repositories = prepare.prepare(arguments.target)
             print("VMSA-INFRA PHASE prepare-complete", flush=True)
             print("VMSA-INFRA PHASE build-start", flush=True)
-            images = build.build(arguments.target, repositories, arguments.filter)
+            images = build.build(arguments.target, repositories)
             print("VMSA-INFRA PHASE build-complete", flush=True)
             prepare.cleanup(repositories)
             repositories = {}
@@ -316,7 +320,8 @@ def main() -> int:
         result = 20
     else:
         try:
-            run_fvp(images, arguments.target)
+            run_images = build.materialize_run_images(images, arguments.filter)
+            run_fvp(run_images, arguments.target)
         except (OSError, RuntimeError) as error:
             print(f"FVP startup/runtime failure: {error}", file=sys.stderr, flush=True)
             result = 21

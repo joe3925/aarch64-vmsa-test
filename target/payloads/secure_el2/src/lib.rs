@@ -7,6 +7,21 @@ mod access;
 mod address_translation;
 #[path = "../../common/mod.rs"]
 mod common;
+#[path = "../../common/coherency.rs"]
+#[allow(dead_code)]
+mod coherency;
+#[path = "../../common/formats_live.rs"]
+#[allow(dead_code)]
+mod formats_live;
+#[path = "../../common/hardware_updates.rs"]
+#[allow(dead_code)]
+mod hardware_updates;
+#[path = "../../common/malformed_descriptors.rs"]
+#[allow(dead_code)]
+mod malformed_descriptors;
+#[path = "../../common/mapper_plans.rs"]
+#[allow(dead_code)]
+mod mapper_plans;
 #[path = "../../common/faults.rs"]
 mod faults;
 #[path = "../../common/features.rs"]
@@ -40,6 +55,9 @@ use vmsa_test_harness::{LogicalTest, Requirements, SecurityEnvironment, TestCont
 define_environment!(SecureEl2Environment, aarch64_vmsa::regime::SecureEl2Stage1);
 pub type CurrentEnvironment = SecureEl2Environment;
 pub type CurrentRegime = aarch64_vmsa::regime::SecureEl2Stage1;
+pub type D128Regime = aarch64_vmsa::regime::SecureEl2HostStage1;
+pub const fn current_d128_asid() -> Option<vmsa_test_harness::Asid> { Some(vmsa_test_harness::Asid(0x31)) }
+pub const fn current_d128_controls(bits: vmsa_test_harness::AddressBits) -> Option<vmsa_test_harness::TranslationControls> { vmsa_test_harness::d128_el1_stage1_controls_4k(bits, bits) }
 pub type LowerRegime = aarch64_vmsa::regime::SecureEl1Stage1;
 pub type HostRegime = aarch64_vmsa::regime::SecureEl2HostStage1;
 pub type LowerPas = aarch64_vmsa::attrs::SecureSelectablePa;
@@ -55,6 +73,22 @@ pub const fn current_pas() -> CurrentPas {
 }
 pub const fn current_table_pas() -> CurrentTablePas {
     CurrentTablePas::Secure
+}
+pub const fn alternate_current_pas() -> Option<CurrentPas> {
+    Some(CurrentPas::NonSecure)
+}
+pub const fn alternate_current_table_pas() -> Option<CurrentTablePas> {
+    Some(CurrentTablePas::NonSecure)
+}
+pub fn alternate_stage1_pas_fault(address: u64) -> vmsa_test_harness::FaultMatcher {
+    vmsa_test_harness::FaultMatcher::new(vmsa_test_harness::ExpectedFault {
+        status: Some(vmsa_test_harness::FaultStatus::External),
+        access: Some(vmsa_test_harness::AccessKind::Read),
+        stage: Some(vmsa_test_harness::FaultStage::Stage1),
+        level: None,
+    })
+    .with_class(vmsa_test_harness::FaultClass::DataAbort)
+    .at_address(address)
 }
 pub const fn current_d128_alias() -> aarch64_vmsa::attrs::D128Stage1AliasKind {
     aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal
@@ -80,6 +114,10 @@ pub const fn host_regime_attributes() -> vmsa_test_harness::RegimeAttributes {
 pub type Stage2Regime = aarch64_vmsa::regime::SecureEl2SecureIpaStage2;
 pub type Stage2XnxRegime =
     aarch64_vmsa::regime::SecureEl2SecureIpaStage2<aarch64_vmsa::attrs::Stage2XnxPermissions>;
+pub type AlternateStage2Regime = aarch64_vmsa::regime::SecureEl2NonSecureIpaStage2;
+pub type AlternateStage2XnxRegime = aarch64_vmsa::regime::SecureEl2NonSecureIpaStage2<
+    aarch64_vmsa::attrs::Stage2XnxPermissions,
+>;
 pub type Stage2Pas = aarch64_vmsa::attrs::SecureSelectablePa;
 pub const fn stage2_pas() -> Stage2Pas {
     Stage2Pas::Secure
@@ -160,6 +198,15 @@ fn lower_fault(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
 }
 fn lpa2_mapper(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     mapper_live::mapper_lpa2(c)
+}
+fn multi_pe_visibility(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    coherency::multi_pe_translation_visibility(context, vmsa_test_harness::RegimeAttributes::Secure)
+}
+fn live_break_before_make(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    mapper_live::live_break_before_make(
+        context,
+        vmsa_test_harness::RegimeAttributes::Secure,
+    )
 }
 fn translation_cycle(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     invalidation::stage1_translation_cycle(c, vmsa_test_harness::RegimeAttributes::Secure)

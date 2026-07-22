@@ -206,6 +206,9 @@ pub struct D128Stage2State {
 pub struct GeometryStage1State {
     pub stage1: Stage1State,
     pub tcr2: u64,
+    hcr: Option<u64>,
+    sp_el2: Option<u64>,
+    spsel: Option<u64>,
     transition_stack: Option<TransitionStack>,
     previous_vbar: u64,
 }
@@ -350,6 +353,7 @@ pub struct HardwareUpdateState {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LowerHardwareUpdateState {
     tcr_el1: u64,
+    vhe: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -405,14 +409,36 @@ pub unsafe fn enable_lower_el1_hardware_updates(dirty: bool) -> Option<LowerHard
         return None;
     }
     let tcr_el1: u64;
+    let hcr_el2: u64;
     // SAFETY: The EL2 adapter owns the inactive EL1 register bank and changes
     // only the architectural HA/HD bits while retaining its installed geometry.
     unsafe {
-        asm!("mrs {0}, TCR_EL1", out(reg) tcr_el1, options(nomem, nostack, preserves_flags));
+        asm!("mrs {0}, HCR_EL2", out(reg) hcr_el2, options(nomem, nostack, preserves_flags));
+        let vhe = hcr_el2 & (1 << 34) != 0;
+        if vhe {
+            asm!(
+                ".arch armv8.5-a",
+                "mrs {0}, TCR_EL12",
+                out(reg) tcr_el1,
+                options(nomem, nostack, preserves_flags)
+            );
+        } else {
+            asm!("mrs {0}, TCR_EL1", out(reg) tcr_el1, options(nomem, nostack, preserves_flags));
+        }
         let updated = (tcr_el1 | (1 << 39)) | ((dirty as u64) << 40);
-        asm!("msr TCR_EL1, {0}", "isb", in(reg) updated, options(nostack, preserves_flags));
+        if vhe {
+            asm!(
+                ".arch armv8.5-a",
+                "msr TCR_EL12, {0}",
+                "isb",
+                in(reg) updated,
+                options(nostack, preserves_flags)
+            );
+        } else {
+            asm!("msr TCR_EL1, {0}", "isb", in(reg) updated, options(nostack, preserves_flags));
+        }
+        return Some(LowerHardwareUpdateState { tcr_el1, vhe });
     }
-    Some(LowerHardwareUpdateState { tcr_el1 })
 }
 
 /// Restores an inactive EL1 hardware-update state.
@@ -426,7 +452,22 @@ pub unsafe fn restore_lower_el1_hardware_updates(state: LowerHardwareUpdateState
     }
     // SAFETY: The paired guard still owns the inactive EL1 register bank.
     unsafe {
-        asm!("msr TCR_EL1, {0}", "isb", in(reg) state.tcr_el1, options(nostack, preserves_flags));
+        if state.vhe {
+            asm!(
+                ".arch armv8.5-a",
+                "msr TCR_EL12, {0}",
+                "isb",
+                in(reg) state.tcr_el1,
+                options(nostack, preserves_flags)
+            );
+        } else {
+            asm!(
+                "msr TCR_EL1, {0}",
+                "isb",
+                in(reg) state.tcr_el1,
+                options(nostack, preserves_flags)
+            );
+        }
     }
     true
 }
@@ -904,6 +945,7 @@ pub unsafe fn install_el2_stage1_geometry(
     ttbr0: u64,
     tcr: u64,
     mair: u64,
+    host_mode: bool,
     transition_stack: Option<TransitionStack>,
 ) -> Option<GeometryStage1State> {
     if current_el() != 2 {
@@ -915,6 +957,19 @@ pub unsafe fn install_el2_stage1_geometry(
     let old_sctlr: u64;
     let old_tcr2: u64;
     let old_vbar: u64;
+    let old_hcr: u64;
+    let old_sp_el2: u64;
+    let old_spsel: u64;
+    let live_hcr: u64;
+    unsafe {
+        asm!("mrs {0}, HCR_EL2", out(reg) live_hcr, options(nomem, nostack, preserves_flags));
+    }
+    let target_hcr = if host_mode {
+        live_hcr | (1 << 34)
+    } else {
+        live_hcr & !(1 << 34)
+    };
+    let preflight_ok: u64;
     let (
         stack_physical,
         stack_virtual,
@@ -957,6 +1012,15 @@ pub unsafe fn install_el2_stage1_geometry(
             "mrs {old_sctlr}, SCTLR_EL2",
             "mrs {old_tcr2}, S3_4_C2_C0_3",
             "mrs {old_vbar}, VBAR_EL2",
+            "mrs {old_hcr}, HCR_EL2",
+            "mrs {old_spsel}, SPSel",
+            // Capture both the live stack and the inactive SP_EL2 bank before
+            // a possible E2H transition changes the EL2 register view.
+            "msr SPSel, #1",
+            "isb",
+            "mov {old_sp_el2}, sp",
+            "msr SPSel, {old_spsel}",
+            "isb",
             "msr VBAR_EL2, {recovery_vector}",
             "isb",
             "bic x9, {old_sctlr}, #1",
@@ -989,6 +1053,13 @@ pub unsafe fn install_el2_stage1_geometry(
             "msr SCTLR_EL2, x9",
             "isb",
             "10:",
+            // The typed mapper and the hardware must use the same EL2 stage-1
+            // permission model. E2H selects the host model; ordinary EL2 uses
+            // the single-privilege model.
+            "msr HCR_EL2, {target_hcr}",
+            "isb",
+            "msr SPSel, #1",
+            "isb",
             "dsb ishst",
             "tlbi alle2is",
             "dsb ish",
@@ -1005,10 +1076,47 @@ pub unsafe fn install_el2_stage1_geometry(
             "adr x14, 9f",
             "at s1e2r, x14",
             "isb",
-            "mrs x14, PAR_EL1",
+            "mrs {pc_par}, PAR_EL1",
+            "sub x15, {old_sp}, #16",
+            "at s1e2r, x15",
+            "isb",
+            "mrs {stack_par}, PAR_EL1",
+            "mov {preflight_ok}, #0",
+            "tbnz {pc_par}, #0, 8f",
+            "tbnz {stack_par}, #0, 8f",
+            // Current-EL exceptions use the SPx vector slots. Firmware may
+            // run the payload with SPSel=0 while leaving SP_EL2 pointing at a
+            // virtual stack that the candidate regime does not own. Preserve
+            // that inactive bank and make the already-validated live stack
+            // the exception stack for the lifetime of the candidate regime.
+            "mov sp, {old_sp}",
+            "mov {preflight_ok}, #1",
             "msr SCTLR_EL2, x10",
             "isb",
+            "b 9f",
+            "8:",
+            "msr SPSel, #0",
+            "isb",
             "mov sp, {old_sp}",
+            "msr HCR_EL2, {old_hcr}",
+            "isb",
+            "msr S3_4_C2_C0_3, {old_tcr2}",
+            "msr TTBR0_EL2, {old_ttbr0}",
+            "msr TCR_EL2, {old_tcr}",
+            "msr MAIR_EL2, {old_mair}",
+            "dsb ishst",
+            "tlbi alle2is",
+            "dsb ish",
+            "isb",
+            "msr SCTLR_EL2, {old_sctlr}",
+            "isb",
+            "msr VBAR_EL2, {old_vbar}",
+            "isb",
+            "msr SPSel, #1",
+            "isb",
+            "mov sp, {old_sp_el2}",
+            "msr SPSel, {old_spsel}",
+            "isb",
             "9:",
             old_ttbr0 = out(reg) old_ttbr0,
             old_tcr = out(reg) old_tcr,
@@ -1016,7 +1124,14 @@ pub unsafe fn install_el2_stage1_geometry(
             old_sctlr = out(reg) old_sctlr,
             old_tcr2 = out(reg) old_tcr2,
             old_vbar = out(reg) old_vbar,
+            old_hcr = out(reg) old_hcr,
             old_sp = out(reg) _,
+            old_sp_el2 = out(reg) old_sp_el2,
+            old_spsel = out(reg) old_spsel,
+            target_hcr = in(reg) target_hcr,
+            pc_par = out(reg) _,
+            stack_par = out(reg) _,
+            preflight_ok = out(reg) preflight_ok,
             ttbr0 = in(reg) ttbr0,
             tcr = in(reg) tcr,
             mair = in(reg) mair,
@@ -1029,8 +1144,12 @@ pub unsafe fn install_el2_stage1_geometry(
             out("x10") _,
             out("x11") _,
             out("x14") _,
+            out("x15") _,
             options()
         );
+    }
+    if preflight_ok == 0 {
+        return None;
     }
     Some(GeometryStage1State {
         stage1: Stage1State {
@@ -1041,6 +1160,9 @@ pub unsafe fn install_el2_stage1_geometry(
             el: 2,
         },
         tcr2: old_tcr2,
+        hcr: Some(old_hcr),
+        sp_el2: Some(old_sp_el2),
+        spsel: Some(old_spsel),
         transition_stack,
         previous_vbar: old_vbar,
     })
@@ -1061,10 +1183,11 @@ pub unsafe fn install_current_stage1_geometry(
     ttbr0: u64,
     tcr: u64,
     mair: u64,
+    host_mode: bool,
     transition_stack: Option<TransitionStack>,
 ) -> Option<GeometryStage1State> {
     match current_el() {
-        2 => unsafe { install_el2_stage1_geometry(ttbr0, tcr, mair, transition_stack) },
+        2 => unsafe { install_el2_stage1_geometry(ttbr0, tcr, mair, host_mode, transition_stack) },
         3 => unsafe { install_el3_stage1_geometry(ttbr0, tcr, mair, transition_stack) },
         _ => None,
     }
@@ -1191,6 +1314,9 @@ unsafe fn install_el3_stage1_geometry(
             el: 3,
         },
         tcr2: 0,
+        hcr: None,
+        sp_el2: None,
+        spsel: None,
         transition_stack: Some(stack),
         previous_vbar: old_vbar,
     })
@@ -1203,7 +1329,12 @@ unsafe fn install_el3_stage1_geometry(
 /// The paired install's identity-addressing and exclusivity invariants must
 /// remain valid until this function completes.
 pub unsafe fn restore_el2_stage1_geometry(state: GeometryStage1State) -> bool {
-    if current_el() != 2 || state.stage1.el != 2 {
+    if current_el() != 2
+        || state.stage1.el != 2
+        || state.hcr.is_none()
+        || state.sp_el2.is_none()
+        || state.spsel.is_none()
+    {
         return false;
     }
     let stack_physical = state.transition_stack.map_or(0, |stack| stack.physical_top);
@@ -1215,6 +1346,9 @@ pub unsafe fn restore_el2_stage1_geometry(state: GeometryStage1State) -> bool {
         .transition_stack
         .map_or(0, |stack| stack.recovery_mair);
     let recovery_tcr2 = state.tcr2 & !0x33;
+    let sp_el2 = state.sp_el2.unwrap_or(0);
+    let spsel = state.spsel.unwrap_or(0);
+    let hcr = state.hcr.unwrap_or(0);
     // SAFETY: The MMU-off interval uses only the independently owned physical
     // transition stack and returns to the exact saved translation state.
     unsafe {
@@ -1246,6 +1380,13 @@ pub unsafe fn restore_el2_stage1_geometry(state: GeometryStage1State) -> bool {
             "msr SCTLR_EL2, x9",
             "isb",
             "10:",
+            // Move onto SP_EL0, whose value is invariant across E2H, before
+            // returning to the firmware's original EL2 register view.
+            "msr SPSel, #0",
+            "isb",
+            "mov sp, {old_sp}",
+            "msr HCR_EL2, {hcr}",
+            "isb",
             "dsb ishst",
             "tlbi alle2is",
             "dsb ish",
@@ -1263,9 +1404,22 @@ pub unsafe fn restore_el2_stage1_geometry(state: GeometryStage1State) -> bool {
             "isb",
             "msr VBAR_EL2, {previous_vbar}",
             "isb",
-            "cbz {stack_physical}, 11f",
+            // Resume on the restore caller's live stack, not the stale SP
+            // captured when installation began. Only the bank that was
+            // inactive before installation takes its value from saved state.
+            "cbnz {spsel}, 12f",
+            "msr SPSel, #1",
+            "isb",
+            "mov sp, {sp_el2}",
+            "msr SPSel, #0",
+            "isb",
             "mov sp, {old_sp}",
-            "11:",
+            "b 13f",
+            "12:",
+            "msr SPSel, #1",
+            "isb",
+            "mov sp, {old_sp}",
+            "13:",
             ttbr0 = in(reg) state.stage1.ttbr0,
             tcr = in(reg) state.stage1.tcr,
             mair = in(reg) state.stage1.mair,
@@ -1277,6 +1431,9 @@ pub unsafe fn restore_el2_stage1_geometry(state: GeometryStage1State) -> bool {
             recovery_mair = in(reg) recovery_mair,
             recovery_tcr2 = in(reg) recovery_tcr2,
             previous_vbar = in(reg) state.previous_vbar,
+            sp_el2 = in(reg) sp_el2,
+            spsel = in(reg) spsel,
+            hcr = in(reg) hcr,
             old_sp = out(reg) _,
             out("x9") _,
             out("x10") _,
@@ -1435,7 +1592,7 @@ pub unsafe fn install_el2_stage1_d128(
             options(nostack, preserves_flags)
         );
     }
-    let host_hcr = old_hcr | (1 << 34);
+    let candidate_hcr = old_hcr | (1 << 34);
     // SAFETY: The MMU-off interval switches to independently owned stack
     // backing. Fixed adjacent registers are used because MSRR/MRRS require an
     // even/odd architectural register pair.
@@ -1486,8 +1643,8 @@ pub unsafe fn install_el2_stage1_d128(
             "msr SCTLR_EL2, x9",
             "isb",
             "10:",
-            // The architectural 128-bit TTBR0_EL2 layout, including SKL, is
-            // selected only in the EL2&0 host regime.
+            // D128 current-EL coverage uses the typed host regime. Select E2H
+            // so its descriptor permissions and TCR field layout match.
             "msr HCR_EL2, x24",
             "isb",
             // Candidate exceptions are taken through the current-EL SPx
@@ -1538,7 +1695,7 @@ pub unsafe fn install_el2_stage1_d128(
             tcr = in(reg) tcr,
             mair = in(reg) memory.mair,
             in("x23") memory.mair2,
-            in("x24") host_hcr,
+            in("x24") candidate_hcr,
             in("x0") ttbr0_low,
             in("x1") ttbr0_high,
             in("x12") pir,
@@ -1622,15 +1779,6 @@ pub unsafe fn restore_el2_stage1_d128(state: D128Stage1State) -> bool {
             "bic x9, x9, #1",
             "msr SCTLR_EL2, x9",
             "isb",
-            // Return to the original EL2 register layout before installing
-            // the conventional recovery regime or the saved EL2 regime.
-            // Restore the host stack bank while it is current, then return to
-            // the original EL2 register view and its untouched live stack.
-            "mov sp, x25",
-            "msr HCR_EL2, x24",
-            "isb",
-            "msr SPSel, x26",
-            "isb",
             "cbz x16, 10f",
             "mov sp, x16",
             "str xzr, [sp, #-16]!",
@@ -1650,6 +1798,16 @@ pub unsafe fn restore_el2_stage1_d128(state: D128Stage1State) -> bool {
             "msr SCTLR_EL2, x9",
             "isb",
             "10:",
+            // SP_EL0 is invariant across E2H.  Carry the restore caller's
+            // live stack through that bank while returning to the firmware's
+            // original EL2 register view; changing E2H while SP_EL2 is live
+            // can expose an unrelated firmware stack that the candidate
+            // translation deliberately does not map.
+            "msr SPSel, #0",
+            "isb",
+            "mov sp, x8",
+            "msr HCR_EL2, x24",
+            "isb",
             "tlbi alle2is",
             "dsb ish",
             "isb",
@@ -1669,9 +1827,22 @@ pub unsafe fn restore_el2_stage1_d128(state: D128Stage1State) -> bool {
             "isb",
             "msr VBAR_EL2, {previous_vbar}",
             "isb",
-            "cbz x16, 11f",
+            // Resume on the restore caller's current stack.  Only restore
+            // the bank that was inactive when installation began from saved
+            // state, matching the ordinary geometry transition path.
+            "cbnz x26, 11f",
+            "msr SPSel, #1",
+            "isb",
+            "mov sp, x25",
+            "msr SPSel, #0",
+            "isb",
             "mov sp, x8",
+            "b 12f",
             "11:",
+            "msr SPSel, #1",
+            "isb",
+            "mov sp, x8",
+            "12:",
             ttbr0_low = in(reg) state.stage1.ttbr0,
             tcr = in(reg) state.stage1.tcr,
             mair = in(reg) state.stage1.mair,
@@ -1717,13 +1888,9 @@ pub unsafe fn install_el1_stage1_d128(
     if current_el() != 2 {
         return None;
     }
-    let hcr: u64;
-    // D128 is installed into the guest EL1 bank. EL12 D128 aliases require a
-    // distinct host-regime implementation and must not be conflated here.
-    unsafe { asm!("mrs {0}, HCR_EL2", out(reg) hcr, options(nomem, nostack, preserves_flags)) };
-    if hcr & (1 << 34) != 0 {
-        return None;
-    }
+    // D128 is installed through the explicit EL1 encodings, which address the
+    // inactive guest bank even when the executing firmware uses E2H. EL12
+    // aliases would select the host bank and are deliberately not used here.
     let old_ttbr0_low: u64;
     let old_ttbr0_high: u64;
     let old_tcr: u64;
@@ -1734,6 +1901,8 @@ pub unsafe fn install_el1_stage1_d128(
     let old_pir: u64;
     let old_pire0: u64;
     let old_hcrx: u64;
+    let old_hcr: u64;
+    let old_el2_sctlr: u64;
     unsafe {
         asm!(
             "mrs {old}, S3_4_C1_C2_2",
@@ -1749,6 +1918,14 @@ pub unsafe fn install_el1_stage1_d128(
     unsafe {
         asm!(
             ".arch_extension d128",
+            "mrs {old_hcr}, HCR_EL2",
+            "mrs {old_el2_sctlr}, SCTLR_EL2",
+            "bic x14, {old_el2_sctlr}, #1",
+            "msr SCTLR_EL2, x14",
+            "isb",
+            "bic x14, {old_hcr}, #0x400000000",
+            "msr HCR_EL2, x14",
+            "isb",
             "mrrs x2, x3, TTBR0_EL1",
             "mrs {old_tcr}, TCR_EL1",
             "mrs {old_mair}, MAIR_EL1",
@@ -1777,6 +1954,10 @@ pub unsafe fn install_el1_stage1_d128(
             "isb",
             "msr SCTLR_EL1, x10",
             "isb",
+            "msr HCR_EL2, {old_hcr}",
+            "isb",
+            "msr SCTLR_EL2, {old_el2_sctlr}",
+            "isb",
             old_tcr = out(reg) old_tcr,
             old_mair = out(reg) old_mair,
             old_mair2 = out(reg) old_mair2,
@@ -1784,6 +1965,8 @@ pub unsafe fn install_el1_stage1_d128(
             old_tcr2 = out(reg) old_tcr2,
             old_pir = out(reg) old_pir,
             old_pire0 = out(reg) old_pire0,
+            old_hcr = out(reg) old_hcr,
+            old_el2_sctlr = out(reg) old_el2_sctlr,
             tcr = in(reg) tcr,
             mair = in(reg) memory.mair,
             mair2 = in(reg) memory.mair2,
@@ -1796,6 +1979,7 @@ pub unsafe fn install_el1_stage1_d128(
             out("x9") _,
             out("x10") _,
             out("x11") _,
+            out("x14") _,
             options(nostack, preserves_flags)
         );
     }
@@ -1834,6 +2018,14 @@ pub unsafe fn restore_el1_stage1_d128(state: D128Stage1State) -> bool {
     unsafe {
         asm!(
             ".arch_extension d128",
+            "mrs x14, HCR_EL2",
+            "mrs x15, SCTLR_EL2",
+            "bic x9, x15, #1",
+            "msr SCTLR_EL2, x9",
+            "isb",
+            "bic x9, x14, #0x400000000",
+            "msr HCR_EL2, x9",
+            "isb",
             "mrs x9, SCTLR_EL1",
             "bic x9, x9, #1",
             "msr SCTLR_EL1, x9",
@@ -1853,6 +2045,10 @@ pub unsafe fn restore_el1_stage1_d128(state: D128Stage1State) -> bool {
             "isb",
             "msr SCTLR_EL1, {sctlr}",
             "isb",
+            "msr HCR_EL2, x14",
+            "isb",
+            "msr SCTLR_EL2, x15",
+            "isb",
             ttbr0_low = in(reg) state.stage1.ttbr0,
             ttbr0_high = in(reg) state.ttbr0_high,
             tcr = in(reg) state.stage1.tcr,
@@ -1865,6 +2061,8 @@ pub unsafe fn restore_el1_stage1_d128(state: D128Stage1State) -> bool {
             out("x0") _,
             out("x1") _,
             out("x9") _,
+            out("x14") _,
+            out("x15") _,
             options(nostack, preserves_flags)
         );
         if let Some(hcrx) = state.hcrx {

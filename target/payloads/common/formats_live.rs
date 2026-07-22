@@ -106,10 +106,10 @@ where
             F,
             CurrentRegime,
             G,
-            aarch64_vmsa::attrs::LiveVmsaConfig<()>,
+            aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
                 aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions,
-                (),
+                crate::CurrentPas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
             RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, CurrentRegime, G>,
@@ -138,7 +138,7 @@ where
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
-        output_pas: (),
+        output_pas: crate::current_config_pas(),
     };
     let covered_size =
         aarch64_vmsa::table::TableGeometry::<F, G>::offset_at_level_raw(u64::MAX, leaf_level)
@@ -269,7 +269,7 @@ where
             vmid: None,
             controls: geometry.controls,
             stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-            regime: vmsa_test_harness::RegimeAttributes::Normal,
+            regime: crate::current_regime_attributes(),
         },
         &sandbox,
     )?;
@@ -359,15 +359,15 @@ where
             F,
             CurrentRegime,
             G,
-            aarch64_vmsa::attrs::LiveVmsaConfig<()>,
+            aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
                 aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions,
-                (),
+                crate::CurrentPas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
             SemanticTable = aarch64_vmsa::attrs::SemanticStage1TableAttrs<
                 aarch64_vmsa::attrs::SinglePrivilegeTablePermissionLimits,
-                (),
+                crate::CurrentTablePas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1TableControls,
             >,
             RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, CurrentRegime, G>,
@@ -403,7 +403,7 @@ where
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
-        output_pas: (),
+        output_pas: crate::current_config_pas(),
     };
     let semantic_leaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs {
         memory,
@@ -411,7 +411,7 @@ where
             data: aarch64_vmsa::attrs::DataAccess::ReadWrite,
             execute: false,
         },
-        pas: (),
+        pas: crate::current_pas(),
         controls: aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls {
             shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
             access_flag: true,
@@ -427,7 +427,7 @@ where
             data_limit: aarch64_vmsa::attrs::DataAccess::ReadWrite,
             execute_limit: true,
         },
-        pas: (),
+        pas: crate::current_table_pas(),
         controls: aarch64_vmsa::attrs::SemanticVmsa64Stage1TableControls::default(),
     };
     let offline_semantic;
@@ -498,7 +498,7 @@ where
             vmid: None,
             controls: geometry.controls,
             stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-            regime: vmsa_test_harness::RegimeAttributes::Normal,
+            regime: crate::current_regime_attributes(),
         },
         &sandbox,
     )?;
@@ -668,7 +668,7 @@ pub(super) fn active_lpa2(context: &mut TestContext<'_, CurrentEnvironment>) -> 
     let root = context.allocate_root()?;
     let bits = vmsa_test_harness::AddressBits::new(52)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let controls = vmsa_test_harness::lpa2_el2_stage1_controls_4k(bits, bits)
+    let controls = vmsa_test_harness::lpa2_current_stage1_controls_4k(bits, bits)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     active_granule::<aarch64_vmsa::descriptor::Vmsa64Lpa2, aarch64_vmsa::address::Granule4KiB>(
         context,
@@ -704,10 +704,10 @@ where
             aarch64_vmsa::descriptor::Vmsa64,
             CurrentRegime,
             G,
-            aarch64_vmsa::attrs::LiveVmsaConfig<()>,
+            aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
                 aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions,
-                (),
+                crate::CurrentPas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
             RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<
@@ -855,7 +855,7 @@ fn lpa2_4k_stage1_leaf(
 ) -> TestResult {
     let bits = vmsa_test_harness::AddressBits::new(52)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let controls = vmsa_test_harness::lpa2_el2_stage1_controls_4k(bits, bits)
+    let controls = vmsa_test_harness::lpa2_current_stage1_controls_4k(bits, bits)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let root = context.allocate_root()?;
     active_stage1_leaf_case::<
@@ -916,10 +916,10 @@ where
             aarch64_vmsa::descriptor::Vmsa64Lpa2,
             CurrentRegime,
             G,
-            aarch64_vmsa::attrs::LiveVmsaConfig<()>,
+            aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
                 aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions,
-                (),
+                crate::CurrentPas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
             RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<
@@ -936,7 +936,7 @@ where
 {
     let bits = vmsa_test_harness::AddressBits::new(52)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let controls = vmsa_test_harness::lpa2_el2_stage1_controls(granule, bits, bits)
+    let controls = vmsa_test_harness::lpa2_current_stage1_controls(granule, bits, bits)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let start_level = match granule {
         vmsa_test_harness::Granule::Size4KiB => aarch64_vmsa::address::Level::NEG1,
@@ -1104,7 +1104,7 @@ where
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::NonShareable,
-        output_pas: (),
+        output_pas: crate::lower_pas(),
     };
     let covered_size =
         aarch64_vmsa::table::TableGeometry::<aarch64_vmsa::descriptor::Vmsa128, G>::offset_at_level_raw(
@@ -1232,7 +1232,7 @@ where
             vmid: None,
             controls,
             stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-            regime: vmsa_test_harness::RegimeAttributes::Normal,
+            regime: crate::lower_regime_attributes(),
         },
     )?;
     let live_walk = translation
@@ -1440,7 +1440,7 @@ pub(super) fn active_d128(context: &mut TestContext<'_, CurrentEnvironment>) -> 
                 vmid: None,
                 controls,
                 stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-                regime: vmsa_test_harness::RegimeAttributes::Normal,
+                regime: crate::lower_regime_attributes(),
             },
         ),
         Err(vmsa_test_harness::HarnessError::InvalidState)
@@ -1478,7 +1478,7 @@ pub(super) fn active_d128(context: &mut TestContext<'_, CurrentEnvironment>) -> 
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::NonShareable,
-        output_pas: (),
+        output_pas: crate::lower_pas(),
     };
     let stage1_memory = vmsa_test_harness::Stage1MemoryControls::empty()
         .with_raw_attribute(
@@ -1493,7 +1493,16 @@ pub(super) fn active_d128(context: &mut TestContext<'_, CurrentEnvironment>) -> 
         );
     let mut root = context.allocate_root()?;
     {
-        let mut mapper = context.offline_mapper_d128_4k(&mut root, start, bits, bits)?;
+        let mut mapper = context.offline_mapper_for_format_with_geometry::<
+            crate::LowerRegime,
+            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::descriptor::Vmsa128,
+        >(
+            &mut root,
+            aarch64_vmsa::address::Level::new(start.get()),
+            bits.get(),
+            bits.get(),
+        )?;
         mapper.map_hardware_managed_page(
             ADDRESS,
             page.phys_addr(),
@@ -1518,7 +1527,7 @@ pub(super) fn active_d128(context: &mut TestContext<'_, CurrentEnvironment>) -> 
                     privileged_gcs: false,
                     unprivileged_gcs: false,
                 },
-                pas: (),
+                pas: crate::lower_pas(),
                 controls: aarch64_vmsa::attrs::SemanticVmsa128Stage1LeafControls {
                     bbm_nt: false,
                     dirty_state: aarch64_vmsa::attrs::DirtyState::Dirty,
@@ -1531,7 +1540,14 @@ pub(super) fn active_d128(context: &mut TestContext<'_, CurrentEnvironment>) -> 
                     software: aarch64_vmsa::attrs::SoftwareMetadata::new(0),
                 },
             },
-            aarch64_vmsa::attrs::SemanticVmsa128Stage1TableAttrs::default(),
+            aarch64_vmsa::attrs::SemanticVmsa128Stage1TableAttrs {
+                table_nt: false,
+                access_flag: false,
+                disch: false,
+                protected: false,
+                pas: crate::lower_pas(),
+                software: aarch64_vmsa::attrs::SoftwareMetadata::new(0),
+            },
         )?;
     }
     let root_address = PhysicalAddress::new(root.phys_addr());
@@ -1549,7 +1565,7 @@ pub(super) fn active_d128(context: &mut TestContext<'_, CurrentEnvironment>) -> 
             vmid: None,
             controls,
             stage1_memory,
-            regime: vmsa_test_harness::RegimeAttributes::Normal,
+            regime: crate::lower_regime_attributes(),
         },
     )?;
     let walk = translation.inspect_walk_for::<
@@ -1682,7 +1698,7 @@ pub(super) fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironmen
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
-        output_pas: (),
+        output_pas: crate::stage2_pas(),
     };
 
     let invalid_root = context.allocate_root_16k()?;
@@ -1702,7 +1718,7 @@ pub(super) fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironmen
                 vmid: None,
                 controls: stage1_controls,
                 stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-                regime: vmsa_test_harness::RegimeAttributes::Normal,
+                regime: crate::lower_regime_attributes(),
             },
         ),
         Err(vmsa_test_harness::HarnessError::InvalidState)
@@ -1782,7 +1798,7 @@ pub(super) fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironmen
                     privileged_execute: false,
                     unprivileged_execute: false,
                 },
-                output_address_space: (),
+                output_address_space: crate::stage2_pas(),
                 controls: aarch64_vmsa::attrs::SemanticVmsa128Stage2LeafControls {
                     bbm_nt: false,
                     dirty_state: aarch64_vmsa::attrs::DirtyState::Clean,
@@ -1815,7 +1831,7 @@ pub(super) fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironmen
         vmid: None,
         controls: stage1_controls,
         stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-        regime: vmsa_test_harness::RegimeAttributes::Normal,
+        regime: crate::lower_regime_attributes(),
     };
     let stage2_setup = TranslationSetup {
         root: PhysicalAddress::new(stage2_root.phys_addr()),
@@ -1829,7 +1845,7 @@ pub(super) fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironmen
         vmid: Some(Vmid(0x53)),
         controls: stage2_controls,
         stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-        regime: vmsa_test_harness::RegimeAttributes::Normal,
+        regime: crate::current_regime_attributes(),
     };
     let mut combined =
         context.install_combined_owned(stage1_root, stage1_setup, stage2_root, stage2_setup)?;

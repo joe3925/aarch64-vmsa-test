@@ -161,7 +161,7 @@ where
             true,
         )?;
     }
-    let controls = vmsa_test_harness::vmsa64_el2_stage1_controls(granule, input_bits, output_bits)
+    let controls = vmsa_test_harness::vmsa64_el1_stage1_controls(granule, input_bits, output_bits)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let root_address = PhysicalAddress::new(root.phys_addr());
     let mut translation = context.install_owned_in_sandbox(
@@ -174,7 +174,7 @@ where
             input_bits,
             output_bits,
             start_level: LookupLevel::new(start_level.as_i8()),
-            asid: None,
+            asid: Some(vmsa_test_harness::Asid(0x48)),
             vmid: None,
             controls,
             stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,

@@ -151,6 +151,13 @@ fn run_targets(
             );
             final_code = final_code.max(code);
             reports.push(report);
+            // Firmware is built once for the logical target and then reused by
+            // every isolated boot. A build failure is therefore target-wide;
+            // retrying the same build for the remaining plans only duplicates
+            // work and diagnostics.
+            if code == ExitCode::BuildFailed {
+                break;
+            }
         }
     }
     let summary = report::combined_for_terminal(&reports);
@@ -283,6 +290,15 @@ fn run_target(
             },
             ExitCode::TestsFailed,
         ),
+        Err(process::Failure::TestTimeout { detail, counts }) => (
+            TargetReport {
+                target,
+                counts: Some(counts),
+                outcome: "timeout",
+                detail: Some(detail),
+            },
+            ExitCode::Timeout,
+        ),
         Err(error) => {
             let (outcome, code, detail) = classify_failure(error);
             (failure_report(target, outcome, detail), code)
@@ -329,6 +345,9 @@ fn classify_failure(error: process::Failure) -> (&'static str, ExitCode, String)
         process::Failure::Harness(detail) => ("harness-error", ExitCode::Malformed, detail),
         process::Failure::Malformed(detail) => ("malformed", ExitCode::Malformed, detail),
         process::Failure::Timeout(detail) => ("timeout", ExitCode::Timeout, detail),
+        process::Failure::TestTimeout { .. } => {
+            unreachable!("test timeouts are classified with their observed counts")
+        }
         process::Failure::Io(detail) => ("startup-error", ExitCode::StartupFailed, detail),
         process::Failure::Cancelled(detail) => ("cancelled", ExitCode::Cancelled, detail),
     }

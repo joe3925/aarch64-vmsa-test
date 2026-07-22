@@ -91,18 +91,42 @@ vmsa_enter_lower_el_asm:
     tbnz x23, #34, .Llower_host_already_vhe
     mrs x14, TCR_EL2
     str x14, [sp, #72]
+    mrs x16, SCTLR_EL2
+    str x16, [sp, #80]
     and x15, x14, #0xffff
     ubfx x14, x14, #16, #3
     bfi x15, x14, #32, #3
     orr x15, x15, #TCR_EPD1
+    // In host mode TCR_EL2 has the EL1 layout.  Even with EPD1 set, TG1 must
+    // carry its valid 4 KiB encoding (0b10), not the RES0 value inherited by
+    // truncating the non-host TCR layout.
+    orr x15, x15, #(1 << 31)
+    orr x12, x12, #HCR_E2H
+    orr x12, x12, #HCR_TGE
+    // TCR_EL2 uses different field positions when E2H changes.  Neither the
+    // host encoding with E2H clear nor the non-host encoding with E2H set is
+    // a valid live translation regime, so make the pair change with stage 1
+    // disabled.  The transition runtime is identity backed for this purpose.
+    dsb ish
+    bic x14, x16, #1
+    msr SCTLR_EL2, x14
+    isb
     msr TCR_EL2, x15
+    msr HCR_EL2, x12
+    tlbi alle2
+    dsb ish
+    isb
+    msr SCTLR_EL2, x16
+    isb
     mov x14, #2
     str x14, [sp, #128]
+    b .Llower_hcr_installed
 .Llower_host_already_vhe:
     orr x12, x12, #HCR_E2H
     orr x12, x12, #HCR_TGE
 .Llower_hcr_ready:
     msr HCR_EL2, x12
+.Llower_hcr_installed:
     // Every lower payload runs in an SP0 mode. Keep its command-owned stack
     // in SP_EL0 and reserve SP_EL1 for synchronous exception entry.
     msr SP_EL1, x27
@@ -133,8 +157,17 @@ vmsa_enter_lower_el_asm:
     b .Lrestore_common
 .Lrestore_host_el0:
     ldr x12, [sp, #72]
+    ldr x14, [sp, #80]
+    dsb ish
+    bic x15, x14, #1
+    msr SCTLR_EL2, x15
+    isb
     msr HCR_EL2, x23
     msr TCR_EL2, x12
+    tlbi alle2
+    dsb ish
+    isb
+    msr SCTLR_EL2, x14
     isb
 .Lrestore_common:
     ldr x12, [sp, #136]

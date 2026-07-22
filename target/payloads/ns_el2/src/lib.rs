@@ -70,8 +70,14 @@ use vmsa_test_harness::{LogicalTest, Requirements, SecurityEnvironment, TestCont
 define_environment!(NsEl2Environment, aarch64_vmsa::regime::NonSecureEl2Stage1);
 pub type CurrentEnvironment = NsEl2Environment;
 pub type CurrentRegime = aarch64_vmsa::regime::NonSecureEl2Stage1;
+pub type D128Regime = aarch64_vmsa::regime::NonSecureEl2HostStage1;
+pub const fn current_d128_asid() -> Option<vmsa_test_harness::Asid> { Some(vmsa_test_harness::Asid(0x31)) }
+pub const fn current_d128_controls(bits: vmsa_test_harness::AddressBits) -> Option<vmsa_test_harness::TranslationControls> { vmsa_test_harness::d128_el1_stage1_controls_4k(bits, bits) }
 pub type Stage2Regime = aarch64_vmsa::regime::NonSecureEl2Stage2;
 pub type Stage2XnxRegime =
+    aarch64_vmsa::regime::NonSecureEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>;
+pub type AlternateStage2Regime = aarch64_vmsa::regime::NonSecureEl2Stage2;
+pub type AlternateStage2XnxRegime =
     aarch64_vmsa::regime::NonSecureEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>;
 pub type Stage2Pas = ();
 pub const fn stage2_pas() -> Stage2Pas {}
@@ -85,6 +91,19 @@ pub type CurrentTablePas = ();
 pub const fn current_config_pas() -> CurrentPas {}
 pub const fn current_pas() -> CurrentPas {}
 pub const fn current_table_pas() -> CurrentTablePas {}
+pub const fn alternate_current_pas() -> Option<CurrentPas> {
+    None
+}
+pub const fn alternate_current_table_pas() -> Option<CurrentTablePas> {
+    None
+}
+pub fn alternate_stage1_pas_fault(address: u64) -> vmsa_test_harness::FaultMatcher {
+    vmsa_test_harness::FaultMatcher::new(
+        vmsa_test_harness::ExpectedFault::translation_read_stage1(),
+    )
+    .with_class(vmsa_test_harness::FaultClass::DataAbort)
+    .at_address(address)
+}
 pub const fn current_d128_alias() -> aarch64_vmsa::attrs::D128Stage1AliasKind {
     aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal
 }
@@ -560,6 +579,12 @@ fn range_partial_prefix_postcondition(
 }
 fn multi_pe_visibility(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     coherency::multi_pe_translation_visibility(context, vmsa_test_harness::RegimeAttributes::Normal)
+}
+fn live_break_before_make(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    mapper_live::live_break_before_make(
+        context,
+        vmsa_test_harness::RegimeAttributes::Normal,
+    )
 }
 fn semantic_codec(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     attributes_live::semantic_codec(context)

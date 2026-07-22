@@ -49,6 +49,9 @@ unsafe extern "C" {
 
 pub type CurrentEnvironment = RealmStage2Environment;
 pub type CurrentRegime = aarch64_vmsa::regime::RealmEl1Stage1;
+pub type D128Regime = aarch64_vmsa::regime::RealmEl1Stage1;
+pub const fn current_d128_asid() -> Option<vmsa_test_harness::Asid> { Some(vmsa_test_harness::Asid(0x31)) }
+pub const fn current_d128_controls(bits: vmsa_test_harness::AddressBits) -> Option<vmsa_test_harness::TranslationControls> { vmsa_test_harness::d128_el1_stage1_controls_4k(bits, bits) }
 pub type LowerRegime = aarch64_vmsa::regime::RealmEl1Stage1;
 
 fn feature_snapshot_agreement(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {

@@ -311,12 +311,17 @@ impl Stage1MemoryControls {
     /// read/write so that they cannot accidentally make transition code
     /// executable.
     pub const D128_RUNTIME_PIR: u64 = 0xcccc_cccc_cccc_ccca;
+    /// The transition runtime is privileged-only.  Keeping every
+    /// unprivileged permission entry at NoAccess also prevents host-regime
+    /// accesses from becoming subject to PAN merely because they share the
+    /// same PI index as the privileged mapping.
+    pub const D128_RUNTIME_PIRE0: u64 = 0;
 
     pub const DEFAULT: Self = Self {
         mair: 0x0000_ff44,
         mair2: 0,
         pir: Self::D128_RUNTIME_PIR,
-        pire0: Self::D128_RUNTIME_PIR,
+        pire0: Self::D128_RUNTIME_PIRE0,
     };
 
     pub const fn empty() -> Self {
@@ -324,7 +329,7 @@ impl Stage1MemoryControls {
             mair: 0,
             mair2: 0,
             pir: Self::D128_RUNTIME_PIR,
-            pire0: Self::D128_RUNTIME_PIR,
+            pire0: Self::D128_RUNTIME_PIRE0,
         }
     }
 
@@ -458,13 +463,43 @@ pub fn lpa2_current_stage1_controls_4k(
     input_bits: AddressBits,
     output_bits: AddressBits,
 ) -> Option<TranslationControls> {
+    lpa2_current_stage1_controls(Granule::Size4KiB, input_bits, output_bits)
+}
+
+/// Encodes LPA2 stage-1 controls for the executing current-EL register layout.
+///
+/// EL2 uses the EL1-format TCR field positions while HCR_EL2.E2H is set and
+/// the non-host EL2 positions otherwise. Selecting from the live mode is
+/// required before replacing the current translation regime: encoding the
+/// other layout can invalidate the executing code, stack, and vectors as soon
+/// as SCTLR_EL2.M is re-enabled.
+pub fn lpa2_current_stage1_controls(
+    granule: Granule,
+    input_bits: AddressBits,
+    output_bits: AddressBits,
+) -> Option<TranslationControls> {
     match vmsa_test_architecture::registers::current_el() {
-        2 if vmsa_test_architecture::registers::current_stage1_uses_asid() => {
-            lpa2_el1_stage1_controls_4k(input_bits, output_bits)
-        }
-        2 => lpa2_el2_stage1_controls_4k(input_bits, output_bits),
-        3 => lpa2_el3_stage1_controls_4k(input_bits, output_bits),
+        // Current-EL coverage uses the typed non-host EL2 regime and the
+        // transactional installer clears E2H while that candidate is live.
+        // Encoding from the firmware's pre-install E2H value would pair host
+        // TCR fields with non-host descriptors and can make even the vector
+        // page untranslatable.
+        2 => lpa2_el2_stage1_controls(granule, input_bits, output_bits),
+        3 => lpa2_el3_stage1_controls(granule, input_bits, output_bits),
         _ => None,
+    }
+}
+
+const fn lpa2_el2_stage1_controls_for_mode(
+    host_mode: bool,
+    granule: Granule,
+    input_bits: AddressBits,
+    output_bits: AddressBits,
+) -> Option<TranslationControls> {
+    if host_mode {
+        lpa2_el1_stage1_controls(granule, input_bits, output_bits)
+    } else {
+        lpa2_el2_stage1_controls(granule, input_bits, output_bits)
     }
 }
 
@@ -508,6 +543,35 @@ pub const fn lpa2_el1_stage1_controls(
         12 | (1 << 8) | (1 << 10) | (3 << 12) | (tg0 << 14) | (1 << 23) | (ips << 32) | (1 << 59),
     ))
 }
+
+const _: () = {
+    let bits = match AddressBits::new(52) {
+        Some(bits) => bits,
+        None => panic!("52-bit LPA2 geometry must be valid"),
+    };
+    let host = match lpa2_el2_stage1_controls_for_mode(
+        true,
+        Granule::Size4KiB,
+        bits,
+        bits,
+    ) {
+        Some(controls) => controls.bits(),
+        None => panic!("host EL2 LPA2 controls must be encodable"),
+    };
+    let non_host = match lpa2_el2_stage1_controls_for_mode(
+        false,
+        Granule::Size4KiB,
+        bits,
+        bits,
+    ) {
+        Some(controls) => controls.bits(),
+        None => panic!("non-host EL2 LPA2 controls must be encodable"),
+    };
+    assert!(host & (1 << 59) != 0);
+    assert!((host >> 32) & 0x7 == 6);
+    assert!(non_host & (1 << 59) == 0);
+    assert!((non_host >> 16) & 0x7 == 6);
+};
 
 pub const fn d128_el1_stage1_controls_4k(
     input_bits: AddressBits,
@@ -2464,8 +2528,7 @@ where
     let mut address = arena_start;
 
     while address <= arena_last {
-        if !is_code_page(address)
-            && address != stack_page
+        if address != stack_page
             && address != exception_stack_page
             && !is_state_page(address)
         {
@@ -2615,7 +2678,11 @@ where
             .checked_add(CODE_WINDOW)
             .ok_or(HarnessError::Memory)?;
         while address < end {
-            if address != stack_page && address != exception_stack_page && !is_state_page(address) {
+            if !(arena_start..=arena_last).contains(&address)
+                && address != stack_page
+                && address != exception_stack_page
+                && !is_state_page(address)
+            {
                 mapper
                     .map_leaf(
                         WalkInputAddr::new(address),
@@ -2672,8 +2739,7 @@ where
     }
     let mut address = arena_start;
     while address <= arena_last {
-        if !is_code_page(address)
-            && address != stack_page
+        if address != stack_page
             && address != exception_stack_page
             && !is_state_page(address)
         {
@@ -3658,6 +3724,28 @@ where
         >,
     LeafFieldsOf<Vmsa64, R, G>: Copy,
 {
+    pub(crate) fn mapping_matches_attributes(
+        &self,
+        input: u64,
+        output: u64,
+        attributes: MappingAttributes,
+    ) -> Result<bool, HarnessError>
+    where
+        LeafFieldsOf<Vmsa64, R, G>: PartialEq,
+    {
+        let expected = R::raw_leaf_for_format(attributes, F::FORMAT)?;
+        self.inner
+            .translate(WalkInputAddr::new(input))
+            .map(|mapping| {
+                mapping.is_some_and(|mapping| {
+                    mapping.output().0 == output
+                        && mapping.level() == Level::L3
+                        && *mapping.fields() == expected
+                })
+            })
+            .map_err(|_| HarnessError::InvalidState)
+    }
+
     pub fn verify_break_before_make_ordering(self) -> bool {
         let Ok(leaf) = R::raw_leaf(MappingAttributes::READ_WRITE) else {
             return false;
@@ -3712,7 +3800,8 @@ where
         LeafFieldsOf<Vmsa64, R, G>: PartialEq,
     {
         const CODE_WINDOW: u64 = 1024 * 1024;
-        const LINKAGE_DATA_WINDOW: u64 = 64 * 1024;
+        const LINKAGE_DATA_PREFIX: u64 = 256 * 1024;
+        const LINKAGE_DATA_WINDOW: u64 = LINKAGE_DATA_PREFIX + 64 * 1024;
         const LINKED_RUNTIME_DATA_WINDOW: u64 = 64 * 1024;
         let leaf_level = LookupLevel::new(3).ok_or(HarnessError::InvalidState)?;
         let memory = self.inner.frames().memory();
@@ -3723,7 +3812,7 @@ where
             .ok_or(HarnessError::Memory)?;
         let stack_pointer = vmsa_test_architecture::registers::stack_pointer();
         let stack = G::align_down(stack_pointer);
-        let (mut stack_start, stack_end) = if G::SIZE == 64 * 1024 {
+        let (stack_start, stack_end) = if G::SIZE == 64 * 1024 {
             (
                 stack.saturating_sub(G::SIZE),
                 stack.saturating_add(2 * G::SIZE),
@@ -3734,29 +3823,34 @@ where
                 stack.saturating_add(R::CURRENT_STACK_WINDOW),
             )
         };
-        let code_regions = [
-            entry & !(CODE_WINDOW - 1),
-            vmsa_test_architecture::exception::vector_address() & !(CODE_WINDOW - 1),
-            vmsa_test_architecture::exception::recovery_vector_address() & !(CODE_WINDOW - 1),
-            payload_data[3] & !(CODE_WINDOW - 1),
+        let runtime_code_addresses = [
+            entry,
+            vmsa_test_architecture::exception::vector_address(),
+            vmsa_test_architecture::exception::recovery_vector_address(),
+            vmsa_test_architecture::exception::runtime_code_address(),
+            vmsa_test_architecture::transition::runtime_code_address(),
+            payload_data[1],
+            payload_data[3],
         ];
+        let code_regions = runtime_code_addresses.map(|address| address & !(CODE_WINDOW - 1));
         const PRIVILEGED_CODE_WINDOW: u64 = 64 * 1024;
         let privileged_code_regions = [
             vmsa_test_architecture::exception::vector_address() & !(PRIVILEGED_CODE_WINDOW - 1),
             vmsa_test_architecture::exception::recovery_vector_address()
                 & !(PRIVILEGED_CODE_WINDOW - 1),
         ];
-        let data_pages = [
-            payload_data[0] & !(G::SIZE - 1),
-            vmsa_test_architecture::exception::runtime_state_address() & !(G::SIZE - 1),
-            vmsa_test_architecture::transition::runtime_state_address() & !(G::SIZE - 1),
-            vmsa_test_architecture::exception::linkage_data_address() & !(G::SIZE - 1),
-            payload_data[2] & !(G::SIZE - 1),
-            0x1c09_0000 & !(G::SIZE - 1),
-            0x1c0a_0000 & !(G::SIZE - 1),
-            0x1c0b_0000 & !(G::SIZE - 1),
-            0x1c0c_0000 & !(G::SIZE - 1),
+        let runtime_data_addresses = [
+            payload_data[0],
+            vmsa_test_architecture::exception::runtime_state_address(),
+            vmsa_test_architecture::transition::runtime_state_address(),
+            vmsa_test_architecture::exception::linkage_data_address(),
+            payload_data[2],
+            0x1c09_0000,
+            0x1c0a_0000,
+            0x1c0b_0000,
+            0x1c0c_0000,
         ];
+        let data_pages = runtime_data_addresses.map(|address| G::align_down(address));
         let linked_runtime_data_regions = [
             vmsa_test_architecture::exception::runtime_state_address()
                 & !(LINKED_RUNTIME_DATA_WINDOW - 1),
@@ -3768,73 +3862,60 @@ where
                 (*start..start.saturating_add(LINKED_RUNTIME_DATA_WINDOW)).contains(&address)
             })
         };
-        let linked_code_start = *code_regions
-            .iter()
-            .min()
-            .ok_or(HarnessError::InvalidState)?;
-        let linked_code_end = *linked_runtime_data_regions
-            .iter()
-            .min()
-            .ok_or(HarnessError::InvalidState)?;
-        let linked_runtime_data_end = linked_runtime_data_regions
-            .iter()
-            .try_fold(0u64, |end, start| {
-                start
-                    .checked_add(LINKED_RUNTIME_DATA_WINDOW)
-                    .map(|region_end| end.max(region_end))
-            })
-            .ok_or(HarnessError::Memory)?;
-        if linked_code_end <= linked_code_start
-            || code_regions
-                .iter()
-                .any(|address| *address >= linked_code_end)
-        {
-            return Err(HarnessError::TransitionPreparation(
-                crate::TransitionPreparationError::VmsaRuntimeCode,
-            ));
-        }
-        if stack < linked_code_end {
-            return Err(HarnessError::TransitionPreparation(
-                crate::TransitionPreparationError::VmsaRuntimeStack,
-            ));
-        }
-        // Firmware stacks can sit immediately after the linked image. Clamp
-        // the conservative stack window at the image's code/data boundary so
-        // stack mappings cannot replace helper text with writable, XN leaves.
-        stack_start = stack_start.max(linked_code_end);
-        // The freestanding linked image places all executable Rust/compiler
-        // support before the explicitly-sectioned exception runtime data.
-        // Filling that bounded span avoids fragile per-function islands while
-        // the data boundary below prevents executable aliases of globals.
-        let mut address = linked_code_start;
-        while address < linked_code_end {
-            let sandbox_data = sandbox_regions.iter().any(|(input, _)| *input == address);
-            if !(stack_start..stack_end).contains(&address)
-                && !(arena_start..arena_end).contains(&address)
-                && !data_pages.contains(&address)
-                && !is_linked_runtime_data(address)
-                && !sandbox_data
-            {
-                self.map_attributes_leaf(
-                    address,
-                    address,
-                    leaf_level,
-                    MappingAttributes {
-                        writable: !user_accessible && R::MUTABLE_FIRMWARE_CODE,
-                        executable: true,
-                        user_accessible: user_accessible
-                            && !privileged_code_regions.iter().any(|start| {
-                                (*start..*start + PRIVILEGED_CODE_WINDOW).contains(&address)
-                            }),
-                    },
-                )
-                .map_err(|_| {
-                    HarnessError::TransitionPreparation(
-                        crate::TransitionPreparationError::VmsaRuntimeCode,
-                    )
-                })?;
+        // Payloads can place writable runtime state either before or after
+        // executable text. Map each known code window independently instead of
+        // inferring a single code span from the relative section order.
+        for index in 0..code_regions.len() {
+            if runtime_code_addresses[index] == 0 {
+                continue;
             }
-            address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
+            let start = code_regions[index];
+            if runtime_code_addresses[..index]
+                .iter()
+                .enumerate()
+                .any(|(previous, address)| *address != 0 && code_regions[previous] == start)
+            {
+                continue;
+            }
+            let window_end = start
+                .checked_add(CODE_WINDOW)
+                .ok_or(HarnessError::Memory)?;
+            let end = linked_runtime_data_regions
+                .iter()
+                .copied()
+                .filter(|data_start| *data_start > start && *data_start < window_end)
+                .min()
+                .unwrap_or(window_end);
+            let mut address = start;
+            while address < end {
+                let sandbox_data = sandbox_regions.iter().any(|(input, _)| *input == address);
+                if !(stack_start..stack_end).contains(&address)
+                    && !(arena_start..arena_end).contains(&address)
+                    && !data_pages.contains(&address)
+                    && !is_linked_runtime_data(address)
+                    && !sandbox_data
+                {
+                    self.map_attributes_leaf(
+                        address,
+                        address,
+                        leaf_level,
+                        MappingAttributes {
+                            writable: !user_accessible && R::MUTABLE_FIRMWARE_CODE,
+                            executable: true,
+                            user_accessible: user_accessible
+                                && !privileged_code_regions.iter().any(|start| {
+                                    (*start..*start + PRIVILEGED_CODE_WINDOW).contains(&address)
+                                }),
+                        },
+                    )
+                    .map_err(|_| {
+                        HarnessError::TransitionPreparation(
+                            crate::TransitionPreparationError::VmsaRuntimeCode,
+                        )
+                    })?;
+                }
+                address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
+            }
         }
         // Compiler support globals (for example the stack protector) share a
         // bounded linked data neighborhood with the exception runtime state.
@@ -3874,12 +3955,13 @@ where
                 address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
             }
         }
-        // Freestanding payload archives are linked immediately before their
-        // GOT and other relocation-backed data.  Code can execute entirely
-        // inside the bounded image window and then fault on its first indirect
-        // load unless that adjacent runtime data is mapped as privileged RW.
-        // Keep it non-executable and bounded independently from the arena.
-        for start in [linked_runtime_data_end] {
+        // Keep the relocation-backed linkage window readable as privileged
+        // data regardless of whether the linker places it before or after text.
+        for start in [G::align_down(
+            vmsa_test_architecture::exception::linkage_data_address()
+                .saturating_sub(LINKAGE_DATA_PREFIX),
+        )]
+        {
             let end = start
                 .checked_add(LINKAGE_DATA_WINDOW)
                 .ok_or(HarnessError::Memory)?;
@@ -3914,14 +3996,40 @@ where
         }
         let mut address = stack_start;
         while address < stack_end {
+            let Some(par) = vmsa_test_architecture::translation::current_stage1(
+                address,
+                vmsa_test_architecture::translation::TranslationAccess::Write,
+            ) else {
+                return Err(HarnessError::TransitionPreparation(
+                    crate::TransitionPreparationError::VmsaRuntimeStack,
+                ));
+            };
+            if par & 1 != 0 {
+                // Firmware is not required to map the entire conservative
+                // stack window. Preserve every live page it does map, while
+                // requiring the page containing the current SP itself.
+                if address == stack {
+                    return Err(HarnessError::TransitionPreparation(
+                        crate::TransitionPreparationError::VmsaRuntimeStack,
+                    ));
+                }
+                address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
+                continue;
+            }
+            // Preserve the live virtual-to-physical stack relationship. Some
+            // firmware (notably Hafnium) executes payload text at an identity
+            // address while keeping SP in a high virtual window. Mapping that
+            // window to itself creates an invalid output address and makes the
+            // first exception recurse in the vector prologue.
+            let physical = (par & 0x000f_ffff_ffff_f000) | (address & 0xfff);
             self.map_attributes_leaf(
                 address,
-                address,
+                physical,
                 leaf_level,
                 MappingAttributes {
                     writable: true,
                     executable: false,
-                    // Exception entry at EL2 can set PAN before the vector
+                    // Current-EL exception entry can set PAN before the vector
                     // prologue touches this stack. Keep the current-EL stack
                     // privileged even when the candidate also serves EL0.
                     user_accessible: false,
@@ -3935,8 +4043,15 @@ where
             address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
         }
         for index in 0..data_pages.len() {
+            if runtime_data_addresses[index] == 0 {
+                continue;
+            }
             let address = data_pages[index];
-            if data_pages[..index].contains(&address) {
+            if runtime_data_addresses[..index]
+                .iter()
+                .enumerate()
+                .any(|(previous, source)| *source != 0 && data_pages[previous] == address)
+            {
                 continue;
             }
             // A coarse candidate granule can place runtime data in the same
@@ -3951,7 +4066,9 @@ where
             if is_linked_runtime_data(address) {
                 continue;
             }
-            let contains_code = (linked_code_start..linked_code_end).contains(&address);
+            let contains_code = runtime_code_addresses
+                .iter()
+                .any(|code| *code != 0 && G::align_down(*code) == address);
             let privileged_code = privileged_code_regions
                 .iter()
                 .any(|start| (*start..*start + PRIVILEGED_CODE_WINDOW).contains(&address));

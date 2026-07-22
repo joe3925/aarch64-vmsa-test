@@ -92,7 +92,7 @@ pub use translation::{
     TranslationStage, UnmapResult, Vmid, WalkDescriptorInspection, WalkDescriptorKind,
     WalkInspection, d128_el1_stage1_controls, d128_el1_stage1_controls_4k,
     d128_el2_stage1_controls_4k, d128_stage2_controls, d128_stage2_controls_4k,
-    lpa2_current_stage1_controls_4k, lpa2_el1_stage1_controls,
+    lpa2_current_stage1_controls, lpa2_current_stage1_controls_4k, lpa2_el1_stage1_controls,
     lpa2_el1_stage1_controls_4k, lpa2_el2_stage1_controls, lpa2_el2_stage1_controls_4k,
     lpa2_el3_stage1_controls, lpa2_el3_stage1_controls_4k,
     lpa2_stage2_controls, lpa2_stage2_controls_4k, vmsa64_el1_stage1_controls,

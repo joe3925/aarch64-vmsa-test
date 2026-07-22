@@ -25,8 +25,6 @@ def main() -> int:
         "-I",
         "--iris-port",
         "7100",
-        "-Q",
-        "1",
         "-C",
         "bp.secureflashloader.fname=/debug/bl1.bin",
         "-C",
@@ -91,6 +89,16 @@ def main() -> int:
         "cluster0.has_128_bit_tt_descriptors=2",
         "-C",
         "cluster1.has_128_bit_tt_descriptors=2",
+        # Match normal FVP launches: TF-A's secondary warm-boot path restores
+        # SCXTNUM_EL2 when built with FEAT_CSV2_2 support.
+        "-C",
+        "cluster0.restriction_on_speculative_execution=2",
+        "-C",
+        "cluster1.restriction_on_speculative_execution=2",
+        "-C",
+        "cluster0.restriction_on_speculative_execution_aarch32=2",
+        "-C",
+        "cluster1.restriction_on_speculative_execution_aarch32=2",
     ]
     if target == "secure-el2":
         command.extend(
@@ -134,14 +142,6 @@ def main() -> int:
                 "cluster0.gicv4.mask-virtual-interrupt=1",
                 "-C",
                 "cluster1.gicv4.mask-virtual-interrupt=1",
-                "-C",
-                "cluster0.restriction_on_speculative_execution=2",
-                "-C",
-                "cluster1.restriction_on_speculative_execution=2",
-                "-C",
-                "cluster0.restriction_on_speculative_execution_aarch32=2",
-                "-C",
-                "cluster1.restriction_on_speculative_execution_aarch32=2",
             ]
         )
     if target in {"realm-el2", "realm-stage2"}:
@@ -167,14 +167,6 @@ def main() -> int:
                 "cluster0.gicv4.mask-virtual-interrupt=1",
                 "-C",
                 "cluster1.gicv4.mask-virtual-interrupt=1",
-                "-C",
-                "cluster0.restriction_on_speculative_execution=2",
-                "-C",
-                "cluster1.restriction_on_speculative_execution=2",
-                "-C",
-                "cluster0.restriction_on_speculative_execution_aarch32=2",
-                "-C",
-                "cluster1.restriction_on_speculative_execution_aarch32=2",
             ]
         )
     process = subprocess.Popen(
@@ -194,11 +186,9 @@ def main() -> int:
                 log.write(line)
                 log.flush()
                 if line.startswith(f"@@VMSA RUN {test_name}"):
+                    reached_test.set()
                     if model_holder:
-                        try:
-                            model_holder[0].stop(timeout=5)
-                        finally:
-                            reached_test.set()
+                        model_holder[0].stop(timeout=5)
 
     thread = threading.Thread(target=copy_output, daemon=True)
     thread.start()
@@ -212,11 +202,17 @@ def main() -> int:
                 time.sleep(0.1)
         if model is None:
             raise RuntimeError("Iris server did not become ready")
-        model_holder.append(model)
         cpu = model.get_cpus()[0]
+        model_holder.append(model)
         model.run(blocking=False)
         if not reached_test.wait(20):
             raise RuntimeError(f"guest did not reach {test_name}")
+        if model.is_running:
+            try:
+                model.stop(timeout=5)
+            except Exception:
+                if model.is_running:
+                    raise
         breakpoint_address = os.environ.get("VMSA_IRIS_BREAKPOINT")
         breakpoint_register = os.environ.get("VMSA_IRIS_REGISTER_BREAKPOINT")
         if breakpoint_address is not None or breakpoint_register is not None:
@@ -457,17 +453,30 @@ def main() -> int:
                                 )
                         break
                     table = raw & 0x00FF_FFFF_FFFF_F000
-        if cpu.read_register("TCR2_EL2") & (1 << 5):
-            root = cpu.read_register("TTBR0_EL2") & 0x00FF_FFFF_FFFF_FFE0
+        lower_d128 = (
+            os.environ.get("VMSA_IRIS_LOWER_ADDRESS") is not None
+            and cpu.read_register("TCR2_EL1") & (1 << 5)
+        )
+        if lower_d128 or cpu.read_register("TCR2_EL2") & (1 << 5):
+            # In the D128 layout the low half carries ASID in bits [63:48];
+            # BADDR[42:0] remains in bits [47:5].  The high BADDR byte is in
+            # the 128-bit register's upper half and is not exposed by this
+            # 64-bit Iris register view.
+            d128_el = "EL1" if lower_d128 else "EL2"
+            root = cpu.read_register(f"TTBR0_{d128_el}") & 0x0000_FFFF_FFFF_FFE0
             addresses = {
                 "pc": cpu.read_register("PC"),
                 "stack": cpu.read_register("SP"),
-                "fault": cpu.read_register("FAR_EL2"),
-                "vector": cpu.read_register("VBAR_EL2"),
+                "fault": cpu.read_register(f"FAR_{d128_el}"),
+                "vector": cpu.read_register(f"VBAR_{d128_el}"),
             }
+            if lower_d128:
+                addresses["lower-requested"] = int(
+                    os.environ["VMSA_IRIS_LOWER_ADDRESS"], 0
+                )
             if os.environ.get("VMSA_IRIS_ADDRESS") is not None:
                 addresses["requested"] = int(os.environ["VMSA_IRIS_ADDRESS"], 0)
-            input_bits = 64 - (cpu.read_register("TCR_EL2") & 0x3F)
+            input_bits = 64 - (cpu.read_register(f"TCR_{d128_el}") & 0x3F)
             levels = (input_bits - 12 + 7) // 8
             start_level = 4 - levels
             for name, address in addresses.items():

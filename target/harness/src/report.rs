@@ -10,9 +10,6 @@ pub enum ReportEvent {
     Run {
         name: &'static str,
     },
-    Terminal {
-        name: &'static str,
-    },
     Pass {
         name: &'static str,
     },
@@ -61,7 +58,6 @@ impl<S: ByteSink> ProtocolWriter<S> {
             ),
             ReportEvent::Capability { name, value } => writeln!(self, "@@VMSA CAP {name}={value}"),
             ReportEvent::Run { name } => writeln!(self, "@@VMSA RUN {name}"),
-            ReportEvent::Terminal { name } => writeln!(self, "@@VMSA TERMINAL {name}"),
             ReportEvent::Pass { name } => writeln!(self, "@@VMSA PASS {name}"),
             ReportEvent::Fail {
                 name,

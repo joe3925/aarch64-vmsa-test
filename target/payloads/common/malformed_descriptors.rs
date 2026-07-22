@@ -93,7 +93,7 @@ fn malformed_vmsa64_leaf(
         vmid: None,
         controls,
         stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-        regime: vmsa_test_harness::RegimeAttributes::Normal,
+        regime: crate::current_regime_attributes(),
     };
     let translation = context.install_owned_in_sandbox(root, setup, &sandbox)?;
     let fault = vmsa_test_harness::expect_matching_fault(
@@ -277,15 +277,15 @@ where
             aarch64_vmsa::descriptor::Vmsa64Lpa2,
             CurrentRegime,
             G,
-            aarch64_vmsa::attrs::LiveVmsaConfig<()>,
+            aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
                 aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions,
-                (),
+                crate::CurrentPas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
             SemanticTable = aarch64_vmsa::attrs::SemanticStage1TableAttrs<
                 aarch64_vmsa::attrs::SinglePrivilegeTablePermissionLimits,
-                (),
+                crate::CurrentTablePas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1TableControls,
             >,
             RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<
@@ -322,7 +322,7 @@ where
     };
     let output =
         AddressBits::new(output_width).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let controls = vmsa_test_harness::lpa2_el2_stage1_controls(granule, input, output)
+    let controls = vmsa_test_harness::lpa2_current_stage1_controls(granule, input, output)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let mut root = context.allocate_root_in(context.native_pas(), granule)?;
     let sandbox;
@@ -372,7 +372,7 @@ where
         vmid: None,
         controls,
         stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-        regime: vmsa_test_harness::RegimeAttributes::Normal,
+        regime: crate::current_regime_attributes(),
     };
     let translation = context.install_owned_in_sandbox(root, setup, &sandbox)?;
     let expected = if matches!(mutation, Lpa2MalformedLeaf::Address) {
@@ -541,7 +541,7 @@ fn malformed_d128_leaf(
         vmid: None,
         controls,
         stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-        regime: vmsa_test_harness::RegimeAttributes::Normal,
+        regime: crate::lower_regime_attributes(),
     };
     context.emergency_restore_for_test();
     let fresh_translation = context.install_lower_owned(root, setup)?;

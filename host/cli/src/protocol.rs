@@ -21,9 +21,6 @@ pub enum Event {
     Run {
         name: String,
     },
-    Terminal {
-        name: String,
-    },
     Pass {
         name: String,
     },
@@ -137,21 +134,6 @@ impl Parser {
                 }
                 self.active = Some(name.clone());
                 Event::Run { name }
-            }
-            "TERMINAL" => {
-                let name = protocol_name(
-                    one_word(&mut words, "TERMINAL test name")?,
-                    "TERMINAL test name",
-                )?
-                .to_owned();
-                no_more(words)?;
-                if self.active.as_deref() != Some(name.as_str()) {
-                    return Err(format!(
-                        "TERMINAL test {name} does not match active test {:?}",
-                        self.active
-                    ));
-                }
-                Event::Terminal { name }
             }
             "PASS" => {
                 let name = completion_name(self, &mut words)?;

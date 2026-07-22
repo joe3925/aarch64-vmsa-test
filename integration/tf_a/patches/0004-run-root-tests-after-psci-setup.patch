@@ -1,0 +1,57 @@
+diff --git a/bl31/bl31_main.c b/bl31/bl31_main.c
+--- a/bl31/bl31_main.c
++++ b/bl31/bl31_main.c
+@@ -32,6 +32,10 @@
+ #include <plat/common/platform.h>
+ #include <services/std_svc.h>
+ 
++#if defined(VMSA_ROOT_PAYLOAD) && VMSA_ROOT_PAYLOAD
++void fvp_vmsa_root_test_runtime(void);
++#endif
++
+ #if ENABLE_RUNTIME_INSTRUMENTATION
+ 	PMF_REGISTER_SERVICE_SMC(rt_instr_svc, PMF_RT_INSTR_SVC_ID,
+ 		RT_INSTR_TOTAL_IDS, PMF_STORE_ENABLE)
+@@ -228,6 +232,10 @@ void __no_pauth bl31_main(u_register_t arg0, u_register_t arg1, u_register_t arg
+ 	 */
+ 	bl31_prepare_next_image_entry();
+ 
++#if defined(VMSA_ROOT_PAYLOAD) && VMSA_ROOT_PAYLOAD
++	fvp_vmsa_root_test_runtime();
++#endif
++
+ 	/*
+ 	 * Perform any platform specific runtime setup prior to cold boot exit
+ 	 * from BL31
+diff --git a/lib/psci/psci_common.c b/lib/psci/psci_common.c
+--- a/lib/psci/psci_common.c
++++ b/lib/psci/psci_common.c
+@@ -27,6 +27,10 @@
+ 
+ #include "psci_private.h"
+ 
++#if defined(VMSA_ROOT_PAYLOAD) && VMSA_ROOT_PAYLOAD
++int fvp_vmsa_root_secondary_try_run(void);
++#endif
++
+ /*
+  * SPD power management operations, expected to be supplied by the registered
+  * SPD on successful SP initialization
+@@ -1093,6 +1097,17 @@ void psci_warmboot_entrypoint(unsigned int cpu_idx)
+ 	 * in the reverse order to which they were acquired.
+ 	 */
+ 	psci_release_pwr_domain_locks(end_pwrlvl, parent_nodes);
++
++#if defined(VMSA_ROOT_PAYLOAD) && VMSA_ROOT_PAYLOAD
++	/*
++	 * Run the synchronous Root request only after PSCI has completed the
++	 * secondary PE's coherency, per-CPU initialization, and state update.
++	 */
++	if (fvp_vmsa_root_secondary_try_run() != 0) {
++		(void)psci_cpu_off();
++		panic();
++	}
++#endif
+ }
+ 
+ /*******************************************************************************

@@ -282,6 +282,17 @@ impl TestMemory {
         })
     }
 
+    pub(crate) fn address_is_table_allocation(&self, physical_address: u64) -> bool {
+        self.allocations[..self.allocation_count]
+            .iter()
+            .filter(|allocation| allocation.table)
+            .any(|allocation| {
+                let start = self.physical_base + allocation.offset as u64;
+                let end = start.saturating_add(allocation.bytes as u64);
+                (start..end).contains(&physical_address)
+            })
+    }
+
     pub(crate) fn clear_failure(&mut self, point: MemoryFailurePoint) {
         self.failures[point as usize] = None;
     }

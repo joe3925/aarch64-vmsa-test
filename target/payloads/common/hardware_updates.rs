@@ -45,7 +45,7 @@ fn vmsa64_update_case(
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
         shareability: Shareability::InnerShareable,
-        output_pas: (),
+        output_pas: crate::current_config_pas(),
     };
     let leaf = SemanticStage1LeafAttrs {
         memory: MemoryAttributes::Normal {
@@ -68,7 +68,7 @@ fn vmsa64_update_case(
             },
             execute: false,
         },
-        pas: (),
+        pas: crate::current_pas(),
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,
             access_flag,
@@ -88,7 +88,7 @@ fn vmsa64_update_case(
             data_limit: DataAccess::ReadWrite,
             execute_limit: true,
         },
-        pas: (),
+        pas: crate::current_table_pas(),
         controls: SemanticVmsa64Stage1TableControls::default(),
     };
     let page = context.allocate_page()?;
@@ -113,7 +113,7 @@ fn vmsa64_update_case(
             vmid: None,
             controls: TranslationControls::PRESERVE_CURRENT,
             stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-            regime: vmsa_test_harness::RegimeAttributes::Normal,
+            regime: crate::current_regime_attributes(),
         },
     )?;
     translation.map_semantic_for::<
@@ -271,7 +271,7 @@ fn d128_update_case(
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
         shareability: Shareability::NonShareable,
-        output_pas: (),
+        output_pas: crate::lower_pas(),
     };
     let leaf = SemanticStage1LeafAttrs {
         memory: MemoryAttributes::Normal {
@@ -294,7 +294,7 @@ fn d128_update_case(
             privileged_gcs: false,
             unprivileged_gcs: false,
         },
-        pas: (),
+        pas: crate::lower_pas(),
         controls: SemanticVmsa128Stage1LeafControls {
             bbm_nt: false,
             dirty_state: DirtyState::Clean,
@@ -312,14 +312,30 @@ fn d128_update_case(
     let page = context.allocate_page()?;
     let mut root = context.allocate_root()?;
     {
-        let mut mapper = context.offline_mapper_d128_4k(&mut root, start, bits, bits)?;
+        let mut mapper = context.offline_mapper_for_format_with_geometry::<
+            crate::LowerRegime,
+            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::descriptor::Vmsa128,
+        >(
+            &mut root,
+            aarch64_vmsa::address::Level::new(start.get()),
+            bits.get(),
+            bits.get(),
+        )?;
         mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
             &config,
             ADDRESS,
             page.phys_addr(),
             LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
             leaf,
-            SemanticVmsa128Stage1TableAttrs::default(),
+            SemanticVmsa128Stage1TableAttrs {
+                table_nt: false,
+                access_flag: false,
+                disch: false,
+                protected: false,
+                pas: crate::lower_pas(),
+                software: SoftwareMetadata::new(0),
+            },
         )?;
     }
     let root_address = PhysicalAddress::new(root.phys_addr());
@@ -338,7 +354,7 @@ fn d128_update_case(
             controls: vmsa_test_harness::d128_el1_stage1_controls_4k(bits, bits)
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
             stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-            regime: vmsa_test_harness::RegimeAttributes::Normal,
+            regime: crate::lower_regime_attributes(),
         },
     )?;
     let installed = translation
@@ -492,7 +508,7 @@ fn d128_stage2_update_case(
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
         shareability: Shareability::InnerShareable,
-        output_pas: (),
+        output_pas: crate::stage2_pas(),
     };
     let leaf = SemanticStage2LeafAttrs {
         memory: Stage2MemoryAttributes::Combined(MemoryAttributes::Normal {
@@ -503,7 +519,7 @@ fn d128_stage2_update_case(
             privileged_execute: false,
             unprivileged_execute: false,
         },
-        output_address_space: (),
+        output_address_space: crate::stage2_pas(),
         controls: SemanticVmsa128Stage2LeafControls {
             bbm_nt: false,
             dirty_state: DirtyState::Clean,
@@ -535,8 +551,14 @@ fn d128_stage2_update_case(
     }
     let mut stage1_root = context.allocate_root_16k()?;
     let mut stage2_root = context.allocate_root()?;
-    let physical_region = stage1_root.phys_addr() & !0x3fff_ffff;
-    let target_region = physical_region ^ 0x4000_0000;
+    let recovery_size = aarch64_vmsa::table::TableGeometry::<
+        aarch64_vmsa::descriptor::Vmsa128,
+        aarch64_vmsa::address::Granule4KiB,
+    >::offset_at_level_raw(u64::MAX, aarch64_vmsa::address::Level::L1)
+    .and_then(|mask| mask.checked_add(1))
+    .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    let physical_region = stage1_root.phys_addr() & !(recovery_size - 1);
+    let target_region = physical_region ^ recovery_size;
     let target_ipa = target_region | (page.phys_addr() - physical_region);
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
@@ -603,7 +625,7 @@ fn d128_stage2_update_case(
         vmid: None,
         controls: stage1_controls,
         stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-        regime: vmsa_test_harness::RegimeAttributes::Normal,
+        regime: crate::lower_regime_attributes(),
     };
     let stage2_setup = TranslationSetup {
         root: PhysicalAddress::new(stage2_root.phys_addr()),
@@ -617,7 +639,7 @@ fn d128_stage2_update_case(
         vmid: Some(Vmid(0x59)),
         controls: stage2_controls,
         stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
-        regime: vmsa_test_harness::RegimeAttributes::Normal,
+        regime: crate::current_regime_attributes(),
     };
     let mut combined =
         context.install_combined_owned(stage1_root, stage1_setup, stage2_root, stage2_setup)?;

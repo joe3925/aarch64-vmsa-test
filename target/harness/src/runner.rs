@@ -29,10 +29,14 @@ pub fn run_catalog_tests<E: Environment>(
     dispatch: for<'a> fn(LogicalTest, &mut TestContext<'a, E>) -> Option<TestResult>,
     options: RunOptions<'_>,
 ) -> RunnerOutcome {
+    let exact = options.filter.is_some_and(|filter| {
+        tests_for(security_environment, options.profile).any(|test| test.name == filter)
+    });
     run_suite(
         environment,
         tests_for(security_environment, options.profile),
         options,
+        exact,
         dispatch,
     )
 }
@@ -41,6 +45,7 @@ fn run_suite<E, I>(
     environment: &mut E,
     tests: I,
     options: RunOptions<'_>,
+    exact: bool,
     dispatch: for<'a> fn(LogicalTest, &mut TestContext<'a, E>) -> Option<TestResult>,
 ) -> RunnerOutcome
 where
@@ -66,7 +71,13 @@ where
         {
             continue;
         }
-        if options.filter.is_some_and(|filter| !name.contains(filter)) {
+        if options.filter.is_some_and(|filter| {
+            if exact {
+                name != filter
+            } else {
+                !name.contains(filter)
+            }
+        }) {
             continue;
         }
         if !test.model.supported_by(capabilities) {

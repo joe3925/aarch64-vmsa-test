@@ -32,6 +32,7 @@ pub enum Failure {
     Harness(String),
     Malformed(String),
     Timeout(String),
+    TestTimeout { detail: String, counts: Counts },
     Io(String),
     Cancelled(String),
 }
@@ -225,26 +226,66 @@ fn supervise(
         }
         let now = Instant::now();
         if now >= deadline {
-            let detail = active_test.as_ref().map_or_else(
-                || {
-                    if phase == "startup" {
-                        format!(
-                            "startup deadline expired after {:.3}s (limit {}s)",
-                            phase_started_at.elapsed().as_secs_f64(),
-                            limits.startup.as_secs_f64()
-                        )
-                    } else {
-                        format!("{phase} deadline expired")
+            if let Some((name, test_started_at)) = active_test.as_ref() {
+                let elapsed = test_started_at.elapsed();
+                let detail = format!(
+                    "test {name} watchdog expired after {:.3}s (limit {}s)",
+                    elapsed.as_secs_f64(),
+                    limits.test.as_secs_f64()
+                );
+                let completion = format!(
+                    "@@VMSA FAIL {name} reason=test-watchdog-timeout expected={} actual={}",
+                    protocol_millis(limits.test),
+                    protocol_millis(elapsed)
+                );
+                match parser.parse_line(&completion) {
+                    Ok(Some(Event::Fail { .. })) => {}
+                    Ok(other) => {
+                        return Err(terminate_then(
+                            child,
+                            container_name,
+                            Failure::Malformed(format!(
+                                "host watchdog completion produced unexpected event: {other:?}"
+                            )),
+                        ));
                     }
-                },
-                |(name, test_started_at)| {
-                    format!(
-                        "test {name} watchdog expired after {:.3}s (limit {}s)",
-                        test_started_at.elapsed().as_secs_f64(),
-                        limits.test.as_secs_f64()
-                    )
-                },
-            );
+                    Err(error) => {
+                        return Err(terminate_then(
+                            child,
+                            container_name,
+                            Failure::Malformed(format!(
+                                "host watchdog completion was rejected: {error}"
+                            )),
+                        ));
+                    }
+                }
+                if let Err(error) = writeln!(results, "{completion}").and_then(|_| results.flush()) {
+                    return Err(terminate_then(child, container_name, io_failure(error)));
+                }
+                if stream_live {
+                    stream_terminal(&Line {
+                        stream: Stream::Stdout,
+                        text: completion,
+                    });
+                }
+                return Err(terminate_then(
+                    child,
+                    container_name,
+                    Failure::TestTimeout {
+                        detail,
+                        counts: parser.observed_counts().clone(),
+                    },
+                ));
+            }
+            let detail = if phase == "startup" {
+                format!(
+                    "startup deadline expired after {:.3}s (limit {}s)",
+                    phase_started_at.elapsed().as_secs_f64(),
+                    limits.startup.as_secs_f64()
+                )
+            } else {
+                format!("{phase} deadline expired")
+            };
             return Err(terminate_then(
                 child,
                 container_name,
@@ -343,26 +384,6 @@ fn supervise(
                                 phase = "test";
                                 active_test = Some((name.clone(), Instant::now()));
                             }
-                            Event::Terminal { name } => {
-                                if expected.termination != Some(name.as_str()) {
-                                    return Err(terminate_then(
-                                        child,
-                                        container_name,
-                                        Failure::Malformed(format!(
-                                            "unexpected terminal marker for {name}; expected {:?}",
-                                            expected.termination
-                                        )),
-                                    ));
-                                }
-                                terminate(child, container_name)?;
-                                return Ok(Completed {
-                                    counts: Counts {
-                                        passed: 1,
-                                        failed: 0,
-                                        skipped: 0,
-                                    },
-                                });
-                            }
                             Event::Pass { name } | Event::Fail { name, .. } => {
                                 if let Some((active_name, test_started_at)) = active_test.take() {
                                     if stream_live {
@@ -374,6 +395,20 @@ fn supervise(
                                         );
                                     }
                                     debug_assert_eq!(active_name, *name);
+                                }
+                                if let Some(expected_name) = expected.termination {
+                                    if expected_name != name {
+                                        return Err(terminate_then(
+                                            child,
+                                            container_name,
+                                            Failure::Malformed(format!(
+                                                "destructive completion for {name}; expected {expected_name}"
+                                            )),
+                                        ));
+                                    }
+                                    let counts = parser.observed_counts().clone();
+                                    terminate(child, container_name)?;
+                                    return Ok(Completed { counts });
                                 }
                                 deadline = Instant::now() + limits.suite;
                                 phase = "suite";
@@ -497,14 +532,14 @@ pub fn validate_lifecycle(output_root: &Path) -> Result<(), String> {
             ));
         }
 
-        let destructive = run_lifecycle_case_with_termination(
+        let destructive_pass = run_lifecycle_case_with_termination(
             &root,
-            "expected-termination",
+            "expected-destructive-pass",
             "printf '%s\\n' '@@VMSA BEGIN protocol=1 target=host-self-check' \
-             '@@VMSA RUN host.destructive' '@@VMSA TERMINAL host.destructive'; sleep 10",
+             '@@VMSA RUN host.destructive' '@@VMSA PASS host.destructive'; sleep 10",
             "host.destructive",
         );
-        match destructive {
+        match destructive_pass {
             Ok(completed)
                 if completed.counts
                     == (Counts {
@@ -513,7 +548,33 @@ pub fn validate_lifecycle(output_root: &Path) -> Result<(), String> {
                         skipped: 0,
                     }) => {}
             other => {
-                return Err(format!("expected-termination self-check failed: {other:?}"));
+                return Err(format!(
+                    "expected destructive PASS self-check failed: {other:?}"
+                ));
+            }
+        }
+
+        let destructive_fail = run_lifecycle_case_with_termination(
+            &root,
+            "expected-destructive-fail",
+            "printf '%s\\n' '@@VMSA BEGIN protocol=1 target=host-self-check' \
+             '@@VMSA RUN host.destructive' \
+             '@@VMSA FAIL host.destructive reason=wrong-fatal-kind expected=0 actual=1'; \
+             sleep 10",
+            "host.destructive",
+        );
+        match destructive_fail {
+            Ok(completed)
+                if completed.counts
+                    == (Counts {
+                        passed: 0,
+                        failed: 1,
+                        skipped: 0,
+                    }) => {}
+            other => {
+                return Err(format!(
+                    "expected destructive FAIL self-check failed: {other:?}"
+                ));
             }
         }
 
@@ -521,14 +582,13 @@ pub fn validate_lifecycle(output_root: &Path) -> Result<(), String> {
             &root,
             "unexpected-destructive-return",
             "printf '%s\\n' '@@VMSA BEGIN protocol=1 target=host-self-check' \
-             '@@VMSA RUN host.destructive' '@@VMSA PASS host.destructive' \
-             '@@VMSA END passed=1 failed=0 skipped=0'; exit 0",
+             '@@VMSA RUN host.destructive'; exit 0",
             "host.destructive",
         );
-        if !matches!(destructive_returned, Err(Failure::Malformed(ref detail)) if detail.contains("returned normally"))
+        if !matches!(destructive_returned, Err(Failure::Malformed(ref detail)) if detail.contains("expected PASS or FAIL"))
         {
             return Err(format!(
-                "normal return from destructive test was not rejected exactly: {destructive_returned:?}"
+                "destructive return without completion was not rejected exactly: {destructive_returned:?}"
             ));
         }
 
@@ -541,7 +601,9 @@ pub fn validate_lifecycle(output_root: &Path) -> Result<(), String> {
         );
         if !matches!(
             destructive_quiescent,
-            Err(Failure::Timeout(ref detail)) if detail.contains("test host.destructive watchdog expired")
+            Err(Failure::TestTimeout { ref detail, ref counts })
+                if detail.contains("test host.destructive watchdog expired")
+                    && counts.failed == 1
         ) {
             return Err(format!(
                 "unmarked destructive hang was not rejected exactly: {destructive_quiescent:?}"
@@ -584,7 +646,29 @@ pub fn validate_lifecycle(output_root: &Path) -> Result<(), String> {
             ),
         ] {
             let outcome = run_timeout_case(&root, name, script);
-            if !matches!(outcome, Err(Failure::Timeout(ref detail)) if detail.contains(expected)) {
+            if name == "test-timeout" {
+                if !matches!(
+                    outcome,
+                    Err(Failure::TestTimeout { ref detail, ref counts })
+                        if detail.contains(expected) && counts.failed == 1
+                ) {
+                    return Err(format!(
+                        "{name} self-check was not classified exactly: {outcome:?}"
+                    ));
+                }
+                let results = std::fs::read_to_string(root.join(name).join("results.log"))
+                    .map_err(|error| format!("cannot read timeout self-check results: {error}"))?;
+                if !results.contains(
+                    "@@VMSA FAIL host.timeout reason=test-watchdog-timeout expected=300 actual=",
+                ) {
+                    return Err(format!(
+                        "test-timeout self-check did not record a FAIL completion: {results:?}"
+                    ));
+                }
+            } else if !matches!(
+                outcome,
+                Err(Failure::Timeout(ref detail)) if detail.contains(expected)
+            ) {
                 return Err(format!(
                     "{name} self-check was not classified exactly: {outcome:?}"
                 ));
@@ -683,7 +767,7 @@ fn finish(
             )));
         }
         return Err(Failure::Malformed(format!(
-            "expected terminal marker during {expected}; active test was {:?} and process exited with {status}",
+            "expected PASS or FAIL during destructive test {expected}; active test was {:?} and process exited with {status}",
             parser.active_test()
         )));
     }
@@ -753,6 +837,10 @@ fn add_context(previous: Option<Failure>, context: &str) -> Failure {
         Failure::Harness(detail) => Failure::Harness(format!("{detail}; {context}")),
         Failure::Malformed(detail) => Failure::Malformed(format!("{detail}; {context}")),
         Failure::Timeout(detail) => Failure::Timeout(format!("{detail}; {context}")),
+        Failure::TestTimeout { detail, counts } => Failure::TestTimeout {
+            detail: format!("{detail}; {context}"),
+            counts,
+        },
         Failure::Io(detail) => Failure::Io(format!("{detail}; {context}")),
         Failure::Cancelled(detail) => Failure::Cancelled(format!("{detail}; {context}")),
     }
@@ -890,6 +978,10 @@ fn terminal_tone(line: &str) -> Option<crate::terminal::Tone> {
     } else {
         None
     }
+}
+
+fn protocol_millis(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 fn create_log(directory: &Path, name: &str) -> Result<File, Failure> {

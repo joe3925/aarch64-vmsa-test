@@ -1,7 +1,41 @@
-use crate::{CurrentEnvironment, CurrentRegime, LowerRegime, Stage2Regime};
+use crate::{
+    CurrentEnvironment, CurrentPas, CurrentRegime, CurrentTablePas, LowerRegime, Stage2Regime,
+};
 use vmsa_test_harness::{TestContext, TestResult};
 
 pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    lpa2_stage1_case(
+        context,
+        crate::current_pas(),
+        crate::current_table_pas(),
+        true,
+    )
+}
+
+pub fn lpa2_stage1_alternate_leaf_pas(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    let Some(pas) = crate::alternate_current_pas() else {
+        return vmsa_test_harness::HarnessError::InvalidState.into();
+    };
+    lpa2_stage1_case(context, pas, crate::current_table_pas(), false)
+}
+
+pub fn lpa2_stage1_alternate_table_pas(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    let Some(pas) = crate::alternate_current_table_pas() else {
+        return vmsa_test_harness::HarnessError::InvalidState.into();
+    };
+    lpa2_stage1_case(context, crate::current_pas(), pas, false)
+}
+
+fn lpa2_stage1_case(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+    leaf_pas: CurrentPas,
+    table_pas: CurrentTablePas,
+    expect_access: bool,
+) -> TestResult {
     use aarch64_vmsa::address::{Granule4KiB, Level};
     use aarch64_vmsa::attrs::{
         Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
@@ -16,7 +50,13 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         TranslationStage,
     };
 
-    const ADDRESS: u64 = 0x1_1000_0000;
+    // Keep the semantic probe in a distinct level -1 branch from the low
+    // payload text, stacks, vectors, and reporting state. A 4 KiB VMSA64
+    // LPA2 walk uses bits [51:48] at level -1, so an address in the ordinary
+    // 48-bit range would share the root descriptor with that infrastructure.
+    // Table-PAS tests deliberately make the probe's walk inaccessible and
+    // must leave the exception path under a different root descriptor.
+    const ADDRESS: u64 = 0x1_0000_1000_0000;
     const VALUE: u64 = 0x4c50_4132_5345_4d41;
     let page = context.allocate_page()?;
     let seeded = context.write_u64(page.virtual_address() as u64, VALUE);
@@ -42,7 +82,7 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
             data: DataAccess::ReadWrite,
             execute: false,
         },
-        pas: crate::current_pas(),
+        pas: leaf_pas,
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,
             access_flag: true,
@@ -58,7 +98,7 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
             data_limit: DataAccess::ReadWrite,
             execute_limit: true,
         },
-        pas: crate::current_table_pas(),
+        pas: table_pas,
         controls: SemanticVmsa64Stage1TableControls::default(),
     };
     let bits = AddressBits::new(52).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -93,8 +133,11 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         if offline != leaf {
             return vmsa_test_harness::HarnessError::EnvironmentDetail(0x13).into();
         }
-        sandbox =
-            context.prepare_transition_runtime(&mut mapper, lpa2_stage1 as *const () as u64, false)?;
+        sandbox = context.prepare_transition_runtime(
+            &mut mapper,
+            lpa2_stage1_case as *const () as u64,
+            false,
+        )?;
     }
     let root_address = PhysicalAddress::new(root.phys_addr());
     let mut translation = context
@@ -131,7 +174,14 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
     if live != offline {
         return vmsa_test_harness::HarnessError::EnvironmentDetail(0x15).into();
     }
-    let result = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE);
+    let result = if expect_access {
+        vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)
+    } else {
+        vmsa_test_harness::expect_matching_fault(
+            context.read_u64(ADDRESS),
+            crate::alternate_stage1_pas_fault(ADDRESS),
+        )
+    };
     drop(translation);
     if !context.transition_sandbox_restored(&sandbox) {
         return vmsa_test_harness::HarnessError::EnvironmentDetail(0x1a).into();

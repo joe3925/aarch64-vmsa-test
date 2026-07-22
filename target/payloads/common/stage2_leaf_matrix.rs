@@ -490,7 +490,7 @@ where
     clippy::too_many_arguments,
     reason = "the arguments are the explicit architectural matrix coordinates"
 )]
-fn active_standard_leaf<F, G>(
+fn active_standard_leaf<F, G, R>(
     context: &mut TestContext<'_, CurrentEnvironment>,
     granule: vmsa_test_harness::Granule,
     format: vmsa_test_harness::TranslationFormat,
@@ -504,7 +504,10 @@ fn active_standard_leaf<F, G>(
 ) -> TestResult
 where
     G: vmsa_test_harness::adapter::TestGranule,
-    Stage2Regime: vmsa_test_harness::adapter::TestRegimeFor<G>,
+    R: vmsa_test_harness::adapter::TestRegimeFor<G>,
+    R::WalkProfile: aarch64_vmsa::translation::TranslationWalkProfile<
+            Stage = aarch64_vmsa::translation::Stage2,
+        >,
     F: vmsa_test_harness::adapter::TestFormat
         + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
     aarch64_vmsa::descriptor::Vmsa64:
@@ -516,19 +519,19 @@ where
                 G,
                 LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
                     aarch64_vmsa::descriptor::Vmsa64,
-                    Stage2Regime,
+                    R,
                     G,
                 >,
                 TableFields = aarch64_vmsa::regime::TableFieldsOf<
                     aarch64_vmsa::descriptor::Vmsa64,
-                    Stage2Regime,
+                    R,
                     G,
                 >,
             >,
-    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, Stage2Regime, G>: Copy,
+    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
     aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
             F,
-            Stage2Regime,
+            R,
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
@@ -537,11 +540,11 @@ where
                 aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
             >,
             SemanticTable = aarch64_vmsa::attrs::SemanticVmsa64Stage2TableAttrs,
-            RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, Stage2Regime, G>,
-            RawTable = aarch64_vmsa::regime::TableFieldsOf<F, Stage2Regime, G>,
+            RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, R, G>,
+            RawTable = aarch64_vmsa::regime::TableFieldsOf<F, R, G>,
         >,
 {
-    active_standard_leaf_case::<F, G, Stage2Regime>(
+    active_standard_leaf_case::<F, G, R>(
         context,
         granule,
         format,
@@ -575,7 +578,7 @@ fn vmsa64_leaf(
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB, Stage2Regime>(
         context,
         vmsa_test_harness::Granule::Size4KiB,
         vmsa_test_harness::TranslationFormat::Vmsa64,
@@ -728,7 +731,7 @@ fn lpa2_leaf(
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let controls = vmsa_test_harness::lpa2_stage2_controls_4k(bits, bits)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64Lpa2, aarch64_vmsa::address::Granule4KiB>(
+    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64Lpa2, aarch64_vmsa::address::Granule4KiB, Stage2Regime>(
         context,
         vmsa_test_harness::Granule::Size4KiB,
         vmsa_test_harness::TranslationFormat::Vmsa64Lpa2,
@@ -859,7 +862,7 @@ fn vmsa64_16k_leaf(
         start,
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule16KiB>(
+    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule16KiB, Stage2Regime>(
         context,
         vmsa_test_harness::Granule::Size16KiB,
         vmsa_test_harness::TranslationFormat::Vmsa64,
@@ -889,7 +892,7 @@ fn vmsa64_64k_leaf(
         start,
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule64KiB>(
+    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule64KiB, Stage2Regime>(
         context,
         vmsa_test_harness::Granule::Size64KiB,
         vmsa_test_harness::TranslationFormat::Vmsa64,
@@ -919,7 +922,7 @@ fn lpa2_16k_leaf(
         start,
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64Lpa2, aarch64_vmsa::address::Granule16KiB>(
+    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64Lpa2, aarch64_vmsa::address::Granule16KiB, Stage2Regime>(
         context,
         vmsa_test_harness::Granule::Size16KiB,
         vmsa_test_harness::TranslationFormat::Vmsa64Lpa2,
@@ -949,7 +952,7 @@ fn lpa2_64k_leaf(
         start,
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64Lpa2, aarch64_vmsa::address::Granule64KiB>(
+    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64Lpa2, aarch64_vmsa::address::Granule64KiB, Stage2Regime>(
         context,
         vmsa_test_harness::Granule::Size64KiB,
         vmsa_test_harness::TranslationFormat::Vmsa64Lpa2,
@@ -1449,4 +1452,286 @@ three_leaf_observations!(
     d128_64k_l2_at,
     d128_64k_l3_at,
     d128_64k_leaf
+);
+
+macro_rules! alternate_leaf_pair {
+    (
+        $access:ident,
+        $at:ident,
+        $granule:ty,
+        $granule_value:expr,
+        $start:expr,
+        $leaf:expr,
+        $input:expr,
+        $hint:expr
+    ) => {
+        pub(super) fn $access(
+            context: &mut TestContext<'_, CurrentEnvironment>,
+        ) -> TestResult {
+            let input = vmsa_test_harness::AddressBits::new($input)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+            let output = vmsa_test_harness::AddressBits::new(48)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+            let start = vmsa_test_harness::LookupLevel::new($start.as_i8())
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+            let controls = vmsa_test_harness::vmsa64_stage2_controls(
+                $granule_value,
+                input,
+                output,
+                start,
+            )
+            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+            active_standard_leaf::<
+                aarch64_vmsa::descriptor::Vmsa64,
+                $granule,
+                crate::AlternateStage2Regime,
+            >(
+                context,
+                $granule_value,
+                vmsa_test_harness::TranslationFormat::Vmsa64,
+                $start,
+                $leaf,
+                $input,
+                48,
+                $hint,
+                controls,
+                Observation::Access,
+            )
+        }
+
+        pub(super) fn $at(
+            context: &mut TestContext<'_, CurrentEnvironment>,
+        ) -> TestResult {
+            let input = vmsa_test_harness::AddressBits::new($input)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+            let output = vmsa_test_harness::AddressBits::new(48)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+            let start = vmsa_test_harness::LookupLevel::new($start.as_i8())
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+            let controls = vmsa_test_harness::vmsa64_stage2_controls(
+                $granule_value,
+                input,
+                output,
+                start,
+            )
+            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+            active_standard_leaf::<
+                aarch64_vmsa::descriptor::Vmsa64,
+                $granule,
+                crate::AlternateStage2Regime,
+            >(
+                context,
+                $granule_value,
+                vmsa_test_harness::TranslationFormat::Vmsa64,
+                $start,
+                $leaf,
+                $input,
+                48,
+                $hint,
+                controls,
+                Observation::AddressTranslation,
+            )
+        }
+    };
+}
+
+alternate_leaf_pair!(
+    alternate_vmsa64_4k_l1,
+    alternate_vmsa64_4k_l1_at,
+    aarch64_vmsa::address::Granule4KiB,
+    vmsa_test_harness::Granule::Size4KiB,
+    aarch64_vmsa::address::Level::L0,
+    aarch64_vmsa::address::Level::L1,
+    48,
+    1u64 << 42
+);
+alternate_leaf_pair!(
+    alternate_vmsa64_4k_l2,
+    alternate_vmsa64_4k_l2_at,
+    aarch64_vmsa::address::Granule4KiB,
+    vmsa_test_harness::Granule::Size4KiB,
+    aarch64_vmsa::address::Level::L0,
+    aarch64_vmsa::address::Level::L2,
+    48,
+    1u64 << 42
+);
+alternate_leaf_pair!(
+    alternate_vmsa64_4k_l3,
+    alternate_vmsa64_4k_l3_at,
+    aarch64_vmsa::address::Granule4KiB,
+    vmsa_test_harness::Granule::Size4KiB,
+    aarch64_vmsa::address::Level::L0,
+    aarch64_vmsa::address::Level::L3,
+    48,
+    1u64 << 42
+);
+alternate_leaf_pair!(
+    alternate_vmsa64_16k_l2,
+    alternate_vmsa64_16k_l2_at,
+    aarch64_vmsa::address::Granule16KiB,
+    vmsa_test_harness::Granule::Size16KiB,
+    aarch64_vmsa::address::Level::L1,
+    aarch64_vmsa::address::Level::L2,
+    47,
+    1u64 << 42
+);
+alternate_leaf_pair!(
+    alternate_vmsa64_16k_l3,
+    alternate_vmsa64_16k_l3_at,
+    aarch64_vmsa::address::Granule16KiB,
+    vmsa_test_harness::Granule::Size16KiB,
+    aarch64_vmsa::address::Level::L1,
+    aarch64_vmsa::address::Level::L3,
+    47,
+    1u64 << 42
+);
+alternate_leaf_pair!(
+    alternate_vmsa64_64k_l2,
+    alternate_vmsa64_64k_l2_at,
+    aarch64_vmsa::address::Granule64KiB,
+    vmsa_test_harness::Granule::Size64KiB,
+    aarch64_vmsa::address::Level::L1,
+    aarch64_vmsa::address::Level::L2,
+    48,
+    1u64 << 42
+);
+alternate_leaf_pair!(
+    alternate_vmsa64_64k_l3,
+    alternate_vmsa64_64k_l3_at,
+    aarch64_vmsa::address::Granule64KiB,
+    vmsa_test_harness::Granule::Size64KiB,
+    aarch64_vmsa::address::Level::L1,
+    aarch64_vmsa::address::Level::L3,
+    48,
+    1u64 << 42
+);
+
+fn alternate_vmsa64_permission_case(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+    data: aarch64_vmsa::attrs::DataAccess,
+    execute: bool,
+    operation: ActivePermissionOperation,
+) -> TestResult {
+    let bits = vmsa_test_harness::AddressBits::new(48)
+        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    let controls = vmsa_test_harness::vmsa64_stage2_controls_4k(
+        bits,
+        bits,
+        vmsa_test_harness::LookupLevel::new(0)
+            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+    )
+    .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    active_standard_leaf_case::<
+        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::address::Granule4KiB,
+        crate::AlternateStage2Regime,
+    >(
+        context,
+        vmsa_test_harness::Granule::Size4KiB,
+        vmsa_test_harness::TranslationFormat::Vmsa64,
+        aarch64_vmsa::address::Level::L0,
+        aarch64_vmsa::address::Level::L3,
+        48,
+        48,
+        1u64 << 42,
+        controls,
+        Observation::Access,
+        aarch64_vmsa::attrs::Stage2LeafPermissions {
+            data,
+            privileged_execute: execute,
+            unprivileged_execute: execute,
+        },
+        operation,
+    )
+}
+
+macro_rules! alternate_permission_cases {
+    ($($name:ident, $data:ident, $execute:literal, $operation:ident);+ $(;)?) => {
+        $(
+            pub(super) fn $name(
+                context: &mut TestContext<'_, CurrentEnvironment>,
+            ) -> TestResult {
+                alternate_vmsa64_permission_case(
+                    context,
+                    aarch64_vmsa::attrs::DataAccess::$data,
+                    $execute,
+                    ActivePermissionOperation::$operation,
+                )
+            }
+        )+
+    };
+}
+
+alternate_permission_cases!(
+    alternate_permission_none_read, None, false, Read;
+    alternate_permission_none_write, None, false, Write;
+    alternate_permission_ro_read, ReadOnly, false, Read;
+    alternate_permission_ro_write, ReadOnly, false, Write;
+    alternate_permission_rw_read, ReadWrite, false, Read;
+    alternate_permission_rw_write, ReadWrite, false, Write;
+    alternate_permission_x_execute, ReadOnly, true, Execute;
+    alternate_permission_xn_execute, ReadOnly, false, Execute;
+);
+
+fn alternate_vmsa64_xnx_permission_case(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+    privileged_execute: bool,
+    unprivileged_execute: bool,
+    operation: ActivePermissionOperation,
+) -> TestResult {
+    let bits = vmsa_test_harness::AddressBits::new(48)
+        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    let controls = vmsa_test_harness::vmsa64_stage2_controls_4k(
+        bits,
+        bits,
+        vmsa_test_harness::LookupLevel::new(0)
+            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+    )
+    .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+    active_standard_leaf_case::<
+        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::address::Granule4KiB,
+        crate::AlternateStage2XnxRegime,
+    >(
+        context,
+        vmsa_test_harness::Granule::Size4KiB,
+        vmsa_test_harness::TranslationFormat::Vmsa64,
+        aarch64_vmsa::address::Level::L0,
+        aarch64_vmsa::address::Level::L3,
+        48,
+        48,
+        1u64 << 42,
+        controls,
+        Observation::Access,
+        aarch64_vmsa::attrs::Stage2LeafPermissions {
+            data: aarch64_vmsa::attrs::DataAccess::ReadOnly,
+            privileged_execute,
+            unprivileged_execute,
+        },
+        operation,
+    )
+}
+
+macro_rules! alternate_xnx_cases {
+    ($($name:ident, $px:literal, $ux:literal, $operation:ident);+ $(;)?) => {
+        $(
+            pub(super) fn $name(
+                context: &mut TestContext<'_, CurrentEnvironment>,
+            ) -> TestResult {
+                alternate_vmsa64_xnx_permission_case(
+                    context,
+                    $px,
+                    $ux,
+                    ActivePermissionOperation::$operation,
+                )
+            }
+        )+
+    };
+}
+
+alternate_xnx_cases!(
+    alternate_permission_px_uxn_priv_execute, true, false, Execute;
+    alternate_permission_px_uxn_unpriv_execute, true, false, ExecuteEl0;
+    alternate_permission_pxn_ux_priv_execute, false, true, Execute;
+    alternate_permission_pxn_ux_unpriv_execute, false, true, ExecuteEl0;
 );

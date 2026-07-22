@@ -381,6 +381,100 @@ provider_probe_case!(
 );
 provider_probe_case!(frame_free_provider_error, verify_mapper_frame_free_error);
 
+pub fn live_break_before_make<E>(
+    context: &mut TestContext<'_, E>,
+    regime: vmsa_test_harness::RegimeAttributes,
+) -> TestResult
+where
+    E: vmsa_test_harness::adapter::TranslationRegimeEnvironment,
+    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
+    aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+            aarch64_vmsa::regime::StageOf<E::Regime>,
+            aarch64_vmsa::address::Granule4KiB,
+        >,
+    aarch64_vmsa::regime::LeafFieldsOf<
+        aarch64_vmsa::descriptor::Vmsa64,
+        E::Regime,
+        aarch64_vmsa::address::Granule4KiB,
+    >: Copy,
+    aarch64_vmsa::regime::TableFieldsOf<
+        aarch64_vmsa::descriptor::Vmsa64,
+        E::Regime,
+        aarch64_vmsa::address::Granule4KiB,
+    >: Copy,
+{
+    use vmsa_test_harness::{
+        AddressBits, Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
+        TranslationStage,
+    };
+
+    const ADDRESS: u64 = 0x6f00_0000;
+    const ORIGINAL: u64 = 0x4242_4d2d_4f4c_4421;
+    const REPLACEMENT: u64 = 0x4242_4d2d_4e45_5721;
+    let old_page = context.allocate_page()?;
+    let new_page = context.allocate_page()?;
+    if !matches!(
+        context.write_u64(old_page.virtual_address() as u64, ORIGINAL),
+        vmsa_test_harness::AccessResult::Completed { .. }
+    ) || !matches!(
+        context.write_u64(new_page.virtual_address() as u64, REPLACEMENT),
+        vmsa_test_harness::AccessResult::Completed { .. }
+    ) {
+        return vmsa_test_harness::HarnessError::InvalidState.into();
+    }
+    let root = context.allocate_root()?;
+    let root_address = PhysicalAddress::new(root.phys_addr());
+    let capabilities = context.capabilities();
+    let mut translation = context.install_owned(
+        root,
+        TranslationSetup {
+            root: root_address,
+            stage: TranslationStage::Stage1,
+            granule: Granule::Size4KiB,
+            format: TranslationFormat::Vmsa64,
+            input_bits: AddressBits::new(capabilities.va_bits.min(48))
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            output_bits: AddressBits::new(capabilities.pa_bits.min(48))
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            start_level: LookupLevel::new(0),
+            asid: None,
+            vmid: None,
+            controls: vmsa_test_harness::TranslationControls::PRESERVE_CURRENT,
+            stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
+            regime,
+        },
+    )?;
+    translation.map::<
+        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::address::Granule4KiB,
+    >(
+        ADDRESS,
+        old_page.phys_addr(),
+        LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+        MappingAttributes::READ_WRITE,
+    )?;
+    let first = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), ORIGINAL);
+    if !matches!(first, TestResult::Pass) {
+        return first;
+    }
+    let replaced = translation.break_before_make::<
+        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::address::Granule4KiB,
+    >(
+        ADDRESS,
+        Some(new_page.phys_addr()),
+        MappingAttributes::READ_WRITE,
+    )?;
+    if replaced.output != new_page.phys_addr()
+        || replaced.level != LookupLevel::new(3).expect("level 3 is valid")
+    {
+        return vmsa_test_harness::HarnessError::InvalidState.into();
+    }
+    let result = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), REPLACEMENT);
+    translation.restore()?;
+    result
+}
+
 pub fn break_before_make_ordering(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {

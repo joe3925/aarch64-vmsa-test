@@ -243,14 +243,47 @@ pub fn stage2_malformed_walk(
     vmsa_test_harness::expect_value(context.read_u64(address), 0x5332_4d41_4c46_4f52)
 }
 
+fn current_translation_fault_address<E: vmsa_test_harness::adapter::Environment>(
+    context: &TestContext<'_, E>,
+) -> Result<u64, vmsa_test_harness::HarnessError> {
+    const CANDIDATES: [u64; 10] = [
+        0x0000_0001_0000_0000,
+        0x0000_0002_0000_0000,
+        0x0000_0004_0000_0000,
+        0x0000_0008_0000_0000,
+        0x0000_0010_0000_0000,
+        0x0000_0020_0000_0000,
+        0x0000_0040_0000_0000,
+        0x0000_0000_7000_0000,
+        0x0000_0000_6f00_0000,
+        0x0000_0000_3f00_0000,
+    ];
+
+    for address in CANDIDATES {
+        if matches!(
+            context.translate_current_stage1(
+                address,
+                vmsa_test_harness::TranslationQueryAccess::Read,
+            ),
+            vmsa_test_harness::TranslationQueryResult::Fault {
+                status: 0b000100..=0b000111,
+                stage2: false,
+                ..
+            }
+        ) {
+            return Ok(address);
+        }
+    }
+
+    Err(vmsa_test_harness::HarnessError::EnvironmentDetail(0x30))
+}
+
 pub fn current_fault_expected<E: vmsa_test_harness::adapter::Environment>(
     context: &mut TestContext<'_, E>,
     expected: ExpectedFault,
 ) -> TestResult {
-    expect_fault(
-        context.read_u64(crate::runtime_support::invalid_virtual_address(context)),
-        expected,
-    )
+    let address = current_translation_fault_address(context)?;
+    expect_fault(context.read_u64(address), expected)
 }
 
 pub fn lower_fault_expected<E: vmsa_test_harness::adapter::Environment>(
