@@ -81,7 +81,7 @@ pub fn stage1_address_size(context: &mut TestContext<'_, crate::CurrentEnvironme
     );
     translation.restore()?;
     if !context.transition_sandbox_restored(&sandbox) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::Cleanup.into();
     }
     if !matches!(result, TestResult::Pass) {
         return result;
@@ -106,7 +106,7 @@ pub fn unexpected_exception_destructive(
     _: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
     vmsa_test_architecture::trigger_unexpected_exception();
-    vmsa_test_harness::HarnessError::InvalidState.into()
+    vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
 }
 
 pub fn stage2_malformed_walk(

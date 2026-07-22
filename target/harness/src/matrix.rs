@@ -275,10 +275,23 @@ pub enum FirmwareRequirement {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum IsolationRequirement {
+pub enum SeparateBootReason {
+    CurrentRegimeReplacement,
+    MalformedActiveDescriptor,
+    BootCriticalExceptionPath,
+    FirmwareLifecycleBoundary,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DestructiveReason {
+    ExpectedModelTermination,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IsolationPolicy {
     Sequential,
-    SeparateBoot,
-    DestructiveBoot,
+    SeparateBoot(SeparateBootReason),
+    DestructiveBoot(DestructiveReason),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -301,8 +314,7 @@ pub struct MatrixRequirements {
     pub address_spaces: PhysicalAddressSpaces,
     pub pe: PeRequirement,
     pub firmware: FirmwareRequirement,
-    pub isolation: IsolationRequirement,
-    pub expects_model_termination: bool,
+    pub isolation: IsolationPolicy,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -345,13 +357,10 @@ impl MatrixRequirements {
         } else if !self.capabilities.is_subset_of(adapter_capabilities) {
             Applicability::AdapterMissing
         } else {
-            if self.expects_model_termination {
-                return Applicability::Destructive;
-            }
             match self.isolation {
-                IsolationRequirement::Sequential => Applicability::Applicable,
-                IsolationRequirement::SeparateBoot => Applicability::Isolated,
-                IsolationRequirement::DestructiveBoot => Applicability::Destructive,
+                IsolationPolicy::Sequential => Applicability::Applicable,
+                IsolationPolicy::SeparateBoot(_) => Applicability::Isolated,
+                IsolationPolicy::DestructiveBoot(_) => Applicability::Destructive,
             }
         }
     }

@@ -14,7 +14,7 @@ pub fn current_stage1_alternate_leaf_pas(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
     let Some(pas) = crate::alternate_current_pas() else {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     };
     current_stage1_case(context, pas, crate::current_table_pas(), false)
 }
@@ -23,7 +23,7 @@ pub fn current_stage1_alternate_table_pas(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
     let Some(pas) = crate::alternate_current_table_pas() else {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     };
     current_stage1_case(context, crate::current_pas(), pas, false)
 }
@@ -138,7 +138,7 @@ fn current_stage1_case(
             .inspect_semantic_leaf::<VmsaAttributeCodec, _>(ADDRESS, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if offline != leaf {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
         sandbox = context.prepare_d128_transition_runtime::<D128Regime>(
             &mut mapper,
@@ -175,7 +175,7 @@ fn current_stage1_case(
         )?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if live != offline {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let result = if expect_access {
         vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)
@@ -187,7 +187,7 @@ fn current_stage1_case(
     };
     drop(translation);
     if !context.transition_sandbox_restored(&sandbox) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::Cleanup.into();
     }
     result
 }

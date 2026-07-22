@@ -3286,7 +3286,10 @@ where
             aarch64_vmsa::mapper::SemanticMapperError::Attribute(error) => {
                 HarnessError::Attribute(normalize_attribute_error(error))
             }
-            aarch64_vmsa::mapper::SemanticMapperError::Mapper(_) => HarnessError::InvalidState,
+            aarch64_vmsa::mapper::SemanticMapperError::Mapper(_) => HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            },
         })
     }
 

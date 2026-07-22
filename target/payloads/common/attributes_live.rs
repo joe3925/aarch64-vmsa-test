@@ -79,7 +79,7 @@ pub(super) fn semantic_codec(context: &mut TestContext<'_, CurrentEnvironment>) 
         >(ADDRESS)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if live_mapping.output != page.phys_addr() {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let live_semantic = live
         .inspect_semantic_for::<
@@ -91,7 +91,7 @@ pub(super) fn semantic_codec(context: &mut TestContext<'_, CurrentEnvironment>) 
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if live_semantic != semantic {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     live.restore()?;
     let observations =
@@ -140,7 +140,7 @@ pub(super) fn missing_memory_attribute(
     )) {
         TestResult::Pass
     } else {
-        vmsa_test_harness::HarnessError::InvalidState.into()
+        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
     }
 }
 

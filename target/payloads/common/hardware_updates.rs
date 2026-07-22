@@ -140,7 +140,7 @@ fn vmsa64_update_case(
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if installed != leaf {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     let result = match observation {
@@ -174,7 +174,7 @@ fn vmsa64_update_case(
             if after.controls.access_flag {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::InvalidState.into()
+                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
             }
         }
         UpdateObservation::DirtyDisabled => {
@@ -200,7 +200,7 @@ fn vmsa64_update_case(
             if after.permissions.data == DataAccess::ReadOnly {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::InvalidState.into()
+                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
             }
         }
         UpdateObservation::DirtyEnabled => {
@@ -221,7 +221,7 @@ fn vmsa64_update_case(
             if after.permissions.data == DataAccess::ReadWrite {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::InvalidState.into()
+                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
             }
         }
     };
@@ -367,7 +367,7 @@ fn d128_update_case(
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if installed != leaf {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     let result = match observation {
@@ -400,7 +400,7 @@ fn d128_update_case(
             if after.controls.access_flag {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::InvalidState.into()
+                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
             }
         }
         UpdateObservation::DirtyDisabled => {
@@ -426,7 +426,7 @@ fn d128_update_case(
             if after.controls.dirty_state == DirtyState::Clean {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::InvalidState.into()
+                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
             }
         }
         UpdateObservation::DirtyEnabled => {
@@ -448,7 +448,7 @@ fn d128_update_case(
             if after.controls.dirty_state == DirtyState::Dirty {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::InvalidState.into()
+                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
             }
         }
     };
@@ -547,7 +547,7 @@ fn d128_stage2_update_case(
         context.write_u64(page.virtual_address() as u64, VALUE),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let mut stage1_root = context.allocate_root_16k()?;
     let mut stage2_root = context.allocate_root()?;
@@ -610,7 +610,7 @@ fn d128_stage2_update_case(
             .inspect_semantic_leaf::<VmsaAttributeCodec, _>(target_ipa, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if installed != leaf {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
     let stage1_setup = TranslationSetup {
@@ -654,7 +654,7 @@ fn d128_stage2_update_case(
         >(target_ipa, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if before != leaf {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     let result = match observation {
@@ -690,7 +690,7 @@ fn d128_stage2_update_case(
             if after.controls.access_flag {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::InvalidState.into()
+                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
             }
         }
         UpdateObservation::DirtyDisabled => {
@@ -724,7 +724,7 @@ fn d128_stage2_update_case(
             if after.controls.dirty_state == DirtyState::Clean {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::InvalidState.into()
+                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
             }
         }
         UpdateObservation::DirtyEnabled => {
@@ -747,7 +747,7 @@ fn d128_stage2_update_case(
             if after.controls.dirty_state == DirtyState::Dirty {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::InvalidState.into()
+                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
             }
         }
     };

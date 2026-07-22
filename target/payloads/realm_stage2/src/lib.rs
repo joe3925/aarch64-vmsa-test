@@ -410,7 +410,11 @@ fn fixed_realm_ipa_stage1_semantic_access(
         >>::decode_leaf(&config, Level::L3, raw)
     });
     if decoded != Ok(leaf) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     current_access(context)
 }

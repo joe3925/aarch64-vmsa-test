@@ -16,7 +16,7 @@ pub fn lpa2_stage1_alternate_leaf_pas(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
     let Some(pas) = crate::alternate_current_pas() else {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     };
     lpa2_stage1_case(context, pas, crate::current_table_pas(), false)
 }
@@ -25,7 +25,7 @@ pub fn lpa2_stage1_alternate_table_pas(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
     let Some(pas) = crate::alternate_current_table_pas() else {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     };
     lpa2_stage1_case(context, crate::current_pas(), pas, false)
 }
@@ -215,7 +215,7 @@ pub fn d128_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         context.write_u64(page.virtual_address() as u64, VALUE),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let mut stage1_root = context.allocate_root()?;
     let mut stage2_root = context.allocate_root()?;
@@ -337,7 +337,7 @@ pub fn d128_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         )?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if installed != offline {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     vmsa_test_harness::expect_value(combined.read_u64(ADDRESS), VALUE)
 }
@@ -367,7 +367,7 @@ pub fn lpa2_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         context.write_u64(page.virtual_address() as u64, VALUE),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let mut stage1_root = context.allocate_root()?;
     let mut stage2_root = context.allocate_root()?;
@@ -480,7 +480,7 @@ pub fn lpa2_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         )?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if installed != offline {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     vmsa_test_harness::expect_value(combined.read_u64(ADDRESS), VALUE)
 }

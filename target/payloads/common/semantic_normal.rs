@@ -63,7 +63,7 @@ where
         context.write_u64(page.virtual_address() as u64 + 8, VALUE),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let covered =
         aarch64_vmsa::table::TableGeometry::<Vmsa64, G>::offset_at_level_raw(u64::MAX, leaf_level)
@@ -153,7 +153,7 @@ where
                 .translate(input)?
                 .is_none_or(|mapping| mapping.output != target)
         {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
     let controls = vmsa_test_harness::vmsa64_el1_stage1_controls(granule, input_bits, output_bits)
@@ -203,7 +203,7 @@ where
         .inspect_semantic_for::<LowerRegime, Vmsa64, G, VmsaAttributeCodec, _>(input, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if live != offline || live.permissions != permissions {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let result = if granule == vmsa_test_harness::Granule::Size16KiB {
         match context.translate_lower_stage1(input, vmsa_test_harness::TranslationQueryAccess::Read)
@@ -226,7 +226,7 @@ where
                 })
             }
             vmsa_test_harness::TranslationQueryResult::Unsupported => {
-                vmsa_test_harness::HarnessError::InvalidState.into()
+                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
             }
         }
     } else {

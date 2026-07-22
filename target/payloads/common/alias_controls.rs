@@ -3,7 +3,7 @@ use vmsa_test_harness::{TestContext, TestResult};
 
 fn result(failed: bool) -> TestResult {
     if failed {
-        vmsa_test_harness::HarnessError::InvalidState.into()
+        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
     } else {
         TestResult::Pass
     }

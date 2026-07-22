@@ -11,7 +11,7 @@ pub fn current_access<E: vmsa_test_harness::adapter::Environment>(
     if context.allocate_page_in(vmsa_test_harness::PhysicalAddressSpace::FirmwareShared)
         != Err(vmsa_test_harness::HarnessError::InvalidState)
     {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let page = context.allocate_page_in(native_pas)?;
     let address = page.virtual_address() as u64;
@@ -87,7 +87,7 @@ pub fn pair_access<E: vmsa_test_harness::adapter::Environment>(
             first: observed_first,
             second: observed_second,
         } if observed_first == first && observed_second == second => {}
-        _ => return vmsa_test_harness::HarnessError::InvalidState.into(),
+        _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
     }
     let fault = expect_fault(
         context.read_pair_u64(address + 1),
@@ -111,14 +111,14 @@ pub fn pair_access<E: vmsa_test_harness::adapter::Environment>(
             execution.write_pair_u64(address, first, second),
             vmsa_test_harness::AccessResult::CompletedPair { .. }
         ) {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
         match execution.read_pair_u64(address) {
             vmsa_test_harness::AccessResult::CompletedPair {
                 first: observed_first,
                 second: observed_second,
             } if observed_first == first && observed_second == second => {}
-            _ => return vmsa_test_harness::HarnessError::InvalidState.into(),
+            _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
         }
         execution.finish()?;
     }
@@ -182,27 +182,27 @@ pub fn ordered_atomic_access<E: vmsa_test_harness::adapter::Environment>(
             context.write_u64(address, 7),
             vmsa_test_harness::AccessResult::Completed { .. }
         ) {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
         let mut execution = context.execution(execution_context)?;
         if !matches!(
             execution.write_release_u64(address, 7),
             vmsa_test_harness::AccessResult::Completed { .. }
         ) {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
         if !matches!(
             execution.read_acquire_u64(address),
             vmsa_test_harness::AccessResult::Completed { value: 7 }
         ) {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
         execution.finish()?;
         if !matches!(
             context.read_u64(address),
             vmsa_test_harness::AccessResult::Completed { value: 7 }
         ) {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
     TestResult::Pass
@@ -311,7 +311,7 @@ pub fn el2_el0_host_atomic_access<
         context.write_u64(page.virtual_address() as u64, 7),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let mut execution = context.execution(vmsa_test_harness::ExecutionContext::El0UnderEl2)?;
     if !matches!(
@@ -321,7 +321,7 @@ pub fn el2_el0_host_atomic_access<
         execution.exclusive_add_u64(ADDRESS, 5),
         vmsa_test_harness::AccessResult::Completed { value: 11 }
     ) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     execution.finish()?;
     drop(translation);

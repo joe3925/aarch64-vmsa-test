@@ -174,7 +174,7 @@ where
         context.write_u64(remap_backing, remap_value),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let root = context.allocate_root()?;
     let capabilities = context.capabilities();
@@ -254,7 +254,7 @@ where
         context.write_u64(ADDRESS, 7),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     context.maintain_cache(vmsa_test_harness::CacheMaintenanceOperation::MultiPeVisibility)?;
     let mut execution = context.execution(vmsa_test_harness::ExecutionContext::SecondaryPe)?;
@@ -267,7 +267,7 @@ where
             physical_address, ..
         } if physical_address == remap_page.phys_addr()
     ) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     if !matches!(
         execution.write_u8(ADDRESS, 0x5a),
@@ -314,7 +314,7 @@ where
             second
         } if second == VALUE + 1
     ) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let secondary_fault = expect_fault(
         execution.read_pair_u64(ADDRESS + 1),
@@ -357,7 +357,7 @@ where
         .inspect_hardware_updates::<aarch64_vmsa::address::Granule4KiB>(ADDRESS)?
         .access_flag
     {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     TestResult::Pass
 }

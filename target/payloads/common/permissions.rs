@@ -71,7 +71,7 @@ pub fn stage1_single_matrix() -> TestResult {
         Ok(raw) => {
             for bits in [0, 2] {
                 let mut invalid = raw;
-                invalid.ap = LeafAp::from_bits(bits).map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?;
+                invalid.ap = LeafAp::from_bits(bits).map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
                 if <VmsaAttributeCodec as AttributeCodec<
                     Vmsa64,
                     NonSecureEl2Stage1,
@@ -165,7 +165,7 @@ pub fn stage1_single_matrix() -> TestResult {
             for bits in [1, 3] {
                 let mut invalid = raw;
                 invalid.ap_table = TableAp::from_bits(bits)
-                    .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?;
+                    .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
                 if <VmsaAttributeCodec as AttributeCodec<
                     Vmsa64,
                     NonSecureEl2Stage1,
@@ -395,7 +395,7 @@ pub fn stage2_direct_matrix() -> TestResult {
         Ok(raw) => {
             let mut invalid_access = raw;
             invalid_access.access = Stage2Ap::from_bits(2)
-                .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?;
+                .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
             if <VmsaAttributeCodec as AttributeCodec<
                 Vmsa64,
                 NonSecureEl2Stage2<Stage2Permissions>,
@@ -409,7 +409,7 @@ pub fn stage2_direct_matrix() -> TestResult {
             for bits in [1, 3] {
                 let mut invalid_execute = raw;
                 invalid_execute.execute_never = Stage2ExecuteNever::from_bits(bits)
-                    .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?;
+                    .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
                 if <VmsaAttributeCodec as AttributeCodec<
                     Vmsa64,
                     NonSecureEl2Stage2<Stage2Permissions>,
@@ -548,7 +548,7 @@ pub fn d128_stage2_base_matrix() -> TestResult {
                 let mut indexed = raw;
                 indexed.permissions = PermissionIndices {
                     pi: FourBit::new(index as u8)
-                        .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?,
+                        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
                     po: FourBit::ZERO,
                 };
                 let decoded = <VmsaAttributeCodec as AttributeCodec<
@@ -712,9 +712,9 @@ pub fn d128_stage2_overlay_matrix() -> TestResult {
                     let mut raw = template;
                     raw.permissions = PermissionIndices {
                         pi: FourBit::new(pi)
-                            .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?,
+                            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
                         po: FourBit::new(po)
-                            .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?,
+                            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
                     };
                     let decoded = <VmsaAttributeCodec as AttributeCodec<
                         Vmsa128,
@@ -750,9 +750,9 @@ pub fn d128_stage2_overlay_matrix() -> TestResult {
                     let mut raw = template;
                     raw.permissions = PermissionIndices {
                         pi: FourBit::new(pi)
-                            .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?,
+                            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
                         po: FourBit::new(po)
-                            .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?,
+                            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
                     };
                     let decoded = <VmsaAttributeCodec as AttributeCodec<
                         Vmsa128,

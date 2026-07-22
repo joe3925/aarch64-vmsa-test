@@ -1,7 +1,7 @@
 use crate::environment::Environment;
 use crate::report::ReportEvent;
 use crate::{
-    BootProfile, FailureKind, IsolationRequirement, LogicalTest, Requirements, SecurityEnvironment,
+    BootProfile, FailureKind, IsolationPolicy, LogicalTest, Requirements, SecurityEnvironment,
     TestContext, TestResult, tests_for,
 };
 
@@ -66,7 +66,7 @@ where
     let mut corrupted = false;
     for test in tests {
         let name = test.name;
-        if test.architecture.isolation != IsolationRequirement::Sequential
+        if test.architecture.isolation != IsolationPolicy::Sequential
             && options.filter != Some(name)
         {
             continue;

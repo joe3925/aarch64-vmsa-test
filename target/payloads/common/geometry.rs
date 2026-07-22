@@ -363,7 +363,7 @@ pub fn maximum_root_address(
         32,
     ) {
         Ok(()) => TestResult::Pass,
-        Err(_) => HarnessError::InvalidState.into(),
+        Err(_) => HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
     }
 }
 
@@ -381,7 +381,7 @@ pub fn unaligned_root_address(
             align: 4096,
         })
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     TestResult::Pass
 }
@@ -407,7 +407,7 @@ pub fn root_address_out_of_range(
             },
         )
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     TestResult::Pass
 }
@@ -441,7 +441,7 @@ pub fn value_boundaries() -> TestResult {
             || kind.validate_page_alignment(size) != Ok(())
             || kind.validate_page_alignment(size + 1) != Err(GranuleError::AddressNotAligned)
         {
-            return HarnessError::InvalidState.into();
+            return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
     if Granule4KiB::kind() != GranuleKind::Size4KiB
@@ -449,7 +449,7 @@ pub fn value_boundaries() -> TestResult {
         || Granule64KiB::kind() != GranuleKind::Size64KiB
         || Granule4KiB::align_up(u64::MAX).is_some()
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     if Level::NEG2.next() != Level::NEG1
@@ -465,7 +465,7 @@ pub fn value_boundaries() -> TestResult {
         || Level::NEG2.distance_from(Level::L0).is_some()
         || !Level::L1.is_between_inclusive(Level::L0, Level::L3)
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     if TableGeometry::<Vmsa64, Granule4KiB>::entries() != 512
@@ -481,7 +481,7 @@ pub fn value_boundaries() -> TestResult {
         || TableGeometry::<Vmsa64, Granule4KiB>::checked_level_shift(Level::new(4)).is_some()
         || TableGeometry::<Vmsa64, Granule4KiB>::checked_level_shift(Level::L3) != Some(12)
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     if TableStrideCount::new::<Vmsa64, Granule4KiB>(0)
@@ -490,20 +490,20 @@ pub fn value_boundaries() -> TestResult {
         || TableStrideCount::new::<Vmsa64, Granule4KiB>(5)
             != Err(AccessError::InvalidTableStrideCount { stride_count: 5 })
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     let root_shape = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0);
     let child_shape = TableShape::<Vmsa64, Granule4KiB>::new(Level::L2, 2)
-        .map_err(|_| HarnessError::InvalidState)?;
+        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let transition =
-        TableTransition::new(root_shape, child_shape).map_err(|_| HarnessError::InvalidState)?;
+        TableTransition::new(root_shape, child_shape).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     if transition.parent_level() != Level::L0
         || transition.child_level() != Level::L2
         || transition.level_step() != 2
         || root_shape
             .alloc_layout()
-            .map_err(|_| HarnessError::InvalidState)?
+            .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?
             .bytes()
             != 4096
         || root_shape.validate_base(PhysAddr(0x1000)).is_err()
@@ -511,17 +511,17 @@ pub fn value_boundaries() -> TestResult {
         || TableTransition::new(
             root_shape,
             TableShape::<Vmsa64, Granule4KiB>::new(Level::L2, 1)
-                .map_err(|_| HarnessError::InvalidState)?,
+                .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
         )
         .is_ok()
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     let address = TablePhysAddr::<Granule4KiB>::new(PhysAddr(0x4000))
-        .map_err(|_| HarnessError::InvalidState)?;
+        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     if TablePhysAddr::<Granule4KiB>::new(PhysAddr(0x4001)).is_ok() {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let root = RootTable::<Vmsa64, Granule4KiB>::new(address, Level::L0, 48, 48);
     let cursor = TableCursor::<Vmsa64, Granule4KiB>::root(address, Level::L0);
@@ -536,7 +536,7 @@ pub fn value_boundaries() -> TestResult {
         || path.len() != 0
         || path.terminal_level(Level::L0) != Ok(Level::L0)
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     TestResult::Pass
@@ -550,19 +550,19 @@ pub fn path_boundaries() -> TestResult {
     };
 
     type Path = TableWalkPath<Vmsa64, Granule4KiB>;
-    let root_addr = TablePhysAddr::new(PhysAddr(0x4000)).map_err(|_| HarnessError::InvalidState)?;
+    let root_addr = TablePhysAddr::new(PhysAddr(0x4000)).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let level1_addr =
-        TablePhysAddr::new(PhysAddr(0x8000)).map_err(|_| HarnessError::InvalidState)?;
+        TablePhysAddr::new(PhysAddr(0x8000)).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let level3_addr =
-        TablePhysAddr::new(PhysAddr(0x20_0000)).map_err(|_| HarnessError::InvalidState)?;
+        TablePhysAddr::new(PhysAddr(0x20_0000)).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let l0 = TableShape::root(Level::L0);
-    let l1 = TableShape::new(Level::L1, 1).map_err(|_| HarnessError::InvalidState)?;
-    let l3 = TableShape::new(Level::L3, 2).map_err(|_| HarnessError::InvalidState)?;
+    let l1 = TableShape::new(Level::L1, 1).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let l3 = TableShape::new(Level::L3, 2).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let mut path = Path::root();
     path.push(Level::L0, l0, l1, 0x12)
-        .map_err(|_| HarnessError::InvalidState)?;
+        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     path.push(Level::L0, l1, l3, 0x101)
-        .map_err(|_| HarnessError::InvalidState)?;
+        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let first = path.entry(Level::L0, 0).ok_or(HarnessError::InvalidState)?;
     let second = path.entry(Level::L0, 1).ok_or(HarnessError::InvalidState)?;
     if path.len() != 2
@@ -587,7 +587,7 @@ pub fn path_boundaries() -> TestResult {
             })
         || path.terminal_level(Level::L0) != Ok(Level::L3)
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     let mut out_of_range = Path::root();
@@ -597,7 +597,7 @@ pub fn path_boundaries() -> TestResult {
             entries: l0.entries(),
         })
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let mut wrong_terminal = path;
     if wrong_terminal.push(Level::L0, l0, l1, 0)
@@ -606,23 +606,23 @@ pub fn path_boundaries() -> TestResult {
             actual: Level::L3,
         })
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     let root_cursor = TableCursor::<Vmsa64, Granule4KiB>::root(root_addr, Level::L0);
     let level1 = root_cursor
         .next_table(
             0x12,
-            NextTable::new(level1_addr, Level::L1, 1).map_err(|_| HarnessError::InvalidState)?,
+            NextTable::new(level1_addr, Level::L1, 1).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
         )
-        .map_err(|_| HarnessError::InvalidState)?;
+        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let level3 = level1
         .next_table(
             0x101,
-            NextTable::new(level3_addr, Level::L3, 2).map_err(|_| HarnessError::InvalidState)?,
+            NextTable::new(level3_addr, Level::L3, 2).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
         )
-        .map_err(|_| HarnessError::InvalidState)?;
-    let location = level3.location().map_err(|_| HarnessError::InvalidState)?;
+        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let location = level3.location().map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     if level3.root_addr() != root_addr
         || level3.root_level() != Level::L0
         || level3.current() != level3_addr
@@ -638,7 +638,7 @@ pub fn path_boundaries() -> TestResult {
                 actual: Level::L0,
             })
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     TestResult::Pass
 }
@@ -649,7 +649,7 @@ pub fn walk_cursor_boundaries() -> TestResult {
     use aarch64_vmsa::table::{NextTable, TablePhysAddr};
     use aarch64_vmsa::translation::{WalkCursor, WalkCursorError, WalkInputAddr};
 
-    let root = TablePhysAddr::new(PhysAddr(0x4000)).map_err(|_| HarnessError::InvalidState)?;
+    let root = TablePhysAddr::new(PhysAddr(0x4000)).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let input = WalkInputAddr::new(0x1234_5678_9abc);
     let below = WalkCursor::<Vmsa64, Granule4KiB>::new(input, root, Level::NEG2);
     let above = WalkCursor::<Vmsa64, Granule4KiB>::new(input, root, Level::new(4));
@@ -672,12 +672,12 @@ pub fn walk_cursor_boundaries() -> TestResult {
                 && lowest_level == <Vmsa64 as DescriptorFormat>::EXTENDED_LOWEST_ROOT_LEVEL
         )
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let cursor = WalkCursor::<Vmsa64, Granule4KiB>::new(input, root, Level::L0)
-        .map_err(|_| HarnessError::InvalidState)?;
+        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let expected_index = ((input.raw() >> 39) & 0x1ff) as usize;
-    let location = cursor.location().map_err(|_| HarnessError::InvalidState)?;
+    let location = cursor.location().map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     if cursor.input() != input
         || cursor.root() != root
         || cursor.root_level() != Level::L0
@@ -688,13 +688,13 @@ pub fn walk_cursor_boundaries() -> TestResult {
         || location.addr() != root
         || location.level() != Level::L0
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
-    let next_addr = TablePhysAddr::new(PhysAddr(0x8000)).map_err(|_| HarnessError::InvalidState)?;
-    let next = NextTable::new(next_addr, Level::L1, 1).map_err(|_| HarnessError::InvalidState)?;
+    let next_addr = TablePhysAddr::new(PhysAddr(0x8000)).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let next = NextTable::new(next_addr, Level::L1, 1).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let child = cursor
         .next_table(expected_index, next)
-        .map_err(|_| HarnessError::InvalidState)?;
+        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     if child.root() != root
         || child.current() != next_addr
         || child.level() != Level::L1
@@ -702,7 +702,7 @@ pub fn walk_cursor_boundaries() -> TestResult {
         || child.path().index(0) != Some(expected_index)
         || child.table().current() != next_addr
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     TestResult::Pass
 }
@@ -877,10 +877,10 @@ pub fn path_capacity_errors() -> TestResult {
         path.push(
             root_level,
             TableShape::root(parent_level),
-            TableShape::new(parent_level.next(), 1).map_err(|_| HarnessError::InvalidState)?,
+            TableShape::new(parent_level.next(), 1).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
             depth as usize,
         )
-        .map_err(|_| HarnessError::InvalidState)?;
+        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     }
     let parent_level = Level::new(root_level.as_i8() + 14);
     if path.len() != 14
@@ -890,25 +890,25 @@ pub fn path_capacity_errors() -> TestResult {
         || path.push(
             root_level,
             TableShape::root(parent_level),
-            TableShape::new(parent_level.next(), 1).map_err(|_| HarnessError::InvalidState)?,
+            TableShape::new(parent_level.next(), 1).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
             14,
         ) != Err(AccessError::TablePathCapacityExceeded {
             len: 15,
             index_bits: 9,
         })
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     let mut excessive_step = Path::root();
     if excessive_step.push(
         Level::NEG2,
         TableShape::root(Level::NEG2),
-        TableShape::new(Level::L3, 1).map_err(|_| HarnessError::InvalidState)?,
+        TableShape::new(Level::L3, 1).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
         0,
     ) != Err(AccessError::InvalidTableLevelStep { step: 5 })
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     TestResult::Pass
 }
@@ -922,13 +922,13 @@ pub fn cursor_next_table_errors() -> TestResult {
     use aarch64_vmsa::translation::{WalkCursor, WalkInputAddr};
 
     let root = TablePhysAddr::<Granule4KiB>::new(PhysAddr(0x4000))
-        .map_err(|_| HarnessError::InvalidState)?;
+        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let next_addr = TablePhysAddr::<Granule4KiB>::new(PhysAddr(0x8000))
-        .map_err(|_| HarnessError::InvalidState)?;
+        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let cursor = TableCursor::<Vmsa64, Granule4KiB>::root(root, Level::L0);
     let root_location = TableAccessLocation::<Vmsa64, Granule4KiB>::root(root, Level::L0);
     let next = NextTable::<Vmsa64, Granule4KiB>::new(next_addr, Level::L1, 1)
-        .map_err(|_| HarnessError::InvalidState)?;
+        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     if root_location.cursor() != cursor
         || root_location.addr() != root
         || root_location.root_level() != Level::L0
@@ -957,7 +957,7 @@ pub fn cursor_next_table_errors() -> TestResult {
             }) if root_level == Level::new(4) && level == Level::new(4)
         )
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     let final_cursor = TableCursor::<Vmsa64, Granule4KiB>::root(root, Level::L3);
@@ -968,11 +968,11 @@ pub fn cursor_next_table_errors() -> TestResult {
             final_level: Level::L3,
         })
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let walk =
         WalkCursor::<Vmsa64, Granule4KiB>::new(WalkInputAddr::new(0x1234_5000), root, Level::L0)
-            .map_err(|_| HarnessError::InvalidState)?;
+            .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     if walk.table() != cursor
         || walk.location().map(|location| location.cursor()) != Ok(cursor)
         || !matches!(
@@ -983,7 +983,7 @@ pub fn cursor_next_table_errors() -> TestResult {
             })
         )
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     TestResult::Pass
 }

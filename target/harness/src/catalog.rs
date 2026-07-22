@@ -1,8 +1,8 @@
 use crate::Requirements;
 use crate::matrix::{
     BootProfile, BootProfiles, DescriptorFormats, ExecutionContexts, FirmwareRequirement,
-    HarnessCapabilities, IsolationRequirement, MatrixRequirements, PeRequirement,
-    PhysicalAddressSpaces, SecurityEnvironment, SecurityEnvironments, TranslationGranules,
+    HarnessCapabilities, IsolationPolicy, MatrixRequirements, PeRequirement, PhysicalAddressSpaces,
+    SecurityEnvironment, SecurityEnvironments, SeparateBootReason, TranslationGranules,
     TranslationOwnerships,
 };
 
@@ -44,8 +44,7 @@ const fn matrix(environments: SecurityEnvironments) -> MatrixRequirements {
         address_spaces: PhysicalAddressSpaces::ALL,
         pe: PeRequirement::PrimaryOnly,
         firmware: FirmwareRequirement::None,
-        isolation: IsolationRequirement::Sequential,
-        expects_model_termination: false,
+        isolation: IsolationPolicy::Sequential,
     }
 }
 
@@ -80,13 +79,11 @@ const fn isolated_profile_entry(
     name: &'static str,
     environments: SecurityEnvironments,
     profiles: BootProfiles,
-    isolation: IsolationRequirement,
-    expects_model_termination: bool,
+    isolation: IsolationPolicy,
     model: Requirements,
 ) -> CatalogEntry {
     let mut entry = profile_entry(id, name, environments, profiles, model);
     entry.architecture.isolation = isolation;
-    entry.architecture.expects_model_termination = expects_model_termination;
     entry
 }
 

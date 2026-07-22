@@ -10,13 +10,13 @@ pub fn d128_reserved_rejection() -> TestResult {
         aarch64_vmsa::translation::Stage1,
         aarch64_vmsa::address::Granule4KiB,
     >>::Layout;
-    let zero4 = FourBit::new(0).map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?;
+    let zero4 = FourBit::new(0).map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     let fields = RawVmsa128Stage1LeafAttrs {
         attr_index: zero4,
         bbm_nt: true,
         not_dirty: Stage1NotDirty::new(false),
         shareability: RawShareability::from_bits(0)
-            .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?,
+            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
         access_flag: true,
         alias_bit: false,
         contiguous: false,
@@ -27,7 +27,7 @@ pub fn d128_reserved_rejection() -> TestResult {
             po: zero4,
         },
         ns: false,
-        software: TenBit::new(0).map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?,
+        software: TenBit::new(0).map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
     };
     match <Layout as DescriptorLayout<
         Vmsa128,
@@ -39,7 +39,7 @@ pub fn d128_reserved_rejection() -> TestResult {
         fields,
     ) {
         Err(DescriptorError::InvalidNtBbmCombination { .. }) => TestResult::Pass,
-        _ => vmsa_test_harness::HarnessError::InvalidState.into(),
+        _ => vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
     }
 }
 
@@ -145,7 +145,7 @@ where
             .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.permissions != permissions || decoded.pas != pas {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
     TestResult::Pass

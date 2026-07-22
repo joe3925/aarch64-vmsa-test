@@ -136,7 +136,7 @@ fn single_privilege_case(
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if decoded != leaf {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     let result = match observation {
@@ -362,7 +362,7 @@ fn two_privilege_case(
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if decoded != leaf {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     let data_access = match privilege {
@@ -421,7 +421,7 @@ fn two_privilege_case(
                 (LowerPrivilege::Unprivileged, LowerObservation::Write) => {
                     context.el0_write_u64(ADDRESS + DATA_OFFSET, WRITTEN_VALUE)
                 }
-                _ => return vmsa_test_harness::HarnessError::InvalidState.into(),
+                _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
             };
             vmsa_test_harness::expect_matching_fault(
                 observed,

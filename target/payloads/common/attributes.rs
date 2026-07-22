@@ -103,7 +103,7 @@ pub fn mair_error_matrix() -> TestResult {
     ) {
         Ok(mut raw) => {
             raw.attr_index =
-                ThreeBit::new(1).map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?;
+                ThreeBit::new(1).map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
             if decode_stage1(&invalid_entry, raw) != Err(AttrError::UnencodableMemoryAttribute) {
                 failures += 1;
             }
@@ -212,7 +212,7 @@ pub fn stage2_fwb_matrix() -> TestResult {
             for bits in 0..16u8 {
                 let mut encoded = raw;
                 encoded.mem_attr = FourBit::new(bits)
-                    .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?;
+                    .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
                 let without = <VmsaAttributeCodec as AttributeCodec<
                     Vmsa64,
                     NonSecureEl2Stage2,
@@ -355,7 +355,7 @@ pub fn d128_mair2_matrix() -> TestResult {
             let invalid = make_config(0, Some(0x01));
             let mut invalid_raw = raw;
             invalid_raw.attr_index = aarch64_vmsa::low_level::raw::FourBit::new(8)
-                .map_err(|_| vmsa_test_harness::HarnessError::InvalidState)?;
+                .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
             if <VmsaAttributeCodec as AttributeCodec<
                 Vmsa128,
                 NonSecureEl2Stage1,

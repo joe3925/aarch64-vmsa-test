@@ -124,7 +124,7 @@ fn codec_case(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
     if leaf_ok && table_ok {
         TestResult::Pass
     } else {
-        vmsa_test_harness::HarnessError::InvalidState.into()
+        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
     }
 }
 
@@ -210,7 +210,7 @@ fn active_case(
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if decoded != leaf {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let result = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE);
     live.restore()?;
@@ -324,7 +324,7 @@ pub(super) fn unavailable_firmware_shared_pool_rejected(
     {
         TestResult::Pass
     } else {
-        vmsa_test_harness::HarnessError::InvalidState.into()
+        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
     }
 }
 

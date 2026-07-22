@@ -32,10 +32,10 @@ where
     let root = context.allocate_root()?;
     let capabilities = context.capabilities();
     let Some(input_bits) = AddressBits::new(capabilities.va_bits.min(48)) else {
-        return TestResult::Fail(vmsa_test_harness::HarnessError::InvalidState.into());
+        return TestResult::Fail(vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into());
     };
     let Some(output_bits) = AddressBits::new(capabilities.pa_bits.min(48)) else {
-        return TestResult::Fail(vmsa_test_harness::HarnessError::InvalidState.into());
+        return TestResult::Fail(vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into());
     };
     let setup = TranslationSetup {
         root: PhysicalAddress::new(root.phys_addr()),
@@ -66,7 +66,7 @@ where
     if mapping.output != page.phys_addr()
         || mapping.level != LookupLevel::new(3).expect("level 3 is valid")
     {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
         BLOCK_ADDRESS,
@@ -85,7 +85,7 @@ where
         || block_leaf.level != LookupLevel::new(2).expect("level 2 is valid")
         || block_leaf.output != Some(BLOCK_OUTPUT + BLOCK_OFFSET)
     {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     match context.translate_current_stage1(
         BLOCK_ADDRESS + BLOCK_OFFSET,
@@ -94,7 +94,7 @@ where
         vmsa_test_harness::TranslationQueryResult::Success {
             physical_address, ..
         } if physical_address == BLOCK_OUTPUT + BLOCK_OFFSET => {}
-        _ => return vmsa_test_harness::HarnessError::InvalidState.into(),
+        _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
     }
     let removed_block = translation
         .unmap::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
@@ -103,7 +103,7 @@ where
     if removed_block.output != BLOCK_OUTPUT
         || removed_block.level != LookupLevel::new(2).expect("level 2 is valid")
     {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let range_outcome = translation
         .map_range::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
@@ -114,12 +114,12 @@ where
             MappingAttributes::READ_WRITE,
         )?;
     if range_outcome.mappings_created != 2 || range_outcome.bytes_mapped != 8192 {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     if translation.tlbi(vmsa_test_harness::TlbiOperation::Address(LIVE_ADDRESS + 1))
         != Err(vmsa_test_harness::HarnessError::InvalidState)
     {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     translation.tlbi_scoped(
         vmsa_test_harness::TlbiScope::Local,
@@ -135,7 +135,7 @@ where
     if translation.tlbi(vmsa_test_harness::TlbiOperation::IntermediatePhysicalAddress(LIVE_ADDRESS))
         != Err(vmsa_test_harness::HarnessError::InvalidState)
     {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     translation.tlbi(vmsa_test_harness::TlbiOperation::All)?;
     let write = context.write_u64(LIVE_ADDRESS, LIVE_VALUE);
@@ -178,7 +178,7 @@ where
             MappingAttributes::READ_WRITE,
         );
     if rejected_remap != Err(vmsa_test_harness::HarnessError::InvalidState) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let preserved = expect_value(context.read_u64(LIVE_ADDRESS), LIVE_VALUE);
     if !matches!(preserved, TestResult::Pass) {
@@ -192,7 +192,7 @@ where
     if protected.output != page.phys_addr()
         || protected.level != LookupLevel::new(3).expect("level 3 is valid")
     {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let read_only = expect_fault(
         context.write_u64(LIVE_ADDRESS, LIVE_VALUE.wrapping_add(1)),
@@ -222,7 +222,7 @@ where
             LIVE_ADDRESS,
         )?;
     if reclaimed.tables_freed == 0 {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let final_fault = expect_fault(
         context.read_u64(LIVE_ADDRESS),
@@ -306,7 +306,7 @@ where
                 context.write_u64(page.virtual_address() as u64, 7),
                 vmsa_test_harness::AccessResult::Completed { .. }
             ) {
-                return vmsa_test_harness::HarnessError::InvalidState.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
             }
             for execution_context in [
                 vmsa_test_harness::ExecutionContext::El1,
@@ -321,14 +321,14 @@ where
                     execution.exclusive_add_u64(ADDRESS, 5),
                     vmsa_test_harness::AccessResult::Completed { value: 11 }
                 ) {
-                    return vmsa_test_harness::HarnessError::InvalidState.into();
+                    return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
                 }
                 execution.finish()?;
                 if !matches!(
                     context.write_u64(page.virtual_address() as u64, 7),
                     vmsa_test_harness::AccessResult::Completed { .. }
                 ) {
-                    return vmsa_test_harness::HarnessError::InvalidState.into();
+                    return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
                 }
             }
         }
@@ -343,7 +343,7 @@ where
         if translation.tlbi(vmsa_test_harness::TlbiOperation::Asid(Asid(asid.0 + 1)))
             != Err(vmsa_test_harness::HarnessError::InvalidState)
         {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
         match context
             .translate_lower_stage1(ADDRESS, vmsa_test_harness::TranslationQueryAccess::Read)
@@ -351,7 +351,7 @@ where
             vmsa_test_harness::TranslationQueryResult::Success {
                 physical_address, ..
             } if physical_address == page.phys_addr() => {}
-            _ => return vmsa_test_harness::HarnessError::InvalidState.into(),
+            _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
         }
         roots[index] = Some(translation.restore_owned()?);
     }
@@ -368,21 +368,21 @@ where
         vmsa_test_harness::TranslationQueryResult::Success {
             physical_address, ..
         } if physical_address == first_page.phys_addr() => {}
-        _ => return vmsa_test_harness::HarnessError::InvalidState.into(),
+        _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
     }
     translation.adopt_and_switch_lower_stage1_root(second_root, Asid(12))?;
     match context.translate_lower_stage1(ADDRESS, vmsa_test_harness::TranslationQueryAccess::Read) {
         vmsa_test_harness::TranslationQueryResult::Success {
             physical_address, ..
         } if physical_address == second_page.phys_addr() => {}
-        _ => return vmsa_test_harness::HarnessError::InvalidState.into(),
+        _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
     }
     translation.switch_lower_stage1_root(first_root, Asid(11))?;
     match context.translate_lower_stage1(ADDRESS, vmsa_test_harness::TranslationQueryAccess::Read) {
         vmsa_test_harness::TranslationQueryResult::Success {
             physical_address, ..
         } if physical_address == first_page.phys_addr() => TestResult::Pass,
-        _ => vmsa_test_harness::HarnessError::InvalidState.into(),
+        _ => vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
     }
 }
 
@@ -412,13 +412,13 @@ where
         Err(error) => return TestResult::Fail(error.into()),
     };
     let Some(input_bits) = AddressBits::new(context.capabilities().pa_bits.min(39)) else {
-        return TestResult::Fail(vmsa_test_harness::HarnessError::InvalidState.into());
+        return TestResult::Fail(vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into());
     };
     let Some(output_bits) = AddressBits::new(context.capabilities().pa_bits.min(48)) else {
-        return TestResult::Fail(vmsa_test_harness::HarnessError::InvalidState.into());
+        return TestResult::Fail(vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into());
     };
     let Some(start_level) = LookupLevel::new(1) else {
-        return TestResult::Fail(vmsa_test_harness::HarnessError::InvalidState.into());
+        return TestResult::Fail(vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into());
     };
     {
         let mut mapper = match context.offline_mapper_for_format_with_geometry::<
@@ -441,7 +441,7 @@ where
         }
     }
     let Some(controls) = vmsa64_stage2_controls_4k(input_bits, output_bits, start_level) else {
-        return TestResult::Fail(vmsa_test_harness::HarnessError::InvalidState.into());
+        return TestResult::Fail(vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into());
     };
     let setup = TranslationSetup {
         root: PhysicalAddress::new(root.phys_addr()),
@@ -488,7 +488,7 @@ where
         },
     ] {
         if translation.tlbi(rejected) != Err(vmsa_test_harness::HarnessError::InvalidState) {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
     translation.restore()?;
@@ -514,17 +514,17 @@ where
 {
     const ADDRESS: u64 = 0x4000_0000;
     let Some(input_bits) = AddressBits::new(39) else {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     };
     let output_width = context.capabilities().pa_bits.min(48);
     let Some(output_bits) = AddressBits::new(output_width) else {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     };
     let Some(start_level) = LookupLevel::new(1) else {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     };
     let Some(controls) = vmsa64_stage2_controls_4k(input_bits, output_bits, start_level) else {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     };
     let pages = [context.allocate_page()?, context.allocate_page()?];
     let mut roots = [
@@ -575,7 +575,7 @@ where
             },
         )?;
         if translation.setup().vmid != Some(vmid) {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
         if translation
             .inspect_for::<R, aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
@@ -584,7 +584,7 @@ where
             .map(|mapping| mapping.output)
             != Some(pages[index].phys_addr())
         {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
         translation.tlbi(vmsa_test_harness::TlbiOperation::IntermediatePhysicalAddress(ADDRESS))?;
         translation.tlbi_scoped(
@@ -595,7 +595,7 @@ where
         if translation.tlbi(vmsa_test_harness::TlbiOperation::Vmid(Vmid(vmid.0 + 1)))
             != Err(vmsa_test_harness::HarnessError::InvalidState)
         {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
         roots[index] = Some(translation.restore_owned()?);
     }
@@ -627,7 +627,7 @@ where
         .map(|mapping| mapping.output)
         != Some(pages[0].phys_addr())
     {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     reused.restore()?;
     TestResult::Pass

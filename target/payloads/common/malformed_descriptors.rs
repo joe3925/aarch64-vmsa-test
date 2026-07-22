@@ -78,7 +78,11 @@ fn malformed_vmsa64_leaf(
             .isolated_malformed_table()
             .replace_terminal_descriptor(ADDRESS, replacement)?;
         if original != leaf.raw.unwrap_or(replacement) {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     let setup = vmsa_test_harness::TranslationSetup {
@@ -107,7 +111,7 @@ fn malformed_vmsa64_leaf(
     );
     drop(translation);
     if !context.transition_sandbox_restored(&sandbox) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::Cleanup.into();
     }
     context.emergency_restore_for_test();
     let fresh = fresh_vmsa64_mapping(context);
@@ -389,7 +393,7 @@ where
     );
     let mut root = translation.restore_owned()?;
     if !context.transition_sandbox_restored(&sandbox) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::Cleanup.into();
     }
     context.emergency_restore_for_test();
     let fresh_address = ADDRESS
@@ -412,7 +416,7 @@ where
     let fresh = vmsa_test_harness::expect_value(context.read_u64(fresh_address), VALUE);
     drop(fresh_translation);
     if !context.transition_sandbox_restored(&sandbox) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::Cleanup.into();
     }
     if !matches!(fresh, TestResult::Pass) {
         return fresh;
@@ -525,7 +529,11 @@ fn malformed_d128_leaf(
             .isolated_malformed_table()
             .replace_terminal_descriptor(ADDRESS, original)?;
         if mapper.inspect_walk(ADDRESS)?.leaf().is_none() {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
         observation
     };

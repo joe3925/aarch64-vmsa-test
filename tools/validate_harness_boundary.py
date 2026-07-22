@@ -6,14 +6,13 @@ from __future__ import annotations
 import pathlib
 import re
 import sys
-import csv
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TRANSLATION = ROOT / "target/harness/src/translation.rs"
 HARNESS_LIB = ROOT / "target/harness/src/lib.rs"
 PAYLOADS = ROOT / "target/payloads/common"
-API_COVERAGE = ROOT / "docs/api-coverage.csv"
+HARNESS_ONLY_ASSERTION_FILES = {"infrastructure.rs", "recovery.rs"}
 
 
 def fail(message: str) -> None:
@@ -41,13 +40,18 @@ for path in PAYLOADS.rglob("*.rs"):
     if match:
         line = source.count("\n", 0, match.start()) + 1
         fail(f"register-setup helper used as an expected oracle at {path.relative_to(ROOT)}:{line}")
+    if (
+        path.name not in HARNESS_ONLY_ASSERTION_FILES
+        and re.search(r"HarnessError::InvalidState\.into\(\)", source)
+    ):
+        fail(
+            "crate-facing assertion is reported as harness-invalid-state at "
+            + str(path.relative_to(ROOT))
+        )
 
-with API_COVERAGE.open(newline="") as coverage_file:
-    for row in csv.DictReader(coverage_file):
-        if "infrastructure." in row["harness_route"]:
-            fail(
-                "infrastructure catalog identity cited as crate evidence for "
-                + row["public_path"]
-            )
+for path in (ROOT / "target/harness/src/context.rs", TRANSLATION):
+    source = path.read_text()
+    if re.search(r"SemanticMapperError::Mapper\(_\)\s*=>\s*HarnessError::InvalidState", source):
+        fail(f"semantic mapper error loses crate ownership at {path.relative_to(ROOT)}")
 
 print("harness-boundary: validated crate evidence boundary")

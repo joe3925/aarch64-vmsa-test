@@ -106,7 +106,7 @@ fn secure_stage1_isolated(pas: aarch64_vmsa::attrs::SecureSelectablePa) -> TestR
     if valid {
         TestResult::Pass
     } else {
-        vmsa_test_harness::HarnessError::InvalidState.into()
+        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
     }
 }
 
@@ -215,7 +215,7 @@ fn secure_stage1_active_case<
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if decoded != leaf {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let result = if pas == aarch64_vmsa::attrs::SecureSelectablePa::Secure {
         vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)
@@ -305,7 +305,7 @@ macro_rules! secure_stage2_isolated {
         if expected {
             TestResult::Pass
         } else {
-            vmsa_test_harness::HarnessError::InvalidState.into()
+            vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
         }
     }};
 }
@@ -415,7 +415,7 @@ fn realm_stage1_isolated(pas: aarch64_vmsa::attrs::RealmOrNonSecurePa) -> TestRe
     if valid {
         TestResult::Pass
     } else {
-        vmsa_test_harness::HarnessError::InvalidState.into()
+        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
     }
 }
 
@@ -474,7 +474,7 @@ fn realm_stage2_isolated(pas: aarch64_vmsa::attrs::RealmOrNonSecurePa) -> TestRe
     if decoded == Ok(leaf) {
         TestResult::Pass
     } else {
-        vmsa_test_harness::HarnessError::InvalidState.into()
+        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
     }
 }
 
@@ -583,7 +583,7 @@ fn realm_stage1_active_case<
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if decoded != leaf {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let result = if pas == aarch64_vmsa::attrs::RealmOrNonSecurePa::Realm {
         vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)
@@ -696,7 +696,7 @@ fn root_stage1_isolated(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult 
     if valid {
         TestResult::Pass
     } else {
-        vmsa_test_harness::HarnessError::InvalidState.into()
+        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
     }
 }
 
@@ -808,7 +808,7 @@ fn root_stage1_active_case<
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if decoded != leaf {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let result = if pas == aarch64_vmsa::attrs::RootExtendedPa::Root {
         vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)
@@ -952,7 +952,7 @@ where
             .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.pas != pas {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
 
@@ -1007,7 +1007,7 @@ where
         .output_address_space
         != SecureSelectablePa::Secure
     {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     let mut non_secure_root = context.allocate_root()?;
@@ -1036,7 +1036,7 @@ where
         .output_address_space
         != SecureSelectablePa::NonSecure
     {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     TestResult::Pass
 }
@@ -1119,7 +1119,7 @@ pub fn realm_semantics<E: vmsa_test_harness::adapter::Environment>(
             .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.output_address_space != pas {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
     TestResult::Pass
@@ -1149,7 +1149,7 @@ pub fn fixed_realm_ipa_stage1_semantic_access<
         context.write_u64(page.virtual_address() as u64, VALUE),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let config = LiveVmsaConfig {
         mair: 0x44,
@@ -1298,7 +1298,7 @@ pub fn fixed_realm_ipa_stage1_semantic_access<
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if installed != leaf {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let result = vmsa_test_harness::expect_value(live.read_u64(ADDRESS), VALUE);
     if !matches!(result, TestResult::Pass) {

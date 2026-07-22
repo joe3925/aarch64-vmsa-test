@@ -9,6 +9,7 @@ pub enum HarnessError {
     EnvironmentDetail(u64),
     GuardBusy,
     InvalidState,
+    CrateBehavior { expected: u64, actual: u64 },
     Cleanup,
     InjectedFailure,
     Attribute(crate::AttributeError),
@@ -53,6 +54,13 @@ pub struct TestFailure {
 
 impl From<HarnessError> for TestFailure {
     fn from(error: HarnessError) -> Self {
+        if let HarnessError::CrateBehavior { expected, actual } = error {
+            return Self {
+                kind: FailureKind::WrongValue,
+                expected,
+                actual,
+            };
+        }
         Self {
             kind: FailureKind::Harness,
             expected: 0,
@@ -62,6 +70,7 @@ impl From<HarnessError> for TestFailure {
                 HarnessError::EnvironmentDetail(code) => 0x400 + code,
                 HarnessError::GuardBusy => 3,
                 HarnessError::InvalidState => 4,
+                HarnessError::CrateBehavior { .. } => unreachable!(),
                 HarnessError::Cleanup => 5,
                 HarnessError::InjectedFailure => 6,
                 HarnessError::Attribute(error) => 0x200 + error.code(),

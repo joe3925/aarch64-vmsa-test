@@ -66,7 +66,7 @@ where
         context.write_u64(page.virtual_address() as u64 + 8, VALUE),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let covered =
         aarch64_vmsa::table::TableGeometry::<Vmsa64, G>::offset_at_level_raw(u64::MAX, leaf_level)
@@ -153,7 +153,7 @@ where
                 .translate(input)?
                 .is_none_or(|mapping| mapping.output != target)
         {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
         sandbox = context.prepare_transition_runtime(
             &mut mapper,
@@ -186,7 +186,7 @@ where
         .inspect_semantic_for::<HostRegime, Vmsa64, G, VmsaAttributeCodec, _>(input, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if live != offline || live.permissions != permissions {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let mut execution = context.execution(vmsa_test_harness::ExecutionContext::El0UnderEl2)?;
     let result = match execution.translate(input, vmsa_test_harness::TranslationQueryAccess::Read) {
@@ -208,13 +208,13 @@ where
             })
         }
         vmsa_test_harness::TranslationQueryResult::Unsupported => {
-            vmsa_test_harness::HarnessError::InvalidState.into()
+            vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
         }
     };
     execution.finish()?;
     drop(translation);
     if !context.transition_sandbox_restored(&sandbox) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::Cleanup.into();
     }
     result
 }

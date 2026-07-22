@@ -129,7 +129,7 @@ pub(super) fn stage1_semantic_mapper(
             .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &direct_config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.permissions != permissions {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
     if stage1.map_semantic_leaf::<VmsaAttributeCodec, _>(
@@ -162,7 +162,7 @@ pub(super) fn stage1_semantic_mapper(
     ) != Err(vmsa_test_harness::HarnessError::Attribute(
         vmsa_test_harness::AttributeError::UnencodablePermissions,
     )) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     TestResult::Pass
@@ -247,7 +247,7 @@ pub(super) fn stage2_direct_semantic_mapper(
                 .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &direct_config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if decoded.permissions != permissions {
-                return vmsa_test_harness::HarnessError::InvalidState.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
             }
             index += 1;
         }
@@ -283,7 +283,7 @@ pub(super) fn stage2_direct_semantic_mapper(
     ) != Err(vmsa_test_harness::HarnessError::Attribute(
         vmsa_test_harness::AttributeError::InvalidStage2ExecuteNever,
     )) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     TestResult::Pass
@@ -383,7 +383,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?
             != leaf
         {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
     for (index, fwb_memory) in [
@@ -411,7 +411,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
         ) != Err(vmsa_test_harness::HarnessError::Attribute(
             vmsa_test_harness::AttributeError::MtePermissionUnavailable,
         )) {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
         direct_stage2.map_semantic_leaf::<VmsaAttributeCodec, _>(
             &fwb_with_mte,
@@ -427,7 +427,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?
             != leaf
         {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
     let combined_leaf = SemanticStage2LeafAttrs {
@@ -447,7 +447,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
     ) != Err(vmsa_test_harness::HarnessError::Attribute(
         vmsa_test_harness::AttributeError::WrongStage2MemoryMode,
     )) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let fwb_leaf = SemanticStage2LeafAttrs {
         memory: Stage2MemoryAttributes::Fwb(FwbStage2Memory::UseStage1),
@@ -466,7 +466,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
     ) != Err(vmsa_test_harness::HarnessError::Attribute(
         vmsa_test_harness::AttributeError::WrongStage2MemoryMode,
     )) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
 
     TestResult::Pass
@@ -591,7 +591,7 @@ pub(super) fn d128_stage2_semantic_mapper(
     ) != Err(vmsa_test_harness::HarnessError::Attribute(
         vmsa_test_harness::AttributeError::PermissionIndirectionUnavailable,
     )) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     let missing_combination_config = LiveVmsaConfig {
         stage2_permissions: Some(Stage2PermissionRegisters {
@@ -611,7 +611,7 @@ pub(super) fn d128_stage2_semantic_mapper(
     ) != Err(vmsa_test_harness::HarnessError::Attribute(
         vmsa_test_harness::AttributeError::PermissionCombinationNotConfigured,
     )) {
-        return vmsa_test_harness::HarnessError::InvalidState.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     for (index, permissions) in d128_permissions.into_iter().enumerate() {
         let address = ADDRESS + 0x20_0000 + index as u64 * 4096;
@@ -628,7 +628,7 @@ pub(super) fn d128_stage2_semantic_mapper(
             .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &d128_config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.permissions != permissions {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
     TestResult::Pass
@@ -724,7 +724,7 @@ pub(super) fn d128_stage1_effective_semantic_mapper(
             .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.permissions != permissions {
-            return vmsa_test_harness::HarnessError::InvalidState.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
     TestResult::Pass

@@ -53,12 +53,6 @@ pub fn validate() -> Result<(), String> {
         if cases[..index].iter().any(|other| other.name == case.name) {
             return Err(format!("duplicate registry case {}", case.name));
         }
-        if case.expects_termination != (case.isolation == Isolation::Destructive) {
-            return Err(format!(
-                "registry case {} has inconsistent destructive termination metadata",
-                case.name
-            ));
-        }
     }
     Ok(())
 }
@@ -132,14 +126,14 @@ fn parse_registry() -> Result<Vec<CatalogCase>, String> {
             .to_owned();
         let builder = fields[2];
         let applicable = applicable_targets(builder)?;
-        let isolation = if builder.contains("IsolationRequirement::DestructiveBoot") {
+        let isolation = if builder.contains("IsolationPolicy::DestructiveBoot") {
             Isolation::Destructive
-        } else if builder.contains("IsolationRequirement::SeparateBoot") {
+        } else if builder.contains("IsolationPolicy::SeparateBoot") {
             Isolation::Separate
         } else {
             Isolation::Sequential
         };
-        let expects_termination = isolation == Isolation::Destructive && builder.contains("true");
+        let expects_termination = isolation == Isolation::Destructive;
         let mut targets = [false; 5];
         for (slot, handler) in targets.iter_mut().zip(&fields[3..]) {
             *slot = handler.trim() != "(none)";

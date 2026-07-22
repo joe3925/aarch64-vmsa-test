@@ -11,7 +11,7 @@ fn fields()
         disch: false,
         protected: false,
         ns_table: false,
-        software: TenBit::new(0).map_err(|_| HarnessError::InvalidState)?,
+        software: TenBit::new(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
     })
 }
 
@@ -35,12 +35,12 @@ pub fn step_by_one_plan() -> TestResult {
         &mut step,
         TablePlanContext::new(extended_root, Level::L3, input),
     )
-    .map_err(|_| HarnessError::InvalidState)?;
+    .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     if step_plan.child_shape().level() != Level::NEG1
         || step_plan.child_shape().stride_count().raw() != 1
         || step_plan.into_fields() != fields
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     TestResult::Pass
 }
@@ -67,11 +67,11 @@ pub fn bounded_skl_plan() -> TestResult {
             WalkInputAddr::new(0x1234_0000),
         ),
     )
-    .map_err(|_| HarnessError::InvalidState)?;
+    .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     if bounded_plan.child_shape().level() != Level::L0
         || bounded_plan.child_shape().stride_count().raw() != 2
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     TestResult::Pass
 }
@@ -98,11 +98,11 @@ pub fn maximum_skl_plan() -> TestResult {
             WalkInputAddr::new(0x1234_0000),
         ),
     )
-    .map_err(|_| HarnessError::InvalidState)?;
+    .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     if maximum_plan.child_shape().level() != Level::L2
         || maximum_plan.child_shape().stride_count().raw() != 4
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     TestResult::Pass
 }
@@ -129,7 +129,7 @@ pub fn bounded_skl_no_plan() -> TestResult {
         ),
     ) != Err(AccessError::InvalidTableLevelStep { step: 3 })
     {
-        return HarnessError::InvalidState.into();
+        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
     TestResult::Pass
 }
@@ -149,7 +149,7 @@ pub fn max_skl_extended_root() -> TestResult {
         disch: false,
         protected: false,
         ns_table: false,
-        software: TenBit::new(0).map_err(|_| HarnessError::InvalidState)?,
+        software: TenBit::new(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
     };
     let mut planner = MaxSklTablePlan::new(fields);
     let plan = <MaxSklTablePlan<_> as TablePlanProvider<
@@ -247,7 +247,7 @@ where
                 }
             };
             let transition =
-                TableTransition::new(parent, child).map_err(|_| HarnessError::InvalidState)?;
+                TableTransition::new(parent, child).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
             let supported = <<Vmsa128 as HasLayout<
                 aarch64_vmsa::translation::Stage1,
                 G,
@@ -285,10 +285,10 @@ where
                     Level::new(parent_raw + budget_step as i8),
                     budget_step,
                 )
-                .map_err(|_| HarnessError::InvalidState)?;
+                .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
                 let budget = budget_shape
                     .alloc_layout()
-                    .map_err(|_| HarnessError::InvalidState)?
+                    .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?
                     .bytes();
                 let mut bounded = BoundedSklTablePlan::new(raw_fields, budget);
                 let bounded_plan =
@@ -308,9 +308,9 @@ where
             }
 
             let minimum_bytes = TableShape::<Vmsa128, G>::new(parent_level.next(), 1)
-                .map_err(|_| HarnessError::InvalidState)?
+                .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?
                 .alloc_layout()
-                .map_err(|_| HarnessError::InvalidState)?
+                .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?
                 .bytes();
             let mut no_plan = BoundedSklTablePlan::new(raw_fields, minimum_bytes - 1);
             if !matches!(
@@ -529,7 +529,7 @@ where
     if mapper.verify_offline_accessors_into_parts() {
         TestResult::Pass
     } else {
-        HarnessError::InvalidState.into()
+        HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
     }
 }
 
@@ -552,7 +552,7 @@ where
     if mapper.verify_live_accessors_into_parts() {
         TestResult::Pass
     } else {
-        HarnessError::InvalidState.into()
+        HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
     }
 }
 
