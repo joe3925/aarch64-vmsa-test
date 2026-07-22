@@ -196,6 +196,8 @@ def prepare_submodules(repository_name: str, worktree: Path) -> None:
 
 def apply_integration(worktree: Path, integration_name: str) -> None:
     integration = TESTS / "integration" / integration_name
+    if not integration.is_dir():
+        raise RuntimeError(f"integration does not exist: {integration}")
     patches = integration / "patches"
     if patches.is_dir():
         for patch in sorted(patches.glob("*.patch")):
@@ -259,7 +261,7 @@ def prepare(target: str) -> dict[str, Path]:
             apply_integration(repositories["tf-a-tests"], "tf_a_tests")
 
         if target == "realm-el2":
-            apply_integration(repositories["tf-a"], "trp")
+            apply_integration(repositories["tf-a"], "tf_a/patches/trp")
         elif target == "secure-el2":
             repositories["hafnium"] = prepare_repository(
                 "hafnium", HAFNIUM_URL, HAFNIUM_REVISION, run_root

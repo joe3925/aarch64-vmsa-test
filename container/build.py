@@ -96,6 +96,11 @@ def restore_cached_build(target: str) -> FirmwareImages | None:
     fip = cached / "fip.bin"
     if not bl1.is_file() or not fip.is_file() or bl1.stat().st_size == 0 or fip.stat().st_size == 0:
         return None
+    try:
+        validate_runtime_selector(fip)
+    except RuntimeError:
+        shutil.rmtree(cached)
+        return None
     artifacts = OUTPUT / "artifacts"
     shutil.copytree(cached, artifacts, dirs_exist_ok=True)
     os.utime(cached)
@@ -307,6 +312,24 @@ def patch_runtime_filter(fip: Path, filter_value: str | None) -> None:
             f"test filter is {len(encoded)} bytes; maximum is {RUN_SELECTOR_CAPACITY}"
         )
     image = bytearray(fip.read_bytes())
+    marker = validate_runtime_selector_image(image)
+    header_end = marker + RUN_SELECTOR_HEADER_BYTES
+    filter_end = header_end + RUN_SELECTOR_CAPACITY
+    struct.pack_into("<I", image, marker + 40, len(encoded))
+    image[header_end:filter_end] = b"\0" * RUN_SELECTOR_CAPACITY
+    image[header_end:header_end + len(encoded)] = encoded
+    fip.write_bytes(image)
+    print(
+        f"VMSA-INFRA PHASE runtime-selector filter-bytes={len(encoded)}",
+        flush=True,
+    )
+
+
+def validate_runtime_selector(fip: Path) -> None:
+    validate_runtime_selector_image(fip.read_bytes())
+
+
+def validate_runtime_selector_image(image: bytes | bytearray) -> int:
     marker = image.find(RUN_SELECTOR_MAGIC)
     if marker < 0:
         raise RuntimeError("firmware does not contain the runtime test selector")
@@ -325,14 +348,7 @@ def patch_runtime_filter(fip: Path, filter_value: str | None) -> None:
         )
     if bytes(image[filter_end:trailer_end]) != RUN_SELECTOR_TRAILER:
         raise RuntimeError("runtime test selector trailer mismatch")
-    struct.pack_into("<I", image, marker + 40, len(encoded))
-    image[header_end:filter_end] = b"\0" * RUN_SELECTOR_CAPACITY
-    image[header_end:header_end + len(encoded)] = encoded
-    fip.write_bytes(image)
-    print(
-        f"VMSA-INFRA PHASE runtime-selector filter-bytes={len(encoded)}",
-        flush=True,
-    )
+    return marker
 
 
 def write_root_payload_header(worktree: Path) -> None:
@@ -933,6 +949,7 @@ def build(target: str, repositories: dict[str, Path]) -> FirmwareImages:
     else:
         raise ValueError(f"unsupported target {target}")
     preserved = preserve_artifacts(target, repositories, images)
+    validate_runtime_selector(preserved.fip)
     cache_build(target, preserved)
     return preserved
 
