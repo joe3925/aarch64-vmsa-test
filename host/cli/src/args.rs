@@ -53,6 +53,7 @@ pub struct Args {
     pub crate_path: Option<PathBuf>,
     pub filter: Option<String>,
     pub keep: bool,
+    pub max_concurrency: usize,
 }
 
 impl Args {
@@ -74,6 +75,7 @@ impl Args {
         let mut crate_path = None;
         let mut filter = None;
         let mut keep = false;
+        let mut max_concurrency = None;
         while let Some(argument) = values.next() {
             match argument.as_str() {
                 "--crate" => {
@@ -100,6 +102,20 @@ impl Args {
                     }
                 }
                 "--keep" if !keep => keep = true,
+                "--max-conc" => {
+                    let value = values
+                        .next()
+                        .ok_or("--max-conc requires a positive integer")?;
+                    let parsed = value
+                        .parse::<usize>()
+                        .map_err(|_| "--max-conc requires a positive integer")?;
+                    if parsed == 0 {
+                        return Err("--max-conc requires a positive integer".into());
+                    }
+                    if max_concurrency.replace(parsed).is_some() {
+                        return Err("--max-conc may be specified only once".into());
+                    }
+                }
                 unknown => return Err(format!("unknown argument: {unknown}\n{}", usage())),
             }
         }
@@ -117,8 +133,10 @@ impl Args {
             _ => return Err(usage()),
         };
 
-        if !matches!(command, Command::Test(_)) && (filter.is_some() || keep) {
-            return Err("--filter and --keep are valid only with test".into());
+        if !matches!(command, Command::Test(_))
+            && (filter.is_some() || keep || max_concurrency.is_some())
+        {
+            return Err("--filter, --keep, and --max-conc are valid only with test".into());
         }
         match &command {
             Command::Doctor | Command::Test(_) if crate_path.is_none() => {
@@ -135,10 +153,42 @@ impl Args {
             crate_path,
             filter,
             keep,
+            max_concurrency: max_concurrency.unwrap_or_else(default_max_concurrency),
         })
     }
 }
 
 fn usage() -> String {
-    "usage: vmsa-test doctor --crate <path>\n       vmsa-test test <ns-el2|secure-el2|realm-el2|realm-stage2|root-el3|all> --crate <path> [--filter <substring>] [--keep]\n       vmsa-test clean".into()
+    "usage: vmsa-test doctor --crate <path>\n       vmsa-test test <ns-el2|secure-el2|realm-el2|realm-stage2|root-el3|all> --crate <path> [--filter <substring>] [--keep] [--max-conc <N>]\n       vmsa-test clean".into()
+}
+
+fn default_max_concurrency() -> usize {
+    std::thread::available_parallelism().map_or(1, |cores| usize::from(cores).min(2))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(arguments: &[&str]) -> Result<Args, String> {
+        Args::parse_from(arguments.iter().map(|value| (*value).to_owned()))
+    }
+
+    #[test]
+    fn parses_max_concurrency() {
+        let args = parse(&["test", "all", "--crate", "/crate", "--max-conc", "7"])
+            .expect("arguments should parse");
+        assert_eq!(args.max_concurrency, 7);
+    }
+
+    #[test]
+    fn rejects_zero_max_concurrency() {
+        assert!(parse(&["test", "all", "--crate", "/crate", "--max-conc", "0"]).is_err());
+    }
+
+    #[test]
+    fn defaults_to_host_parallelism() {
+        let args = parse(&["test", "all", "--crate", "/crate"]).expect("arguments should parse");
+        assert_eq!(args.max_concurrency, default_max_concurrency());
+    }
 }

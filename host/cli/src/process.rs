@@ -2,7 +2,9 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -40,6 +42,63 @@ pub enum Failure {
 #[derive(Debug)]
 pub struct Completed {
     pub counts: Counts,
+}
+
+pub trait RunObserver: Sync {
+    fn event(&self, target: &str, event: &Event, protocol_line: &str);
+}
+
+#[derive(Clone, Copy)]
+pub struct PreparationProgress<'a> {
+    pub target: &'a str,
+    pub index: usize,
+    pub total: usize,
+}
+
+static PREPARATION_RENDERED: AtomicBool = AtomicBool::new(false);
+const MAX_PARALLEL_PODMAN_HANDSHAKES: usize = 8;
+
+struct LaunchGate {
+    active: Mutex<usize>,
+    available: Condvar,
+}
+
+struct LaunchPermit(&'static LaunchGate);
+
+impl Drop for LaunchPermit {
+    fn drop(&mut self) {
+        let mut active = self
+            .0
+            .active
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        *active = active.saturating_sub(1);
+        self.0.available.notify_one();
+    }
+}
+
+fn acquire_launch_permit() -> LaunchPermit {
+    static GATE: OnceLock<LaunchGate> = OnceLock::new();
+    let gate = GATE.get_or_init(|| LaunchGate {
+        active: Mutex::new(0),
+        available: Condvar::new(),
+    });
+    let mut active = gate
+        .active
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    while *active >= MAX_PARALLEL_PODMAN_HANDSHAKES {
+        active = gate
+            .available
+            .wait(active)
+            .unwrap_or_else(|error| error.into_inner());
+    }
+    *active += 1;
+    LaunchPermit(gate)
+}
+
+pub fn begin_preparation_progress() {
+    PREPARATION_RENDERED.store(false, Ordering::Release);
 }
 
 #[derive(Clone, Copy)]
@@ -94,6 +153,7 @@ pub fn run(
     output_directory: &Path,
     stream_live: bool,
     expected_termination: Option<&str>,
+    observer: Option<&dyn RunObserver>,
 ) -> Result<Completed, Failure> {
     run_with_limits(
         command,
@@ -102,7 +162,246 @@ pub fn run(
         output_directory,
         stream_live,
         expected_termination,
+        observer,
         SupervisorLimits::production(expected_target),
+    )
+}
+
+pub fn prepare(
+    mut command: Command,
+    container_name: &str,
+    output_directory: &Path,
+    progress: PreparationProgress<'_>,
+) -> Result<(), Failure> {
+    let mut container = ContainerGuard {
+        name: container_name,
+        active: true,
+    };
+    let stdout_log = create_log(output_directory, "container.stdout.log")?;
+    let stderr_log = create_log(output_directory, "container.stderr.log")?;
+    let mut child = command
+        .spawn()
+        .map_err(|error| Failure::Startup(error.to_string()))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| Failure::Io("stdout was not piped".into()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| Failure::Io("stderr was not piped".into()))?;
+    let (sender, receiver) = mpsc::channel();
+    let stdout_thread = reader_thread(stdout, Stream::Stdout, stdout_log, sender.clone());
+    let stderr_thread = reader_thread(stderr, Stream::Stderr, stderr_log, sender);
+    let mut deadline = Instant::now() + BUILD_TIMEOUT;
+    let mut detail_step = 0;
+    let mut detail_total = 1;
+    render_preparation(
+        progress,
+        detail_step,
+        detail_total,
+        "checking firmware cache",
+        false,
+        false,
+    );
+
+    let mut result = loop {
+        if crate::cancellation::requested() {
+            break Err(terminate_then(
+                &mut child,
+                container_name,
+                Failure::Cancelled(
+                    "host cancellation requested during firmware preparation".into(),
+                ),
+            ));
+        }
+        if Instant::now() >= deadline {
+            break Err(terminate_then(
+                &mut child,
+                container_name,
+                Failure::Timeout("firmware preparation deadline expired".into()),
+            ));
+        }
+        match receiver.recv_timeout(Duration::from_millis(250)) {
+            Ok(Ok(line)) => {
+                match line.text.as_str() {
+                    "VMSA-INFRA PHASE prepare-start" => {
+                        render_preparation(progress, 0, 1, "preparing sources", false, false);
+                    }
+                    "VMSA-INFRA PHASE prepare-complete" => {
+                        render_preparation(progress, 1, 1, "sources prepared", false, false);
+                    }
+                    "VMSA-INFRA PHASE build-start" => {
+                        render_preparation(progress, 0, 1, "initializing build", false, false);
+                    }
+                    "VMSA-INFRA PHASE build-complete" => {
+                        render_preparation(
+                            progress,
+                            detail_step,
+                            detail_total,
+                            "build steps complete",
+                            false,
+                            false,
+                        );
+                    }
+                    "VMSA-INFRA PHASE package-complete" => {
+                        detail_step = detail_total;
+                        render_preparation(
+                            progress,
+                            detail_step,
+                            detail_total,
+                            "firmware packaged",
+                            false,
+                            false,
+                        );
+                    }
+                    text if text.starts_with("VMSA-INFRA PHASE firmware-cache-hit ") => {
+                        detail_step = 1;
+                        detail_total = 1;
+                        render_preparation(progress, 1, 1, "firmware cache hit", false, false);
+                    }
+                    text if text.starts_with("VMSA-INFRA BUILD_STEP ") => {
+                        if let Some((index, total, name)) = parse_build_step(text) {
+                            detail_step = index - 1;
+                            detail_total = total;
+                            render_preparation(
+                                progress,
+                                detail_step,
+                                detail_total,
+                                &format!("building {}", name.replace('-', " ")),
+                                false,
+                                false,
+                            );
+                        } else {
+                            stream_terminal(&line);
+                        }
+                    }
+                    _ if !crate::terminal::stderr_is_terminal() => stream_terminal(&line),
+                    _ => {}
+                }
+                if matches!(
+                    line.text.as_str(),
+                    "VMSA-INFRA PHASE prepare-start"
+                        | "VMSA-INFRA PHASE build-start"
+                        | "VMSA-INFRA PHASE build-complete"
+                ) {
+                    deadline = Instant::now() + BUILD_TIMEOUT;
+                }
+            }
+            Ok(Err(error)) => {
+                break Err(terminate_then(
+                    &mut child,
+                    container_name,
+                    Failure::Io(error),
+                ));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                break match child.wait() {
+                    Ok(status) if status.success() => Ok(()),
+                    Ok(status) => Err(Failure::Build(format!(
+                        "firmware preparation container exited with {status}"
+                    ))),
+                    Err(error) => Err(io_failure(error)),
+                };
+            }
+        }
+    };
+    if stdout_thread.join().is_err() {
+        result = Err(add_context(result.err(), "stdout reader thread panicked"));
+    }
+    if stderr_thread.join().is_err() {
+        result = Err(add_context(result.err(), "stderr reader thread panicked"));
+    }
+    if let Err(error) = container.cleanup() {
+        result = Err(add_context(
+            result.err(),
+            &format!("container cleanup failed: {error}"),
+        ));
+    }
+    let failed = result.is_err();
+    render_preparation(
+        progress,
+        if result.is_ok() {
+            detail_total
+        } else {
+            detail_step
+        },
+        detail_total,
+        if result.is_ok() { "complete" } else { "failed" },
+        true,
+        failed,
+    );
+    result
+}
+
+fn render_preparation(
+    progress: PreparationProgress<'_>,
+    phase: usize,
+    phase_total: usize,
+    label: &str,
+    finished: bool,
+    failed: bool,
+) {
+    let color = crate::terminal::stderr_has_color();
+    let overall_done = if finished && !failed && phase == phase_total {
+        progress.index
+    } else {
+        progress.index - 1
+    };
+    let overall = progress_bar(overall_done, progress.total, 24, color);
+    let current = progress_bar(phase, phase_total, 18, color);
+    let target = crate::terminal::paint(
+        color,
+        crate::terminal::Tone::Active,
+        &format!("{:<14}", progress.target),
+    );
+    let label_tone = if failed {
+        crate::terminal::Tone::Failure
+    } else if finished && phase == phase_total {
+        crate::terminal::Tone::Success
+    } else {
+        crate::terminal::Tone::Active
+    };
+    let label = crate::terminal::paint(color, label_tone, label);
+    let overall_line = format!("firmware {overall} {overall_done}/{}", progress.total);
+    let current_line = format!("  {target} {current} {phase}/{phase_total} {label}");
+    if crate::terminal::stderr_is_terminal() {
+        use std::io::Write as _;
+
+        let rendered = PREPARATION_RENDERED.swap(true, Ordering::AcqRel);
+        let prefix = if rendered { "\x1b[2A" } else { "" };
+        eprint!("{prefix}\r\x1b[2K{overall_line}\n\r\x1b[2K{current_line}\n");
+        let _ = std::io::stderr().flush();
+    } else {
+        eprintln!("{overall_line}\n{current_line}");
+    }
+}
+
+fn parse_build_step(text: &str) -> Option<(usize, usize, &str)> {
+    let mut fields = text.strip_prefix("VMSA-INFRA BUILD_STEP ")?.split(' ');
+    let index = fields.next()?.strip_prefix("index=")?.parse().ok()?;
+    let total = fields.next()?.strip_prefix("total=")?.parse().ok()?;
+    let name = fields.next()?.strip_prefix("name=")?;
+    if index == 0 || index > total || total == 0 || name.is_empty() || fields.next().is_some() {
+        return None;
+    }
+    Some((index, total, name))
+}
+
+fn progress_bar(done: usize, total: usize, width: usize, color: bool) -> String {
+    let filled = if total == 0 {
+        0
+    } else {
+        done.saturating_mul(width) / total
+    }
+    .min(width);
+    let filled_text = "#".repeat(filled);
+    let empty_text = "-".repeat(width - filled);
+    format!(
+        "[{}{}]",
+        crate::terminal::paint(color, crate::terminal::Tone::Success, &filled_text),
+        crate::terminal::paint(color, crate::terminal::Tone::Muted, &empty_text)
     )
 }
 
@@ -113,6 +412,7 @@ fn run_with_limits(
     output_directory: &Path,
     stream_live: bool,
     expected_termination: Option<&str>,
+    observer: Option<&dyn RunObserver>,
     limits: SupervisorLimits,
 ) -> Result<Completed, Failure> {
     let mut container = ContainerGuard {
@@ -122,6 +422,11 @@ fn run_with_limits(
     let stdout_log = create_log(output_directory, "container.stdout.log")?;
     let stderr_log = create_log(output_directory, "container.stderr.log")?;
     let mut results_log = create_log(output_directory, "results.log")?;
+    // Podman Machine connects through ssh. Its MaxStartups policy starts
+    // probabilistically dropping unauthenticated connections above ten, so
+    // bound only that short handshake interval. Authenticated FVP sessions
+    // still run at the user-requested concurrency.
+    let mut launch_permit = Some(acquire_launch_permit());
     let mut child = command
         .spawn()
         .map_err(|error| Failure::Startup(error.to_string()))?;
@@ -147,6 +452,8 @@ fn run_with_limits(
         receiver,
         &mut results_log,
         stream_live,
+        observer,
+        &mut launch_permit,
         limits,
     );
     let stdout_join = stdout_thread.join();
@@ -202,6 +509,8 @@ fn supervise(
     receiver: Receiver<Result<Line, String>>,
     results: &mut File,
     stream_live: bool,
+    observer: Option<&dyn RunObserver>,
+    launch_permit: &mut Option<LaunchPermit>,
     limits: SupervisorLimits,
 ) -> Result<Completed, Failure> {
     const BUILD_PROGRESS_INTERVAL: Duration = Duration::from_secs(10);
@@ -259,7 +568,8 @@ fn supervise(
                         ));
                     }
                 }
-                if let Err(error) = writeln!(results, "{completion}").and_then(|_| results.flush()) {
+                if let Err(error) = writeln!(results, "{completion}").and_then(|_| results.flush())
+                {
                     return Err(terminate_then(child, container_name, io_failure(error)));
                 }
                 if stream_live {
@@ -297,6 +607,7 @@ fn supervise(
             .min(Duration::from_millis(250));
         match receiver.recv_timeout(wait) {
             Ok(Ok(line)) => {
+                launch_permit.take();
                 if stream_live {
                     stream_terminal(&line);
                 }
@@ -377,6 +688,9 @@ fn supervise(
                             }
                             deadline = Instant::now() + limits.suite;
                             phase = "suite";
+                        }
+                        if let Some(observer) = observer {
+                            observer.event(expected.target, &event, &line.text);
                         }
                         match &event {
                             Event::Run { name } => {
@@ -695,6 +1009,7 @@ fn run_timeout_case(root: &Path, name: &str, script: &str) -> Result<Completed, 
         &directory,
         false,
         None,
+        None,
         SupervisorLimits::doctor(),
     )
 }
@@ -731,6 +1046,7 @@ fn run_lifecycle_case_inner(
         &directory,
         false,
         expected_termination,
+        None,
         if expected_termination.is_some() {
             SupervisorLimits::doctor()
         } else {
@@ -995,4 +1311,29 @@ fn create_log(directory: &Path, name: &str) -> Result<File, Failure> {
 
 fn io_failure(error: io::Error) -> Failure {
     Failure::Io(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_bar_scales_and_clamps() {
+        assert_eq!(progress_bar(0, 4, 8, false), "[--------]");
+        assert_eq!(progress_bar(1, 4, 8, false), "[##------]");
+        assert_eq!(progress_bar(4, 4, 8, false), "[########]");
+        assert_eq!(progress_bar(5, 4, 8, false), "[########]");
+    }
+
+    #[test]
+    fn parses_structured_build_steps() {
+        assert_eq!(
+            parse_build_step("VMSA-INFRA BUILD_STEP index=2 total=5 name=hafnium"),
+            Some((2, 5, "hafnium"))
+        );
+        assert_eq!(
+            parse_build_step("VMSA-INFRA BUILD_STEP index=0 total=5 name=hafnium"),
+            None
+        );
+    }
 }

@@ -24,6 +24,9 @@ def parse_arguments() -> argparse.Namespace:
         choices=["ns-el2", "secure-el2", "realm-el2", "realm-stage2", "root-el3"],
     )
     parser.add_argument("--filter")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--prepare-only", action="store_true")
+    mode.add_argument("--require-cache", action="store_true")
     return parser.parse_args()
 
 
@@ -305,6 +308,8 @@ def main() -> int:
     repositories: dict[str, Path] = {}
     try:
         images = build.restore_cached_build(arguments.target)
+        if images is None and arguments.require_cache:
+            raise RuntimeError("required firmware cache entry is missing or invalid")
         if images is None:
             print("VMSA-INFRA PHASE prepare-start", flush=True)
             repositories = prepare.prepare(arguments.target)
@@ -319,14 +324,17 @@ def main() -> int:
         print(f"build/packaging failure: {error}", file=sys.stderr, flush=True)
         result = 20
     else:
-        try:
-            run_images = build.materialize_run_images(images, arguments.filter)
-            run_fvp(run_images, arguments.target)
-        except (OSError, RuntimeError) as error:
-            print(f"FVP startup/runtime failure: {error}", file=sys.stderr, flush=True)
-            result = 21
-        else:
+        if arguments.prepare_only:
             result = 0
+        else:
+            try:
+                run_images = build.materialize_run_images(images, arguments.filter)
+                run_fvp(run_images, arguments.target)
+            except (OSError, RuntimeError) as error:
+                print(f"FVP startup/runtime failure: {error}", file=sys.stderr, flush=True)
+                result = 21
+            else:
+                result = 0
     finally:
         try:
             prepare.cleanup(repositories)

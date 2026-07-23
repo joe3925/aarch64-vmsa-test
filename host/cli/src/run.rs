@@ -2,12 +2,171 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::args::{Args, Command, Target};
 use crate::podman;
 use crate::process;
 use crate::report::{self, TargetReport};
+
+struct SuiteProgress {
+    target: Target,
+    completed: usize,
+    total: usize,
+    failed: u32,
+    skipped: u32,
+}
+
+struct DashboardState {
+    suites: Vec<SuiteProgress>,
+    rendered: bool,
+}
+
+struct RuntimeDashboard {
+    state: Mutex<DashboardState>,
+    log: Mutex<File>,
+    log_path: PathBuf,
+}
+
+impl RuntimeDashboard {
+    fn create(repository: &Path, totals: &[(Target, usize)]) -> Result<Self, String> {
+        let micros = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |value| value.as_micros());
+        let directory = repository
+            .join("output/runs")
+            .join(format!("session-{micros:020}-{}", std::process::id()));
+        fs::create_dir_all(&directory)
+            .map_err(|error| format!("cannot create session output directory: {error}"))?;
+        let log_path = directory.join("results.log");
+        let log = File::create(&log_path)
+            .map_err(|error| format!("cannot create session results log: {error}"))?;
+        Ok(Self {
+            state: Mutex::new(DashboardState {
+                suites: totals
+                    .iter()
+                    .map(|&(target, total)| SuiteProgress {
+                        target,
+                        completed: 0,
+                        total,
+                        failed: 0,
+                        skipped: 0,
+                    })
+                    .collect(),
+                rendered: false,
+            }),
+            log: Mutex::new(log),
+            log_path,
+        })
+    }
+
+    fn announce(&self) {
+        eprintln!("detailed live results: {}", self.log_path.display());
+        eprintln!(
+            "inspect while running: tail -f '{}'",
+            self.log_path.display()
+        );
+        self.render();
+    }
+
+    fn render(&self) {
+        if !crate::terminal::stderr_is_terminal() {
+            return;
+        }
+        use std::io::Write as _;
+
+        let mut state = self.state.lock().expect("dashboard lock poisoned");
+        let prefix = if state.rendered {
+            format!("\x1b[{}A", state.suites.len())
+        } else {
+            String::new()
+        };
+        eprint!("{prefix}");
+        let color = crate::terminal::stderr_has_color();
+        for suite in &state.suites {
+            let bar = runtime_progress_bar(suite.completed, suite.total, 24, color);
+            let target = crate::terminal::paint(
+                color,
+                crate::terminal::Tone::Active,
+                &format!("{:<14}", suite.target.as_str()),
+            );
+            let failures = crate::terminal::paint(
+                color,
+                if suite.failed == 0 {
+                    crate::terminal::Tone::Muted
+                } else {
+                    crate::terminal::Tone::Failure
+                },
+                &format!("failed={}", suite.failed),
+            );
+            eprint!(
+                "\r\x1b[2K{target} {bar} {}/{} {failures} skipped={}\n",
+                suite.completed, suite.total, suite.skipped
+            );
+        }
+        state.rendered = true;
+        let _ = std::io::stderr().flush();
+    }
+}
+
+impl process::RunObserver for RuntimeDashboard {
+    fn event(&self, target: &str, event: &crate::protocol::Event, protocol_line: &str) {
+        if let Ok(mut log) = self.log.lock() {
+            let _ = writeln!(log, "[{target}] {protocol_line}");
+            let _ = log.flush();
+        }
+        if !matches!(
+            event,
+            crate::protocol::Event::Pass { .. }
+                | crate::protocol::Event::Fail { .. }
+                | crate::protocol::Event::Skip { .. }
+        ) {
+            return;
+        }
+        {
+            let mut state = self.state.lock().expect("dashboard lock poisoned");
+            let Some(suite) = state
+                .suites
+                .iter_mut()
+                .find(|suite| suite.target.as_str() == target)
+            else {
+                return;
+            };
+            suite.completed = suite.completed.saturating_add(1).min(suite.total);
+            match event {
+                crate::protocol::Event::Fail { .. } => {
+                    suite.failed = suite.failed.saturating_add(1);
+                }
+                crate::protocol::Event::Skip { .. } => {
+                    suite.skipped = suite.skipped.saturating_add(1);
+                }
+                _ => {}
+            }
+        }
+        self.render();
+    }
+}
+
+fn runtime_progress_bar(done: usize, total: usize, width: usize, color: bool) -> String {
+    let filled = if total == 0 {
+        0
+    } else {
+        done.saturating_mul(width) / total
+    }
+    .min(width);
+    format!(
+        "[{}{}]",
+        crate::terminal::paint(color, crate::terminal::Tone::Success, &"#".repeat(filled)),
+        crate::terminal::paint(
+            color,
+            crate::terminal::Tone::Muted,
+            &"-".repeat(width - filled)
+        )
+    )
+}
 
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -50,6 +209,7 @@ pub fn execute(args: Args) -> ExitCode {
             &targets,
             args.filter.as_deref(),
             args.keep,
+            args.max_concurrency,
         ),
     }
 }
@@ -109,6 +269,7 @@ fn run_targets(
     targets: &[Target],
     filter: Option<&str>,
     keep: bool,
+    max_concurrency: usize,
 ) -> ExitCode {
     if let Err(error) = podman::validate_engine()
         .and_then(|_| podman::ensure_image())
@@ -120,6 +281,15 @@ fn run_targets(
     if let Err(error) = podman::validate_mounts(repository, crate_path) {
         return setup_error(error.to_string());
     }
+    #[derive(Clone)]
+    struct PlannedRun {
+        target: Target,
+        filter: Option<String>,
+        expects_termination: bool,
+        test_count: usize,
+    }
+
+    let mut planned = Vec::new();
     let mut reports = Vec::with_capacity(targets.len());
     let mut final_code = ExitCode::Success;
     for &target in targets {
@@ -141,28 +311,162 @@ fn run_targets(
             continue;
         }
         for plan in plans {
-            let (report, code) = run_target(
-                repository,
-                crate_path,
+            planned.push(PlannedRun {
                 target,
-                plan.filter.as_deref(),
-                plan.expects_termination,
-                keep,
-            );
-            final_code = final_code.max(code);
-            reports.push(report);
-            // Firmware is built once for the logical target and then reused by
-            // every isolated boot. A build failure is therefore target-wide;
-            // retrying the same build for the remaining plans only duplicates
-            // work and diagnostics.
-            if code == ExitCode::BuildFailed {
-                break;
-            }
+                filter: plan.filter,
+                expects_termination: plan.expects_termination,
+                test_count: plan.test_count,
+            });
         }
+    }
+    if final_code != ExitCode::Success {
+        print!("{}", report::combined_for_terminal(&reports));
+        return final_code;
+    }
+
+    let build_targets = targets
+        .iter()
+        .copied()
+        .filter(|target| planned.iter().any(|run| run.target == *target))
+        .collect::<Vec<_>>();
+    process::begin_preparation_progress();
+    for (index, &target) in build_targets.iter().enumerate() {
+        if let Err(error) = prepare_target(
+            repository,
+            crate_path,
+            target,
+            index + 1,
+            build_targets.len(),
+        ) {
+            let (outcome, code, detail) = classify_failure(error);
+            reports.push(failure_report(target, outcome, detail));
+            final_code = final_code.max(code);
+        }
+    }
+    if final_code != ExitCode::Success {
+        print!("{}", report::combined_for_terminal(&reports));
+        return final_code;
+    }
+
+    let fvp_version = match podman::fvp_version() {
+        Ok(version) => version,
+        Err(error) => {
+            eprintln!("vmsa-test: {error}");
+            return ExitCode::StartupFailed;
+        }
+    };
+
+    let worker_count = max_concurrency.min(planned.len()).max(1);
+    eprintln!(
+        "vmsa-test: firmware preparation complete; running {} boot(s) with up to {worker_count} FVP instance(s)",
+        planned.len()
+    );
+    let suite_totals = targets
+        .iter()
+        .copied()
+        .filter_map(|target| {
+            let total = planned
+                .iter()
+                .filter(|run| run.target == target)
+                .map(|run| run.test_count)
+                .sum::<usize>();
+            (total != 0).then_some((target, total))
+        })
+        .collect::<Vec<_>>();
+    let dashboard = match RuntimeDashboard::create(repository, &suite_totals) {
+        Ok(dashboard) => Arc::new(dashboard),
+        Err(error) => return setup_error(error),
+    };
+    dashboard.announce();
+    let next = AtomicUsize::new(0);
+    let completed = Mutex::new(
+        std::iter::repeat_with(|| None)
+            .take(planned.len())
+            .collect::<Vec<_>>(),
+    );
+    thread::scope(|scope| {
+        for _ in 0..worker_count {
+            scope.spawn(|| {
+                loop {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(run) = planned.get(index) else {
+                        break;
+                    };
+                    let result = if crate::cancellation::requested() {
+                        (
+                            failure_report(
+                                run.target,
+                                "cancelled",
+                                "host cancellation requested before boot launch".into(),
+                            ),
+                            ExitCode::Cancelled,
+                        )
+                    } else {
+                        run_target(
+                            repository,
+                            crate_path,
+                            run.target,
+                            run.filter.as_deref(),
+                            run.expects_termination,
+                            keep,
+                            Some(dashboard.as_ref()),
+                            &fvp_version,
+                        )
+                    };
+                    completed.lock().expect("result lock poisoned")[index] = Some(result);
+                }
+            });
+        }
+    });
+    for result in completed.into_inner().expect("result lock poisoned") {
+        let (report, code) = result.expect("every planned run must produce a result");
+        final_code = final_code.max(code);
+        reports.push(report);
     }
     let summary = report::combined_for_terminal(&reports);
     print!("{summary}");
     final_code
+}
+
+fn prepare_target(
+    repository: &Path,
+    crate_path: &Path,
+    target: Target,
+    index: usize,
+    total: usize,
+) -> Result<(), process::Failure> {
+    let run_id = format!("prepare-{}", run_id(target));
+    let directory = repository.join("output/runs").join(&run_id);
+    create_artifacts(&directory).map_err(process::Failure::Io)?;
+    let container_name = format!("vmsa-{run_id}");
+    let command = podman::prepare_command(
+        &container_name,
+        repository,
+        crate_path,
+        &directory,
+        target.as_str(),
+    );
+    let result = process::prepare(
+        command,
+        &container_name,
+        &directory,
+        process::PreparationProgress {
+            target: target.as_str(),
+            index,
+            total,
+        },
+    );
+    if result.is_ok() {
+        if let Err(error) = fs::remove_dir_all(&directory) {
+            eprintln!(
+                "warning: could not remove successful preparation {}: {error}",
+                directory.display()
+            );
+        }
+    } else {
+        eprintln!("preparation artifacts retained at {}", directory.display());
+    }
+    result
 }
 
 fn run_target(
@@ -172,6 +476,8 @@ fn run_target(
     filter: Option<&str>,
     expects_termination: bool,
     keep: bool,
+    observer: Option<&dyn process::RunObserver>,
+    fvp_version: &str,
 ) -> (TargetReport, ExitCode) {
     let run_id = run_id(target);
     let directory = repository.join("output/runs").join(&run_id);
@@ -181,7 +487,14 @@ fn run_target(
             setup_error(error),
         );
     }
-    if let Err(error) = write_provenance(&directory, repository, crate_path, target, filter) {
+    if let Err(error) = write_provenance(
+        &directory,
+        repository,
+        crate_path,
+        target,
+        filter,
+        fvp_version,
+    ) {
         return (
             failure_report(target, "startup-error", error.clone()),
             setup_error(error),
@@ -239,8 +552,9 @@ fn run_target(
         &container_name,
         target.as_str(),
         &directory,
-        true,
+        observer.is_none(),
         expects_termination.then_some(filter.unwrap_or_default()),
+        observer,
     ) {
         Ok(completed)
             if completed.counts.passed == 0
@@ -331,7 +645,7 @@ fn run_target(
                 directory.display()
             );
         }
-    } else {
+    } else if observer.is_none() {
         eprintln!("artifacts retained at {}", directory.display());
     }
     (report, code)
@@ -444,12 +758,12 @@ fn write_provenance(
     crate_path: &Path,
     target: Target,
     filter: Option<&str>,
+    fvp_version: &str,
 ) -> Result<(), String> {
     let test_repository = git_provenance(repository);
     let vmsa_repository = git_provenance(crate_path);
     let test_fingerprint = repository_fingerprint(repository)?;
     let vmsa_fingerprint = repository_fingerprint(crate_path)?;
-    let fvp_version = podman::fvp_version().map_err(|error| error.to_string())?;
     let contents = format!(
         "test_repository_revision={}\n\
          test_repository_dirty={}\n\
@@ -637,10 +951,16 @@ fn append_reported_capabilities(directory: &Path) -> Result<(), String> {
 }
 
 fn run_id(target: Target) -> String {
+    static SEQUENCE: AtomicUsize = AtomicUsize::new(0);
     let micros = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |value| value.as_micros());
-    format!("{}-{micros:020}-{}", target.as_str(), std::process::id())
+    let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!(
+        "{}-{micros:020}-{}-{sequence:06}",
+        target.as_str(),
+        std::process::id()
+    )
 }
 
 fn open_append(path: &Path) -> std::io::Result<File> {

@@ -29,6 +29,10 @@ pub(crate) fn stderr_has_color() -> bool {
     color_allowed() && io::stderr().is_terminal()
 }
 
+pub(crate) fn stderr_is_terminal() -> bool {
+    io::stderr().is_terminal()
+}
+
 pub(crate) fn paint(enabled: bool, tone: Tone, text: &str) -> String {
     if enabled {
         format!("{}{text}\x1b[0m", tone.ansi())

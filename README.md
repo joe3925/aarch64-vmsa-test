@@ -47,6 +47,3 @@ The Arm Shrinkwrap container, firmware revisions, and Rust toolchain are pinned.
 No root Cargo workspace exists: native host code and freestanding AArch64 code
 are deliberately separate workspaces.
 
-The typed test-author acceptance contract and current FVP evidence are tracked
-in [`docs/CAPABILITY_MODEL.md`](docs/CAPABILITY_MODEL.md). Completion progress is
-recorded item by item in [`IMPLEMENTATION_TODO.md`](IMPLEMENTATION_TODO.md).

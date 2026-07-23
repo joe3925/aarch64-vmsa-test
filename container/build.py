@@ -626,9 +626,12 @@ def build_tf_a(
 
 
 def build_ns_el2(repositories: dict[str, Path], log: Path) -> FirmwareImages:
+    emit_build_step(1, 4, "rust-payload")
     payload = build_rust("vmsa-test-ns-el2", log)
+    emit_build_step(2, 4, "tf-a-tests")
     tftf = build_tftf(repositories["tf-a-tests"], payload, log)
-    return build_tf_a(
+    emit_build_step(3, 4, "tf-a-firmware")
+    images = build_tf_a(
         repositories["tf-a"],
         log,
         [
@@ -640,17 +643,22 @@ def build_ns_el2(repositories: dict[str, Path], log: Path) -> FirmwareImages:
             f"BL33={tftf}",
         ],
     )
+    emit_build_step(4, 4, "package-cache")
+    return images
 
 
 def build_root_el3(repositories: dict[str, Path], log: Path) -> FirmwareImages:
+    emit_build_step(1, 4, "rust-payload")
     payload_archive = build_rust("vmsa-test-root-el3", log)
+    emit_build_step(2, 4, "root-bridge")
     payload, bridge = build_root_payload(payload_archive, log)
     write_filter_header(repositories["tf-a"])
     write_root_payload_header(repositories["tf-a"])
     # The complete Root catalog is too large for RME's SRAM-resident BL31.
     # Keep only the EL3 bridge in BL31 and load the Rust image through BL33's
     # normal DRAM image slot; the bridge maps and invokes it while still at EL3.
-    return build_tf_a(
+    emit_build_step(3, 4, "tf-a-firmware")
+    images = build_tf_a(
         repositories["tf-a"], log,
         [
             "CTX_INCLUDE_AARCH32_REGS=0",
@@ -665,13 +673,18 @@ def build_root_el3(repositories: dict[str, Path], log: Path) -> FirmwareImages:
             f"VMSA_TEST_INCLUDE={repositories['tf-a']}",
         ],
     )
+    emit_build_step(4, 4, "package-cache")
+    return images
 
 
 def build_realm_el2(repositories: dict[str, Path], log: Path) -> FirmwareImages:
+    emit_build_step(1, 4, "rust-payload")
     payload = build_rust("vmsa-test-realm-el2", log)
+    emit_build_step(2, 4, "tf-a-tests")
     tftf = build_tftf(repositories["tf-a-tests"], None, log)
     write_filter_header(repositories["tf-a"])
-    return build_tf_a(
+    emit_build_step(3, 4, "tf-a-firmware")
+    images = build_tf_a(
         repositories["tf-a"], log,
         [
             "ENABLE_RME=1",
@@ -685,6 +698,8 @@ def build_realm_el2(repositories: dict[str, Path], log: Path) -> FirmwareImages:
             f"VMSA_TEST_INCLUDE={repositories['tf-a']}",
         ],
     )
+    emit_build_step(4, 4, "package-cache")
+    return images
 
 
 def elf_load_image(elf: Path, image_name: str) -> tuple[int, bytes, int]:
@@ -864,13 +879,17 @@ def stage_secure_partitions(tf_a_tests: Path, tftf: Path) -> Path:
 
 
 def build_secure_el2(repositories: dict[str, Path], log: Path) -> FirmwareImages:
+    emit_build_step(1, 5, "rust-payload")
     payload = build_rust("vmsa-test-secure-el2", log)
     write_filter_header(repositories["hafnium"])
+    emit_build_step(2, 5, "hafnium")
     hafnium = build_hafnium(repositories["hafnium"], payload, log)
     configure_fvp_spmc_manifest(repositories["tf-a"], hafnium)
+    emit_build_step(3, 5, "tf-a-tests")
     tftf = build_tftf(repositories["tf-a-tests"], None, log)
     layout = stage_secure_partitions(repositories["tf-a-tests"], tftf)
-    return build_tf_a(
+    emit_build_step(4, 5, "tf-a-firmware")
+    images = build_tf_a(
         repositories["tf-a"], log,
         [
             "SPD=spmd",
@@ -888,6 +907,8 @@ def build_secure_el2(repositories: dict[str, Path], log: Path) -> FirmwareImages
             f"SP_LAYOUT_FILE={layout}",
         ],
     )
+    emit_build_step(5, 5, "package-cache")
+    return images
 
 
 def build_tf_rmm(worktree: Path, log: Path) -> Path:
@@ -906,8 +927,11 @@ def build_tf_rmm(worktree: Path, log: Path) -> Path:
 
 
 def build_realm_stage2(repositories: dict[str, Path], log: Path) -> FirmwareImages:
+    emit_build_step(1, 5, "rust-payload")
     payload = build_rust("vmsa-test-realm-stage2", log)
+    emit_build_step(2, 5, "rmm")
     rmm = build_tf_rmm(repositories["tf-rmm"], log)
+    emit_build_step(3, 5, "tf-a-tests")
     tftf = build_tftf(
         repositories["tf-a-tests"],
         None,
@@ -916,7 +940,8 @@ def build_realm_stage2(repositories: dict[str, Path], log: Path) -> FirmwareImag
         build_realm_payload=True,
         realm_payload_archive=payload,
     )
-    return build_tf_a(
+    emit_build_step(4, 5, "tf-a-firmware")
+    images = build_tf_a(
         repositories["tf-a"],
         log,
         [
@@ -929,6 +954,12 @@ def build_realm_stage2(repositories: dict[str, Path], log: Path) -> FirmwareImag
             f"BL33={tftf}",
         ],
     )
+    emit_build_step(5, 5, "package-cache")
+    return images
+
+
+def emit_build_step(index: int, total: int, name: str) -> None:
+    print(f"VMSA-INFRA BUILD_STEP index={index} total={total} name={name}", flush=True)
 
 
 def build(target: str, repositories: dict[str, Path]) -> FirmwareImages:

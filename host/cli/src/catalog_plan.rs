@@ -13,6 +13,7 @@ enum Isolation {
 pub struct BootPlan {
     pub filter: Option<String>,
     pub expects_termination: bool,
+    pub test_count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -82,14 +83,16 @@ pub fn plan(target: Target, filter: Option<&str>) -> Result<Vec<BootPlan>, Strin
             })
     };
     let mut plans = Vec::new();
-    if cases
+    let sequential_count = cases
         .iter()
         .filter(selected)
-        .any(|case| case.isolation == Isolation::Sequential)
-    {
+        .filter(|case| case.isolation == Isolation::Sequential)
+        .count();
+    if sequential_count != 0 {
         plans.push(BootPlan {
             filter: filter.map(str::to_owned),
             expects_termination: false,
+            test_count: sequential_count,
         });
     }
     for case in cases
@@ -100,6 +103,7 @@ pub fn plan(target: Target, filter: Option<&str>) -> Result<Vec<BootPlan>, Strin
         plans.push(BootPlan {
             filter: Some(case.name.clone()),
             expects_termination: case.expects_termination,
+            test_count: 1,
         });
     }
     Ok(plans)

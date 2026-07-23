@@ -266,6 +266,44 @@ pub fn run_command(
     target: &str,
     filter: Option<&str>,
 ) -> Command {
+    container_command(
+        name,
+        repository,
+        crate_path,
+        output,
+        target,
+        filter,
+        "--require-cache",
+    )
+}
+
+pub fn prepare_command(
+    name: &str,
+    repository: &Path,
+    crate_path: &Path,
+    output: &Path,
+    target: &str,
+) -> Command {
+    container_command(
+        name,
+        repository,
+        crate_path,
+        output,
+        target,
+        None,
+        "--prepare-only",
+    )
+}
+
+fn container_command(
+    name: &str,
+    repository: &Path,
+    crate_path: &Path,
+    output: &Path,
+    target: &str,
+    filter: Option<&str>,
+    mode: &str,
+) -> Command {
     let mut command = Command::new("podman");
     command
         .arg("run")
@@ -289,7 +327,8 @@ pub fn run_command(
         .arg(CONTAINER_IMAGE)
         .arg("-B")
         .arg("/workspace/tests/container/run.py")
-        .arg(target);
+        .arg(target)
+        .arg(mode);
     if let Some(value) = filter {
         command.arg("--filter").arg(value);
     }
@@ -298,9 +337,22 @@ pub fn run_command(
 }
 
 pub fn stop_container(name: &str) -> Result<(), PodmanError> {
-    let exists = command_output(["container", "exists", name])?;
-    if !exists.status.success() {
-        return Ok(());
+    let exists = Command::new("podman")
+        .args(["container", "exists", name])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| {
+            PodmanError::unavailable(format!("cannot start Podman container check: {error}"))
+        })?;
+    match wait_bounded(exists, Duration::from_secs(2))? {
+        Some(status) if !status.success() => return Ok(()),
+        Some(_) => {}
+        None => {
+            return Err(PodmanError::unavailable(format!(
+                "Podman could not check container {name} within the shutdown deadline"
+            )));
+        }
     }
 
     let timeout = SHUTDOWN_TIMEOUT.as_secs().to_string();
