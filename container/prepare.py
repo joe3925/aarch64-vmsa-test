@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import os
 from pathlib import Path
 import shutil
@@ -33,6 +35,18 @@ T_COSE_URL = "https://github.com/laurencelundblade/t_cose.git"
 CPPUTEST_URL = "https://github.com/cpputest/cpputest.git"
 LIBSPDM_URL = "https://github.com/DMTF/libspdm.git"
 SPDM_EMU_URL = "https://github.com/DMTF/spdm-emu.git"
+
+
+@contextmanager
+def cache_lock(name: str):
+    locks = CACHE / "locks"
+    locks.mkdir(parents=True, exist_ok=True)
+    with (locks / f"{name}.lock").open("w", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def checked(command: list[str], cwd: Path | None = None) -> None:
@@ -83,36 +97,41 @@ def prepare_repository(name: str, url: str, revision: str, run_root: Path) -> Pa
     mirrors = CACHE / "git"
     mirrors.mkdir(parents=True, exist_ok=True)
     mirror = mirrors / f"{name}.git"
-    if mirror.exists() and not valid_mirror(mirror):
-        shutil.rmtree(mirror)
-    if not mirror.exists():
-        incomplete = mirrors / f"{name}.git.incomplete"
-        if incomplete.exists():
-            shutil.rmtree(incomplete)
-        try:
-            checked(["git", "clone", "--mirror", url, str(incomplete)])
-            incomplete.replace(mirror)
-        except BaseException:
+    worktree = run_root / name
+    with cache_lock(f"repository-{name}"):
+        if mirror.exists() and not valid_mirror(mirror):
+            shutil.rmtree(mirror)
+        if not mirror.exists():
+            incomplete = mirrors / f"{name}.git.incomplete"
             if incomplete.exists():
                 shutil.rmtree(incomplete)
-            raise
-    if not has_commit(mirror, revision):
-        checked(["git", "--git-dir", str(mirror), "fetch", "--no-tags", url, revision])
-    if not has_commit(mirror, revision):
-        raise RuntimeError(f"pinned commit {revision} is unavailable for {name}")
-
-    worktree = run_root / name
-    checked(["git", "--git-dir", str(mirror), "worktree", "prune"])
-    checked(["git", "--git-dir", str(mirror), "worktree", "add", "--detach", str(worktree), revision])
+            try:
+                checked(["git", "clone", "--mirror", url, str(incomplete)])
+                incomplete.replace(mirror)
+            except BaseException:
+                if incomplete.exists():
+                    shutil.rmtree(incomplete)
+                raise
+        if not has_commit(mirror, revision):
+            checked(["git", "--git-dir", str(mirror), "fetch", "--no-tags", url, revision])
+        if not has_commit(mirror, revision):
+            raise RuntimeError(f"pinned commit {revision} is unavailable for {name}")
+        checked(["git", "--git-dir", str(mirror), "worktree", "prune"])
+        checked([
+            "git", "--git-dir", str(mirror), "worktree", "add", "--detach",
+            str(worktree), revision,
+        ])
     try:
         checked(["git", "reset", "--hard", revision], cwd=worktree)
         checked(["git", "clean", "-ffdqx"], cwd=worktree)
         prepare_submodules(name, worktree)
     except BaseException as error:
         try:
-            checked([
-                "git", "--git-dir", str(mirror), "worktree", "remove", "--force", str(worktree)
-            ])
+            with cache_lock(f"repository-{name}"):
+                checked([
+                    "git", "--git-dir", str(mirror), "worktree", "remove", "--force",
+                    str(worktree),
+                ])
         except (OSError, subprocess.CalledProcessError) as cleanup_error:
             raise RuntimeError(
                 f"failed to remove incomplete {name} worktree: {cleanup_error}"
@@ -131,14 +150,20 @@ def prepare_cached_submodule(
     revision = checked_output(["git", "rev-parse", f"HEAD:{module_path}"], worktree)
     mirror = CACHE / "git" / "submodules" / f"{cache_name}.git"
     mirror.parent.mkdir(parents=True, exist_ok=True)
-    if not mirror.exists():
-        checked(["git", "clone", "--mirror", url, str(mirror)])
-    if not has_commit(mirror, revision):
-        checked(["git", "--git-dir", str(mirror), "fetch", "--no-tags", url, revision])
-    if not has_commit(mirror, revision):
-        raise RuntimeError(f"pinned submodule commit {revision} is unavailable for {module_path}")
-    checked(["git", "config", f"submodule.{module_name}.url", str(mirror)], cwd=worktree)
-    checked(["git", "-c", "protocol.file.allow=always", "submodule", "update", "--init", "--", module_path], cwd=worktree)
+    with cache_lock(f"submodule-{cache_name}"):
+        if not mirror.exists():
+            checked(["git", "clone", "--mirror", url, str(mirror)])
+        if not has_commit(mirror, revision):
+            checked(["git", "--git-dir", str(mirror), "fetch", "--no-tags", url, revision])
+        if not has_commit(mirror, revision):
+            raise RuntimeError(
+                f"pinned submodule commit {revision} is unavailable for {module_path}"
+            )
+    checked([
+        "git", "-c", "protocol.file.allow=always",
+        "-c", f"submodule.{module_name}.url={mirror}",
+        "submodule", "update", "--init", "--", module_path,
+    ], cwd=worktree)
 
 
 def prepare_submodules(repository_name: str, worktree: Path) -> None:
@@ -219,9 +244,11 @@ def cleanup(repositories: dict[str, Path]) -> None:
         mirror = CACHE / "git" / f"{name}.git"
         if mirror.is_dir() and worktree.exists():
             try:
-                checked([
-                    "git", "--git-dir", str(mirror), "worktree", "remove", "--force", str(worktree)
-                ])
+                with cache_lock(f"repository-{name}"):
+                    checked([
+                        "git", "--git-dir", str(mirror), "worktree", "remove", "--force",
+                        str(worktree),
+                    ])
             except (OSError, subprocess.CalledProcessError) as error:
                 failures.append(f"{name}: {error}")
     for run_root in run_roots:

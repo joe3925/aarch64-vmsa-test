@@ -89,8 +89,8 @@ def firmware_cache_key(target: str) -> str:
     return digest.hexdigest()
 
 
-def restore_cached_build(target: str) -> FirmwareImages | None:
-    key = firmware_cache_key(target)
+def restore_cached_build(target: str, expected_key: str | None = None) -> FirmwareImages | None:
+    key = expected_key if expected_key is not None else firmware_cache_key(target)
     cached = FIRMWARE_CACHE / f"{target}-{key}"
     bl1 = cached / "bl1.bin"
     fip = cached / "fip.bin"
@@ -105,10 +105,11 @@ def restore_cached_build(target: str) -> FirmwareImages | None:
     shutil.copytree(cached, artifacts, dirs_exist_ok=True)
     os.utime(cached)
     print(f"VMSA-INFRA PHASE firmware-cache-hit key={key[:16]}", flush=True)
+    print(f"VMSA-INFRA FIRMWARE_CACHE_KEY key={key}", flush=True)
     return FirmwareImages(artifacts / "bl1.bin", artifacts / "fip.bin")
 
 
-def cache_build(target: str, images: FirmwareImages) -> None:
+def cache_build(target: str, images: FirmwareImages) -> str:
     key = firmware_cache_key(target)
     FIRMWARE_CACHE.mkdir(parents=True, exist_ok=True)
     destination = FIRMWARE_CACHE / f"{target}-{key}"
@@ -129,6 +130,8 @@ def cache_build(target: str, images: FirmwareImages) -> None:
         shutil.rmtree(stale)
     require_file(images.bl1)
     require_file(images.fip)
+    print(f"VMSA-INFRA FIRMWARE_CACHE_KEY key={key}", flush=True)
+    return key
 
 
 def prepare_target_workspace() -> None:

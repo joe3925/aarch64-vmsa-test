@@ -54,6 +54,7 @@ pub struct Args {
     pub filter: Option<String>,
     pub keep: bool,
     pub max_concurrency: usize,
+    pub build_concurrency: usize,
 }
 
 impl Args {
@@ -76,6 +77,7 @@ impl Args {
         let mut filter = None;
         let mut keep = false;
         let mut max_concurrency = None;
+        let mut build_concurrency = None;
         while let Some(argument) = values.next() {
             match argument.as_str() {
                 "--crate" => {
@@ -116,6 +118,20 @@ impl Args {
                         return Err("--max-conc may be specified only once".into());
                     }
                 }
+                "--build-conc" => {
+                    let value = values
+                        .next()
+                        .ok_or("--build-conc requires a positive integer")?;
+                    let parsed = value
+                        .parse::<usize>()
+                        .map_err(|_| "--build-conc requires a positive integer")?;
+                    if parsed == 0 {
+                        return Err("--build-conc requires a positive integer".into());
+                    }
+                    if build_concurrency.replace(parsed).is_some() {
+                        return Err("--build-conc may be specified only once".into());
+                    }
+                }
                 unknown => return Err(format!("unknown argument: {unknown}\n{}", usage())),
             }
         }
@@ -134,9 +150,14 @@ impl Args {
         };
 
         if !matches!(command, Command::Test(_))
-            && (filter.is_some() || keep || max_concurrency.is_some())
+            && (filter.is_some()
+                || keep
+                || max_concurrency.is_some()
+                || build_concurrency.is_some())
         {
-            return Err("--filter, --keep, and --max-conc are valid only with test".into());
+            return Err(
+                "--filter, --keep, --max-conc, and --build-conc are valid only with test".into(),
+            );
         }
         match &command {
             Command::Doctor | Command::Test(_) if crate_path.is_none() => {
@@ -154,12 +175,13 @@ impl Args {
             filter,
             keep,
             max_concurrency: max_concurrency.unwrap_or_else(default_max_concurrency),
+            build_concurrency: build_concurrency.unwrap_or(1),
         })
     }
 }
 
 fn usage() -> String {
-    "usage: vmsa-test doctor --crate <path>\n       vmsa-test test <ns-el2|secure-el2|realm-el2|realm-stage2|root-el3|all> --crate <path> [--filter <substring>] [--keep] [--max-conc <N>]\n       vmsa-test clean".into()
+    "usage: vmsa-test doctor --crate <path>\n       vmsa-test test <ns-el2|secure-el2|realm-el2|realm-stage2|root-el3|all> --crate <path> [--filter <substring>] [--keep] [--max-conc <N>] [--build-conc <N>]\n       vmsa-test clean".into()
 }
 
 fn default_max_concurrency() -> usize {
@@ -187,8 +209,21 @@ mod tests {
     }
 
     #[test]
+    fn parses_build_concurrency() {
+        let args = parse(&["test", "all", "--crate", "/crate", "--build-conc", "3"])
+            .expect("arguments should parse");
+        assert_eq!(args.build_concurrency, 3);
+    }
+
+    #[test]
+    fn rejects_zero_build_concurrency() {
+        assert!(parse(&["test", "all", "--crate", "/crate", "--build-conc", "0"]).is_err());
+    }
+
+    #[test]
     fn defaults_to_host_parallelism() {
         let args = parse(&["test", "all", "--crate", "/crate"]).expect("arguments should parse");
         assert_eq!(args.max_concurrency, default_max_concurrency());
+        assert_eq!(args.build_concurrency, 1);
     }
 }

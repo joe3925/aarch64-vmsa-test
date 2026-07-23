@@ -2,7 +2,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::thread;
@@ -51,11 +50,22 @@ pub trait RunObserver: Sync {
 #[derive(Clone, Copy)]
 pub struct PreparationProgress<'a> {
     pub target: &'a str,
-    pub index: usize,
-    pub total: usize,
 }
 
-static PREPARATION_RENDERED: AtomicBool = AtomicBool::new(false);
+struct PreparationEntry {
+    target: String,
+    phase: usize,
+    phase_total: usize,
+    label: String,
+    finished: bool,
+    failed: bool,
+}
+
+struct PreparationDashboard {
+    entries: Vec<PreparationEntry>,
+    rendered: bool,
+}
+
 const MAX_PARALLEL_PODMAN_HANDSHAKES: usize = 8;
 
 struct LaunchGate {
@@ -97,8 +107,32 @@ fn acquire_launch_permit() -> LaunchPermit {
     LaunchPermit(gate)
 }
 
-pub fn begin_preparation_progress() {
-    PREPARATION_RENDERED.store(false, Ordering::Release);
+pub fn begin_preparation_progress(targets: &[&str]) {
+    let mut dashboard = preparation_dashboard()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    dashboard.entries = targets
+        .iter()
+        .map(|target| PreparationEntry {
+            target: (*target).to_owned(),
+            phase: 0,
+            phase_total: 1,
+            label: "pending".into(),
+            finished: false,
+            failed: false,
+        })
+        .collect();
+    dashboard.rendered = false;
+}
+
+fn preparation_dashboard() -> &'static Mutex<PreparationDashboard> {
+    static DASHBOARD: OnceLock<Mutex<PreparationDashboard>> = OnceLock::new();
+    DASHBOARD.get_or_init(|| {
+        Mutex::new(PreparationDashboard {
+            entries: Vec::new(),
+            rendered: false,
+        })
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -172,7 +206,7 @@ pub fn prepare(
     container_name: &str,
     output_directory: &Path,
     progress: PreparationProgress<'_>,
-) -> Result<(), Failure> {
+) -> Result<String, Failure> {
     let mut container = ContainerGuard {
         name: container_name,
         active: true,
@@ -196,6 +230,7 @@ pub fn prepare(
     let mut deadline = Instant::now() + BUILD_TIMEOUT;
     let mut detail_step = 0;
     let mut detail_total = 1;
+    let mut firmware_cache_key = None;
     render_preparation(
         progress,
         detail_step,
@@ -260,6 +295,19 @@ pub fn prepare(
                         detail_total = 1;
                         render_preparation(progress, 1, 1, "firmware cache hit", false, false);
                     }
+                    text if text.starts_with("VMSA-INFRA FIRMWARE_CACHE_KEY ") => {
+                        if let Some(key) = parse_firmware_cache_key(text) {
+                            firmware_cache_key = Some(key.to_owned());
+                        } else {
+                            break Err(terminate_then(
+                                &mut child,
+                                container_name,
+                                Failure::Malformed(
+                                    "firmware preparation emitted an invalid cache key".into(),
+                                ),
+                            ));
+                        }
+                    }
                     text if text.starts_with("VMSA-INFRA BUILD_STEP ") => {
                         if let Some((index, total, name)) = parse_build_step(text) {
                             detail_step = index - 1;
@@ -298,7 +346,11 @@ pub fn prepare(
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 break match child.wait() {
-                    Ok(status) if status.success() => Ok(()),
+                    Ok(status) if status.success() => firmware_cache_key.take().ok_or_else(|| {
+                        Failure::Malformed(
+                            "firmware preparation did not report its cache key".into(),
+                        )
+                    }),
                     Ok(status) => Err(Failure::Build(format!(
                         "firmware preparation container exited with {status}"
                     ))),
@@ -344,37 +396,66 @@ fn render_preparation(
     failed: bool,
 ) {
     let color = crate::terminal::stderr_has_color();
-    let overall_done = if finished && !failed && phase == phase_total {
-        progress.index
-    } else {
-        progress.index - 1
+    let mut dashboard = preparation_dashboard()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let Some(changed) = dashboard
+        .entries
+        .iter_mut()
+        .find(|entry| entry.target == progress.target)
+    else {
+        return;
     };
-    let overall = progress_bar(overall_done, progress.total, 24, color);
-    let current = progress_bar(phase, phase_total, 18, color);
-    let target = crate::terminal::paint(
-        color,
-        crate::terminal::Tone::Active,
-        &format!("{:<14}", progress.target),
-    );
-    let label_tone = if failed {
-        crate::terminal::Tone::Failure
-    } else if finished && phase == phase_total {
-        crate::terminal::Tone::Success
-    } else {
-        crate::terminal::Tone::Active
-    };
-    let label = crate::terminal::paint(color, label_tone, label);
-    let overall_line = format!("firmware {overall} {overall_done}/{}", progress.total);
-    let current_line = format!("  {target} {current} {phase}/{phase_total} {label}");
+    changed.phase = phase;
+    changed.phase_total = phase_total;
+    changed.label = label.to_owned();
+    changed.finished = finished;
+    changed.failed = failed;
+
+    let completed = dashboard
+        .entries
+        .iter()
+        .filter(|entry| entry.finished && !entry.failed)
+        .count();
+    let total = dashboard.entries.len();
+    let overall = progress_bar(completed, total, 24, color);
+    let overall_line = format!("firmware total  {overall} {completed}/{total}");
     if crate::terminal::stderr_is_terminal() {
         use std::io::Write as _;
 
-        let rendered = PREPARATION_RENDERED.swap(true, Ordering::AcqRel);
-        let prefix = if rendered { "\x1b[2A" } else { "" };
-        eprint!("{prefix}\r\x1b[2K{overall_line}\n\r\x1b[2K{current_line}\n");
+        if dashboard.rendered {
+            eprint!("\x1b[{}A", total + 1);
+        }
+        for entry in &dashboard.entries {
+            let bar = progress_bar(entry.phase, entry.phase_total, 18, color);
+            let target = crate::terminal::paint(
+                color,
+                crate::terminal::Tone::Active,
+                &format!("{:<14}", entry.target),
+            );
+            let tone = if entry.failed {
+                crate::terminal::Tone::Failure
+            } else if entry.finished {
+                crate::terminal::Tone::Success
+            } else if entry.label == "pending" {
+                crate::terminal::Tone::Muted
+            } else {
+                crate::terminal::Tone::Active
+            };
+            let label = crate::terminal::paint(color, tone, &entry.label);
+            eprint!(
+                "\r\x1b[2K  {target} {bar} {}/{} {label}\n",
+                entry.phase, entry.phase_total
+            );
+        }
+        eprint!("\r\x1b[2K{overall_line}\n");
+        dashboard.rendered = true;
         let _ = std::io::stderr().flush();
     } else {
-        eprintln!("{overall_line}\n{current_line}");
+        let bar = progress_bar(phase, phase_total, 18, color);
+        let target = format!("{:<14}", progress.target);
+        let current_line = format!("  {target} {bar} {phase}/{phase_total} {label}");
+        eprintln!("{current_line}\n{overall_line}");
     }
 }
 
@@ -387,6 +468,12 @@ fn parse_build_step(text: &str) -> Option<(usize, usize, &str)> {
         return None;
     }
     Some((index, total, name))
+}
+
+fn parse_firmware_cache_key(text: &str) -> Option<&str> {
+    let key = text.strip_prefix("VMSA-INFRA FIRMWARE_CACHE_KEY key=")?;
+    (key.len() == 64 && key.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
+        .then_some(key)
 }
 
 fn progress_bar(done: usize, total: usize, width: usize, color: bool) -> String {
@@ -422,10 +509,9 @@ fn run_with_limits(
     let stdout_log = create_log(output_directory, "container.stdout.log")?;
     let stderr_log = create_log(output_directory, "container.stderr.log")?;
     let mut results_log = create_log(output_directory, "results.log")?;
-    // Podman Machine connects through ssh. Its MaxStartups policy starts
-    // probabilistically dropping unauthenticated connections above ten, so
-    // bound only that short handshake interval. Authenticated FVP sessions
-    // still run at the user-requested concurrency.
+    // Bound only the short interval in which Podman registers a new container.
+    // Holding this permit until guest output arrives would cap silent FVP
+    // startups at MAX_PARALLEL_PODMAN_HANDSHAKES regardless of --max-conc.
     let mut launch_permit = Some(acquire_launch_permit());
     let mut child = command
         .spawn()
@@ -441,6 +527,12 @@ fn run_with_limits(
     let (sender, receiver) = mpsc::channel();
     let stdout_thread = reader_thread(stdout, Stream::Stdout, stdout_log, sender.clone());
     let stderr_thread = reader_thread(stderr, Stream::Stderr, stderr_log, sender);
+    release_launch_permit_when_registered(
+        &mut child,
+        container_name,
+        &mut launch_permit,
+        limits.startup,
+    );
 
     let result = supervise(
         &mut child,
@@ -474,6 +566,33 @@ fn run_with_limits(
         ));
     }
     result
+}
+
+fn release_launch_permit_when_registered(
+    child: &mut Child,
+    container_name: &str,
+    launch_permit: &mut Option<LaunchPermit>,
+    timeout: Duration,
+) {
+    let deadline = Instant::now() + timeout.min(Duration::from_secs(5));
+    loop {
+        match podman::container_exists(container_name) {
+            Ok(true) => {
+                launch_permit.take();
+                return;
+            }
+            Ok(false) => {}
+            Err(_) => return,
+        }
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            launch_permit.take();
+            return;
+        }
+        if Instant::now() >= deadline {
+            return;
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
 }
 
 struct ContainerGuard<'a> {
@@ -1335,5 +1454,15 @@ mod tests {
             parse_build_step("VMSA-INFRA BUILD_STEP index=0 total=5 name=hafnium"),
             None
         );
+    }
+
+    #[test]
+    fn parses_firmware_cache_keys() {
+        let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        assert_eq!(
+            parse_firmware_cache_key(&format!("VMSA-INFRA FIRMWARE_CACHE_KEY key={key}")),
+            Some(key)
+        );
+        assert_eq!(parse_firmware_cache_key("VMSA-INFRA FIRMWARE_CACHE_KEY key=abc"), None);
     }
 }

@@ -114,6 +114,15 @@ pub fn ensure_cache_volume() -> Result<(), PodmanError> {
     Ok(())
 }
 
+pub fn container_exists(name: &str) -> Result<bool, PodmanError> {
+    let output = command_output(["container", "exists", name])?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(PodmanError::command("container existence check", &output)),
+    }
+}
+
 pub fn validate_mounts(repository: &Path, crate_path: &Path) -> Result<(), PodmanError> {
     for (path, container_path, read_only, access) in [
         (repository, "/workspace/tests", false, "-w"),
@@ -265,8 +274,9 @@ pub fn run_command(
     output: &Path,
     target: &str,
     filter: Option<&str>,
+    firmware_cache_key: &str,
 ) -> Command {
-    container_command(
+    let mut command = container_command(
         name,
         repository,
         crate_path,
@@ -274,7 +284,9 @@ pub fn run_command(
         target,
         filter,
         "--require-cache",
-    )
+    );
+    command.arg("--cache-key").arg(firmware_cache_key);
+    command
 }
 
 pub fn prepare_command(

@@ -27,7 +27,16 @@ def parse_arguments() -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--prepare-only", action="store_true")
     mode.add_argument("--require-cache", action="store_true")
-    return parser.parse_args()
+    parser.add_argument("--cache-key")
+    arguments = parser.parse_args()
+    if arguments.cache_key is not None and (
+        len(arguments.cache_key) != 64
+        or any(character not in "0123456789abcdef" for character in arguments.cache_key)
+    ):
+        parser.error("--cache-key must be a 64-character lowercase hexadecimal digest")
+    if arguments.cache_key is not None and not arguments.require_cache:
+        parser.error("--cache-key is valid only with --require-cache")
+    return arguments
 
 
 def fvp_command(images: build.FirmwareImages, target: str) -> list[str]:
@@ -307,7 +316,7 @@ def main() -> int:
     (OUTPUT / "firmware.log").write_bytes(b"")
     repositories: dict[str, Path] = {}
     try:
-        images = build.restore_cached_build(arguments.target)
+        images = build.restore_cached_build(arguments.target, arguments.cache_key)
         if images is None and arguments.require_cache:
             raise RuntimeError("required firmware cache entry is missing or invalid")
         if images is None:

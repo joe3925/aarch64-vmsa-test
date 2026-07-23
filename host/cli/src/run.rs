@@ -210,6 +210,7 @@ pub fn execute(args: Args) -> ExitCode {
             args.filter.as_deref(),
             args.keep,
             args.max_concurrency,
+            args.build_concurrency,
         ),
     }
 }
@@ -270,6 +271,7 @@ fn run_targets(
     filter: Option<&str>,
     keep: bool,
     max_concurrency: usize,
+    build_concurrency: usize,
 ) -> ExitCode {
     if let Err(error) = podman::validate_engine()
         .and_then(|_| podman::ensure_image())
@@ -329,18 +331,47 @@ fn run_targets(
         .copied()
         .filter(|target| planned.iter().any(|run| run.target == *target))
         .collect::<Vec<_>>();
-    process::begin_preparation_progress();
-    for (index, &target) in build_targets.iter().enumerate() {
-        if let Err(error) = prepare_target(
-            repository,
-            crate_path,
-            target,
-            index + 1,
-            build_targets.len(),
-        ) {
-            let (outcome, code, detail) = classify_failure(error);
-            reports.push(failure_report(target, outcome, detail));
-            final_code = final_code.max(code);
+    let build_target_names = build_targets
+        .iter()
+        .map(|target| target.as_str())
+        .collect::<Vec<_>>();
+    process::begin_preparation_progress(&build_target_names);
+    let build_worker_count = build_concurrency.min(build_targets.len()).max(1);
+    let next_build = AtomicUsize::new(0);
+    let build_results = Mutex::new(
+        std::iter::repeat_with(|| None)
+            .take(build_targets.len())
+            .collect::<Vec<_>>(),
+    );
+    thread::scope(|scope| {
+        for _ in 0..build_worker_count {
+            scope.spawn(|| {
+                loop {
+                    let index = next_build.fetch_add(1, Ordering::Relaxed);
+                    let Some(&target) = build_targets.get(index) else {
+                        break;
+                    };
+                    let result = prepare_target(repository, crate_path, target);
+                    build_results
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())[index] = Some(result);
+                }
+            });
+        }
+    });
+    let build_results = build_results
+        .into_inner()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut firmware_cache_keys = Vec::with_capacity(build_targets.len());
+    for (&target, result) in build_targets.iter().zip(build_results) {
+        match result.expect("each firmware build must produce a result") {
+            Ok(key) => firmware_cache_keys.push((target, key)),
+            Err((error, directory)) => {
+                eprintln!("preparation artifacts retained at {}", directory.display());
+                let (outcome, code, detail) = classify_failure(error);
+                reports.push(failure_report(target, outcome, detail));
+                final_code = final_code.max(code);
+            }
         }
     }
     if final_code != ExitCode::Success {
@@ -402,6 +433,10 @@ fn run_targets(
                             ExitCode::Cancelled,
                         )
                     } else {
+                        let firmware_cache_key = firmware_cache_keys
+                            .iter()
+                            .find_map(|(target, key)| (*target == run.target).then_some(key.as_str()))
+                            .expect("every planned target must have a firmware cache key");
                         run_target(
                             repository,
                             crate_path,
@@ -411,6 +446,7 @@ fn run_targets(
                             keep,
                             Some(dashboard.as_ref()),
                             &fvp_version,
+                            firmware_cache_key,
                         )
                     };
                     completed.lock().expect("result lock poisoned")[index] = Some(result);
@@ -432,12 +468,12 @@ fn prepare_target(
     repository: &Path,
     crate_path: &Path,
     target: Target,
-    index: usize,
-    total: usize,
-) -> Result<(), process::Failure> {
+) -> Result<String, (process::Failure, PathBuf)> {
     let run_id = format!("prepare-{}", run_id(target));
     let directory = repository.join("output/runs").join(&run_id);
-    create_artifacts(&directory).map_err(process::Failure::Io)?;
+    create_artifacts(&directory)
+        .map_err(process::Failure::Io)
+        .map_err(|error| (error, directory.clone()))?;
     let container_name = format!("vmsa-{run_id}");
     let command = podman::prepare_command(
         &container_name,
@@ -452,8 +488,6 @@ fn prepare_target(
         &directory,
         process::PreparationProgress {
             target: target.as_str(),
-            index,
-            total,
         },
     );
     if result.is_ok() {
@@ -463,10 +497,8 @@ fn prepare_target(
                 directory.display()
             );
         }
-    } else {
-        eprintln!("preparation artifacts retained at {}", directory.display());
     }
-    result
+    result.map_err(|error| (error, directory))
 }
 
 fn run_target(
@@ -478,6 +510,7 @@ fn run_target(
     keep: bool,
     observer: Option<&dyn process::RunObserver>,
     fvp_version: &str,
+    firmware_cache_key: &str,
 ) -> (TargetReport, ExitCode) {
     let run_id = run_id(target);
     let directory = repository.join("output/runs").join(&run_id);
@@ -535,6 +568,7 @@ fn run_target(
         &directory,
         target.as_str(),
         filter,
+        firmware_cache_key,
     );
     if let Err(error) = append_provenance(
         &directory,

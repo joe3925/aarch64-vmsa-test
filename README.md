@@ -29,8 +29,10 @@ host/target/release/vmsa-test test all --crate ../aarch64-vmsa
 path. Pass `--crate default` to explicitly clone
 `https://github.com/joe3925/aarch64-vmsa` through Podman into disposable local
 state. Explicit local checkouts, including uncommitted changes, are always
-mounted read-only. The CLI accepts only `--crate <path>`, `--filter
-<substring>`, and `--keep`.
+mounted read-only. The CLI accepts `--crate <path>`, `--filter <substring>`,
+`--keep`, `--max-conc <N>`, and `--build-conc <N>`. `--max-conc` limits
+concurrent FVP boots; `--build-conc` independently limits concurrent firmware
+image builds and defaults to `1`.
 Failed and incomplete runs are retained under `output/runs`; successful runs are
 removed unless `--keep` is supplied.
 
