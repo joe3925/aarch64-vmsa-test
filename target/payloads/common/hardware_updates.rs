@@ -19,8 +19,7 @@ fn vmsa64_update_case(
         SemanticStage1LeafAttrs, SemanticStage1TableAttrs, SemanticVmsa64Stage1LeafControls,
         SemanticVmsa64Stage1TableControls, Shareability, SinglePrivilegeLeafPermissions,
         SinglePrivilegeTablePermissionLimits, SoftwareMetadata, Stage2MemoryMode,
-        VmsaAttributeCodec,
-    };
+        };
     use vmsa_test_harness::{
         AccessKind, AddressBits, ExpectedFault, FaultClass, FaultMatcher, FaultStage, FaultStatus,
         Granule, LookupLevel, PhysicalAddress, TranslationControls, TranslationFormat,
@@ -120,7 +119,6 @@ fn vmsa64_update_case(
         CurrentRegime,
         aarch64_vmsa::descriptor::Vmsa64,
         aarch64_vmsa::address::Granule4KiB,
-        VmsaAttributeCodec,
         _,
     >(
         &config,
@@ -135,7 +133,6 @@ fn vmsa64_update_case(
             CurrentRegime,
             aarch64_vmsa::descriptor::Vmsa64,
             aarch64_vmsa::address::Granule4KiB,
-            VmsaAttributeCodec,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -167,7 +164,6 @@ fn vmsa64_update_case(
                     CurrentRegime,
                     aarch64_vmsa::descriptor::Vmsa64,
                     aarch64_vmsa::address::Granule4KiB,
-                    VmsaAttributeCodec,
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -193,7 +189,6 @@ fn vmsa64_update_case(
                     CurrentRegime,
                     aarch64_vmsa::descriptor::Vmsa64,
                     aarch64_vmsa::address::Granule4KiB,
-                    VmsaAttributeCodec,
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -214,7 +209,6 @@ fn vmsa64_update_case(
                     CurrentRegime,
                     aarch64_vmsa::descriptor::Vmsa64,
                     aarch64_vmsa::address::Granule4KiB,
-                    VmsaAttributeCodec,
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -241,8 +235,7 @@ fn d128_update_case(
         LiveVmsaConfig, MemoryAttributes, MemoryTransience, SemanticStage1LeafAttrs,
         SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs, Shareability,
         SoftwareMetadata, Stage1EffectivePermissions, Stage1PermissionRegisterPair,
-        Stage1PermissionRegisters, Stage2MemoryMode, VmsaAttributeCodec,
-    };
+        Stage1PermissionRegisters, Stage2MemoryMode, };
     use vmsa_test_harness::{
         AccessKind, AddressBits, ExpectedFault, FaultClass, FaultMatcher, FaultStage, FaultStatus,
         Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
@@ -322,7 +315,7 @@ fn d128_update_case(
             bits.get(),
             bits.get(),
         )?;
-        mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        mapper.map_semantic_leaf::<_>(
             &config,
             ADDRESS,
             page.phys_addr(),
@@ -362,7 +355,6 @@ fn d128_update_case(
             LowerRegime,
             aarch64_vmsa::descriptor::Vmsa128,
             aarch64_vmsa::address::Granule4KiB,
-            VmsaAttributeCodec,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -393,7 +385,6 @@ fn d128_update_case(
                     LowerRegime,
                     aarch64_vmsa::descriptor::Vmsa128,
                     aarch64_vmsa::address::Granule4KiB,
-                    VmsaAttributeCodec,
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -419,7 +410,6 @@ fn d128_update_case(
                     LowerRegime,
                     aarch64_vmsa::descriptor::Vmsa128,
                     aarch64_vmsa::address::Granule4KiB,
-                    VmsaAttributeCodec,
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -441,7 +431,6 @@ fn d128_update_case(
                     LowerRegime,
                     aarch64_vmsa::descriptor::Vmsa128,
                     aarch64_vmsa::address::Granule4KiB,
-                    VmsaAttributeCodec,
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -483,8 +472,7 @@ fn d128_stage2_update_case(
         Cacheability, D128Stage1AliasKind, DirtyState, LiveVmsaConfig, MemoryAttributes,
         SemanticStage2LeafAttrs, SemanticVmsa128Stage2LeafControls,
         SemanticVmsa128Stage2TableAttrs, Shareability, SoftwareMetadata, Stage2MemoryAttributes,
-        Stage2MemoryMode, Stage2Permission, Stage2PermissionRegisters, VmsaAttributeCodec,
-    };
+        Stage2MemoryMode, Stage2Permission, Stage2PermissionRegisters, };
     use vmsa_test_harness::{
         AccessKind, AddressBits, Asid, ExpectedFault, FaultClass, FaultMatcher, FaultStage,
         FaultStatus, Granule, LookupLevel, MappingAttributes, PhysicalAddress, TranslationFormat,
@@ -598,7 +586,7 @@ fn d128_stage2_update_case(
         if physical_region != 0 {
             mapper.map_stage2_leaf(0, 0, recovery_level, recovery)?;
         }
-        mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        mapper.map_semantic_leaf::<_>(
             &config,
             target_ipa,
             page.phys_addr(),
@@ -607,7 +595,7 @@ fn d128_stage2_update_case(
             SemanticVmsa128Stage2TableAttrs::default(),
         )?;
         let installed = mapper
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(target_ipa, &config)?
+            .inspect_semantic_leaf::<_>(target_ipa, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if installed != leaf {
             return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
@@ -649,7 +637,6 @@ fn d128_stage2_update_case(
             Stage2Regime,
             aarch64_vmsa::descriptor::Vmsa128,
             aarch64_vmsa::address::Granule4KiB,
-            VmsaAttributeCodec,
             _,
         >(target_ipa, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -683,7 +670,6 @@ fn d128_stage2_update_case(
                     Stage2Regime,
                     aarch64_vmsa::descriptor::Vmsa128,
                     aarch64_vmsa::address::Granule4KiB,
-                    VmsaAttributeCodec,
                     _,
                 >(target_ipa, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -717,7 +703,6 @@ fn d128_stage2_update_case(
                     Stage2Regime,
                     aarch64_vmsa::descriptor::Vmsa128,
                     aarch64_vmsa::address::Granule4KiB,
-                    VmsaAttributeCodec,
                     _,
                 >(target_ipa, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -740,7 +725,6 @@ fn d128_stage2_update_case(
                     Stage2Regime,
                     aarch64_vmsa::descriptor::Vmsa128,
                     aarch64_vmsa::address::Granule4KiB,
-                    VmsaAttributeCodec,
                     _,
                 >(target_ipa, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;

@@ -74,7 +74,7 @@ pub fn descriptor_errors() -> TestResult {
         guarded: false,
         software: FourBit::ZERO,
     };
-    if <Layout as DescriptorLayout<Vmsa64, Stage1, Granule4KiB>>::leaf_descriptor(
+    if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::leaf_descriptor(
         PhysAddr(0),
         Level::L0,
         leaf,
@@ -93,7 +93,7 @@ pub fn descriptor_errors() -> TestResult {
         ns_table: false,
         software: FourBit::ZERO,
     };
-    if <Layout as DescriptorLayout<Vmsa64, Stage1, Granule4KiB>>::table_descriptor(
+    if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::table_descriptor(
         PhysAddr(0x4000),
         transition,
         table,
@@ -163,7 +163,7 @@ pub fn d128_stage1_final_bbm_nt_error() -> TestResult {
     use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout, Vmsa128};
     use aarch64_vmsa::translation::Stage1;
     type Layout = <Vmsa128 as HasLayout<Stage1, Granule4KiB>>::Layout;
-    if <Layout as DescriptorLayout<Vmsa128, Stage1, Granule4KiB>>::leaf_descriptor(
+    if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::leaf_descriptor(
         PhysAddr(0),
         Level::L3,
         d128_stage1_leaf(true)?,
@@ -180,7 +180,7 @@ pub fn d128_stage2_final_bbm_nt_error() -> TestResult {
     use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout, Vmsa128};
     use aarch64_vmsa::translation::Stage2;
     type Layout = <Vmsa128 as HasLayout<Stage2, Granule4KiB>>::Layout;
-    if <Layout as DescriptorLayout<Vmsa128, Stage2, Granule4KiB>>::leaf_descriptor(
+    if <Layout as DescriptorLayout<Stage2, Granule4KiB>>::leaf_descriptor(
         PhysAddr(0),
         Level::L3,
         d128_stage2_leaf(true)?,
@@ -208,7 +208,7 @@ pub fn d128_stage1_table_nt_skl0_error() -> TestResult {
         table_nt: true,
         ..RawVmsa128Stage1TableAttrs::default()
     };
-    if <Layout as DescriptorLayout<Vmsa128, Stage1, Granule4KiB>>::table_descriptor(
+    if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::table_descriptor(
         PhysAddr(0),
         transition,
         fields,
@@ -236,7 +236,7 @@ pub fn d128_stage2_table_nt_skl0_error() -> TestResult {
         table_nt: true,
         ..RawVmsa128Stage2TableAttrs::default()
     };
-    if <Layout as DescriptorLayout<Vmsa128, Stage2, Granule4KiB>>::table_descriptor(
+    if <Layout as DescriptorLayout<Stage2, Granule4KiB>>::table_descriptor(
         PhysAddr(0),
         transition,
         fields,

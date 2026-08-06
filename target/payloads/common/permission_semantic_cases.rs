@@ -10,8 +10,7 @@ pub(super) fn stage1_semantic_mapper(
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
         SoftwareMetadata, Stage2MemoryMode, TwoPrivilegeLeafPermissions,
-        TwoPrivilegeTablePermissionLimits, VmsaAttributeCodec,
-    };
+        TwoPrivilegeTablePermissionLimits, };
     use aarch64_vmsa::descriptor::Vmsa64;
 
     const ADDRESS: u64 = 0x6800_0000;
@@ -107,7 +106,7 @@ pub(super) fn stage1_semantic_mapper(
     ];
     for (index, (permissions, permission_limits)) in stage1_cases.into_iter().enumerate() {
         let address = ADDRESS + index as u64 * 4096;
-        stage1.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        stage1.map_semantic_leaf::<_>(
             &direct_config,
             address,
             stage1_output.phys_addr() + index as u64 * 4096,
@@ -126,13 +125,13 @@ pub(super) fn stage1_semantic_mapper(
             },
         )?;
         let decoded = stage1
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &direct_config)?
+            .inspect_semantic_leaf::<_>(address, &direct_config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.permissions != permissions {
             return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
     }
-    if stage1.map_semantic_leaf::<VmsaAttributeCodec, _>(
+    if stage1.map_semantic_leaf::<_>(
         &direct_config,
         ADDRESS + 4 * 4096,
         stage1_output.phys_addr(),
@@ -176,8 +175,7 @@ pub(super) fn stage2_direct_semantic_mapper(
         MemoryAttributes, SemanticStage2LeafAttrs, SemanticVmsa64Stage2LeafControls,
         SemanticVmsa64Stage2TableAttrs, Shareability, SoftwareMetadata, Stage2LeafPermissions,
         Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permissions, Stage2XnxPermissions,
-        VmsaAttributeCodec,
-    };
+        };
     use aarch64_vmsa::descriptor::Vmsa64;
     use aarch64_vmsa::regime::NonSecureEl2Stage2;
     const ADDRESS: u64 = 0x6800_0000;
@@ -229,7 +227,7 @@ pub(super) fn stage2_direct_semantic_mapper(
                 unprivileged_execute,
             };
             let address = ADDRESS + 0x10_0000 + index as u64 * 4096;
-            xnx.map_semantic_leaf::<VmsaAttributeCodec, _>(
+            xnx.map_semantic_leaf::<_>(
                 &direct_config,
                 address,
                 stage2_output.phys_addr() + index as u64 * 4096,
@@ -244,7 +242,7 @@ pub(super) fn stage2_direct_semantic_mapper(
                 SemanticVmsa64Stage2TableAttrs::default(),
             )?;
             let decoded = xnx
-                .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &direct_config)?
+                .inspect_semantic_leaf::<_>(address, &direct_config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if decoded.permissions != permissions {
                 return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
@@ -263,7 +261,7 @@ pub(super) fn stage2_direct_semantic_mapper(
         48,
         48,
     )?;
-    if direct_stage2.map_semantic_leaf::<VmsaAttributeCodec, _>(
+    if direct_stage2.map_semantic_leaf::<_>(
         &direct_config,
         ADDRESS + 0x1f_0000,
         stage2_output.phys_addr(),
@@ -297,8 +295,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
         FwbStage2Memory, LiveVmsaConfig, MemoryAttributes, SemanticStage2LeafAttrs,
         SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, Shareability,
         SoftwareMetadata, Stage2LeafPermissions, Stage2MemoryAttributes, Stage2MemoryMode,
-        Stage2Permissions, VmsaAttributeCodec,
-    };
+        Stage2Permissions, };
     use aarch64_vmsa::descriptor::Vmsa64;
     use aarch64_vmsa::regime::NonSecureEl2Stage2;
     const ADDRESS: u64 = 0x6800_0000;
@@ -369,7 +366,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
             output_address_space: (),
             controls: stage2_controls,
         };
-        direct_stage2.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        direct_stage2.map_semantic_leaf::<_>(
             &fwb_no_mte,
             address,
             stage2_output.phys_addr(),
@@ -379,7 +376,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
             SemanticVmsa64Stage2TableAttrs::default(),
         )?;
         if direct_stage2
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &fwb_no_mte)?
+            .inspect_semantic_leaf::<_>(address, &fwb_no_mte)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?
             != leaf
         {
@@ -400,7 +397,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
             output_address_space: (),
             controls: stage2_controls,
         };
-        if direct_stage2.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        if direct_stage2.map_semantic_leaf::<_>(
             &fwb_no_mte,
             address,
             stage2_output.phys_addr(),
@@ -413,7 +410,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
         )) {
             return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
         }
-        direct_stage2.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        direct_stage2.map_semantic_leaf::<_>(
             &fwb_with_mte,
             address,
             stage2_output.phys_addr(),
@@ -423,7 +420,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
             SemanticVmsa64Stage2TableAttrs::default(),
         )?;
         if direct_stage2
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &fwb_with_mte)?
+            .inspect_semantic_leaf::<_>(address, &fwb_with_mte)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?
             != leaf
         {
@@ -436,7 +433,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
         output_address_space: (),
         controls: stage2_controls,
     };
-    if direct_stage2.map_semantic_leaf::<VmsaAttributeCodec, _>(
+    if direct_stage2.map_semantic_leaf::<_>(
         &fwb_no_mte,
         ADDRESS + 0x4f_0000,
         stage2_output.phys_addr(),
@@ -455,7 +452,7 @@ pub(super) fn stage2_fwb_semantic_mapper(
         output_address_space: (),
         controls: stage2_controls,
     };
-    if direct_stage2.map_semantic_leaf::<VmsaAttributeCodec, _>(
+    if direct_stage2.map_semantic_leaf::<_>(
         &direct_config,
         ADDRESS + 0x4f_1000,
         stage2_output.phys_addr(),
@@ -480,8 +477,7 @@ pub(super) fn d128_stage2_semantic_mapper(
         MostlyReadOnly, SemanticStage2LeafAttrs, SemanticVmsa128Stage2LeafControls,
         SemanticVmsa128Stage2TableAttrs, Shareability, SoftwareMetadata, Stage2MemoryAttributes,
         Stage2MemoryMode, Stage2Permission, Stage2PermissionRegisters, Stage2Permissions,
-        VmsaAttributeCodec,
-    };
+        };
     use aarch64_vmsa::descriptor::Vmsa128;
     use aarch64_vmsa::regime::NonSecureEl2Stage2;
     const ADDRESS: u64 = 0x6800_0000;
@@ -580,7 +576,7 @@ pub(super) fn d128_stage2_semantic_mapper(
         output_address_space: (),
         controls: d128_controls,
     };
-    if d128.map_semantic_leaf::<VmsaAttributeCodec, _>(
+    if d128.map_semantic_leaf::<_>(
         &direct_config,
         ADDRESS + 0x2f_0000,
         d128_output.phys_addr(),
@@ -600,7 +596,7 @@ pub(super) fn d128_stage2_semantic_mapper(
         }),
         ..direct_config
     };
-    if d128.map_semantic_leaf::<VmsaAttributeCodec, _>(
+    if d128.map_semantic_leaf::<_>(
         &missing_combination_config,
         ADDRESS + 0x2f_1000,
         d128_output.phys_addr(),
@@ -615,7 +611,7 @@ pub(super) fn d128_stage2_semantic_mapper(
     }
     for (index, permissions) in d128_permissions.into_iter().enumerate() {
         let address = ADDRESS + 0x20_0000 + index as u64 * 4096;
-        d128.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        d128.map_semantic_leaf::<_>(
             &d128_config,
             address,
             d128_output.phys_addr() + index as u64 * 4096,
@@ -625,7 +621,7 @@ pub(super) fn d128_stage2_semantic_mapper(
             SemanticVmsa128Stage2TableAttrs::default(),
         )?;
         let decoded = d128
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &d128_config)?
+            .inspect_semantic_leaf::<_>(address, &d128_config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.permissions != permissions {
             return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
@@ -642,8 +638,7 @@ pub(super) fn d128_stage1_effective_semantic_mapper(
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticVmsa128Stage1LeafControls,
         SemanticVmsa128Stage1TableAttrs, Shareability, SoftwareMetadata,
         Stage1EffectivePermissions, Stage1PermissionRegisterPair, Stage1PermissionRegisters,
-        Stage2MemoryMode, VmsaAttributeCodec,
-    };
+        Stage2MemoryMode, };
     use aarch64_vmsa::descriptor::Vmsa128;
 
     const ADDRESS: u64 = 0x6800_0000;
@@ -696,7 +691,7 @@ pub(super) fn d128_stage1_effective_semantic_mapper(
             output_pas: (),
         };
         let address = ADDRESS + 0x30_0000 + index as u64 * 4096;
-        effective.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        effective.map_semantic_leaf::<_>(
             &config,
             address,
             effective_output.phys_addr() + index as u64 * 4096,
@@ -721,7 +716,7 @@ pub(super) fn d128_stage1_effective_semantic_mapper(
             SemanticVmsa128Stage1TableAttrs::default(),
         )?;
         let decoded = effective
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &config)?
+            .inspect_semantic_leaf::<_>(address, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.permissions != permissions {
             return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();

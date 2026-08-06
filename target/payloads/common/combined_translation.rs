@@ -212,7 +212,6 @@ pub(super) fn combined_stage1_stage2(
                     Stage2Regime,
                     aarch64_vmsa::descriptor::Vmsa64,
                     aarch64_vmsa::address::Granule4KiB,
-                    aarch64_vmsa::attrs::VmsaAttributeCodec,
                     _,
                 >(target_ipa, &semantic_config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;

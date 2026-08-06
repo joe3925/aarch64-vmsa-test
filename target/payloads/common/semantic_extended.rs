@@ -42,8 +42,7 @@ fn lpa2_stage1_case(
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
         SinglePrivilegeLeafPermissions, SinglePrivilegeTablePermissionLimits, SoftwareMetadata,
-        Stage2MemoryMode, VmsaAttributeCodec,
-    };
+        Stage2MemoryMode, };
     use aarch64_vmsa::descriptor::Vmsa64Lpa2;
     use vmsa_test_harness::{
         AddressBits, Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
@@ -117,7 +116,7 @@ fn lpa2_stage1_case(
             )
             .map_err(|_| vmsa_test_harness::HarnessError::EnvironmentDetail(0x10))?;
         mapper
-            .map_semantic_leaf::<VmsaAttributeCodec, _>(
+            .map_semantic_leaf::<_>(
                 &config,
                 ADDRESS,
                 page.phys_addr(),
@@ -127,7 +126,7 @@ fn lpa2_stage1_case(
             )
             .map_err(|_| vmsa_test_harness::HarnessError::EnvironmentDetail(0x11))?;
         offline = mapper
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(ADDRESS, &config)
+            .inspect_semantic_leaf::<_>(ADDRESS, &config)
             .map_err(|_| vmsa_test_harness::HarnessError::EnvironmentDetail(0x12))?
             .ok_or(vmsa_test_harness::HarnessError::EnvironmentDetail(0x16))?;
         if offline != leaf {
@@ -166,7 +165,7 @@ fn lpa2_stage1_case(
         )
         .map_err(|_| vmsa_test_harness::HarnessError::EnvironmentDetail(0x1c))?;
     let live = translation
-        .inspect_semantic_for::<CurrentRegime, Vmsa64Lpa2, Granule4KiB, VmsaAttributeCodec, _>(
+        .inspect_semantic_for::<CurrentRegime, Vmsa64Lpa2, Granule4KiB, _>(
             ADDRESS, &config,
         )
         .map_err(|_| vmsa_test_harness::HarnessError::EnvironmentDetail(0x14))?
@@ -195,8 +194,7 @@ pub fn d128_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         Cacheability, D128Stage1AliasKind, DirtyState, LiveVmsaConfig, MemoryAttributes,
         SemanticStage2LeafAttrs, SemanticVmsa128Stage2LeafControls,
         SemanticVmsa128Stage2TableAttrs, Shareability, SoftwareMetadata, Stage2MemoryAttributes,
-        Stage2MemoryMode, Stage2Permission, Stage2PermissionRegisters, VmsaAttributeCodec,
-    };
+        Stage2MemoryMode, Stage2Permission, Stage2PermissionRegisters, };
     use aarch64_vmsa::descriptor::{Vmsa64Lpa2, Vmsa128};
     use vmsa_test_harness::{
         AddressBits, Asid, Granule, LookupLevel, MappingAttributes, PhysicalAddress,
@@ -286,7 +284,7 @@ pub fn d128_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         };
         mapper.map_stage2_leaf(physical_region, physical_region, block, recovery)?;
         mapper.map_stage2_leaf(0, 0, block, recovery)?;
-        mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        mapper.map_semantic_leaf::<_>(
             &config,
             target_ipa,
             page.phys_addr(),
@@ -295,7 +293,7 @@ pub fn d128_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
             SemanticVmsa128Stage2TableAttrs::default(),
         )?;
         offline = mapper
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(target_ipa, &config)?
+            .inspect_semantic_leaf::<_>(target_ipa, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     }
     let stage1_setup = TranslationSetup {
@@ -332,7 +330,7 @@ pub fn d128_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         context.install_combined_owned(stage1_root, stage1_setup, stage2_root, stage2_setup)?;
     let installed = combined
         .stage2_mut()?
-        .inspect_semantic_for::<Stage2Regime, Vmsa128, Granule4KiB, VmsaAttributeCodec, _>(
+        .inspect_semantic_for::<Stage2Regime, Vmsa128, Granule4KiB, _>(
             target_ipa, &config,
         )?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -348,8 +346,7 @@ pub fn lpa2_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
         MemoryAttributes, SemanticStage2LeafAttrs, SemanticVmsa64Stage2LeafControls,
         SemanticVmsa64Stage2TableAttrs, Shareability, SoftwareMetadata, Stage2LeafPermissions,
-        Stage2MemoryAttributes, Stage2MemoryMode, VmsaAttributeCodec,
-    };
+        Stage2MemoryAttributes, Stage2MemoryMode, };
     use aarch64_vmsa::descriptor::Vmsa64Lpa2;
     use vmsa_test_harness::{
         AddressBits, Asid, Granule, LookupLevel, MappingAttributes, PhysicalAddress,
@@ -429,7 +426,7 @@ pub fn lpa2_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         };
         mapper.map_leaf(physical_region, physical_region, block, recovery)?;
         mapper.map_leaf(0, 0, block, recovery)?;
-        mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        mapper.map_semantic_leaf::<_>(
             &config,
             target_ipa,
             page.phys_addr(),
@@ -438,7 +435,7 @@ pub fn lpa2_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
             SemanticVmsa64Stage2TableAttrs::default(),
         )?;
         offline = mapper
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(target_ipa, &config)?
+            .inspect_semantic_leaf::<_>(target_ipa, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     }
     let stage1_setup = TranslationSetup {
@@ -475,7 +472,7 @@ pub fn lpa2_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         context.install_combined_owned(stage1_root, stage1_setup, stage2_root, stage2_setup)?;
     let installed = combined
         .stage2_mut()?
-        .inspect_semantic_for::<Stage2Regime, Vmsa64Lpa2, Granule4KiB, VmsaAttributeCodec, _>(
+        .inspect_semantic_for::<Stage2Regime, Vmsa64Lpa2, Granule4KiB, _>(
             target_ipa, &config,
         )?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;

@@ -87,14 +87,13 @@ fn active_standard_leaf_case<F, G, R>(
 where
     G: vmsa_test_harness::adapter::TestGranule,
     R: vmsa_test_harness::adapter::TestRegimeFor<G>,
-    R::WalkProfile: aarch64_vmsa::translation::TranslationWalkProfile<Stage = aarch64_vmsa::translation::Stage2>,
+    R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
     F: vmsa_test_harness::adapter::TestFormat
         + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
     aarch64_vmsa::descriptor::Vmsa64:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
     <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
-                F,
                 aarch64_vmsa::translation::Stage2,
                 G,
                 LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -109,9 +108,7 @@ where
                 >,
             >,
     aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
-    aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
-            F,
-            R,
+    F: aarch64_vmsa::attrs::AttributeCodec<R,
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
@@ -267,7 +264,7 @@ where
             inner: aarch64_vmsa::attrs::Cacheability::NonCacheable,
             outer: aarch64_vmsa::attrs::Cacheability::NonCacheable,
         };
-        mapper.map_semantic_leaf::<aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
+        mapper.map_semantic_leaf::<_>(
             &semantic_config,
             input_base,
             output_base,
@@ -318,7 +315,7 @@ where
         }
         offline_walk = walk;
         offline_semantic = mapper
-            .inspect_semantic_leaf::<aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
+            .inspect_semantic_leaf::<_>(
                 target_ipa,
                 &semantic_config,
             )?
@@ -391,7 +388,7 @@ where
     }
     let installed_semantic = combined
         .stage2_mut()?
-        .inspect_semantic_for::<R, F, G, aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
+        .inspect_semantic_for::<R, F, G, _>(
             target_ipa,
             &semantic_config,
         )?
@@ -505,16 +502,13 @@ fn active_standard_leaf<F, G, R>(
 where
     G: vmsa_test_harness::adapter::TestGranule,
     R: vmsa_test_harness::adapter::TestRegimeFor<G>,
-    R::WalkProfile: aarch64_vmsa::translation::TranslationWalkProfile<
-            Stage = aarch64_vmsa::translation::Stage2,
-        >,
+    R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
     F: vmsa_test_harness::adapter::TestFormat
         + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
     aarch64_vmsa::descriptor::Vmsa64:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
     <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
-                F,
                 aarch64_vmsa::translation::Stage2,
                 G,
                 LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -529,9 +523,7 @@ where
                 >,
             >,
     aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
-    aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
-            F,
-            R,
+    F: aarch64_vmsa::attrs::AttributeCodec<R,
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
@@ -1070,7 +1062,6 @@ where
         aarch64_vmsa::translation::Stage2,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::descriptor::Vmsa128,
             aarch64_vmsa::translation::Stage2,
             G,
             LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2LeafAttrs,
@@ -1220,7 +1211,7 @@ where
         }
         offline_walk = walk;
         offline_semantic = mapper
-            .inspect_semantic_leaf::<aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
+            .inspect_semantic_leaf::<_>(
                 target_ipa,
                 &semantic_config,
             )?
@@ -1296,7 +1287,6 @@ where
             Stage2Regime,
             aarch64_vmsa::descriptor::Vmsa128,
             G,
-            aarch64_vmsa::attrs::VmsaAttributeCodec,
             _,
         >(target_ipa, &semantic_config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;

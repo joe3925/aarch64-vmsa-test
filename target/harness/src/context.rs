@@ -65,11 +65,11 @@ impl
 
 impl
     aarch64_vmsa::descriptor::DescriptorLayout<
-        WalkerProbeFormat,
         aarch64_vmsa::translation::Stage1,
         aarch64_vmsa::address::Granule4KiB,
     > for WalkerProbeLayout
 {
+    type Format = WalkerProbeFormat;
     type LeafFields = ();
     type TableFields = ();
     const ADDRESS_FIELD_MASK: u128 = u64::MAX as u128;
@@ -575,8 +575,8 @@ impl<'a, E: Environment> TestContext<'a, E> {
 
     pub fn verify_walker_access_error(&self) -> bool {
         use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-        use aarch64_vmsa::table::{TablePhysAddr, TableShape};
-        use aarch64_vmsa::translation::Stage1Walk;
+        use aarch64_vmsa::regime::NonSecureEl1Stage1;
+        use aarch64_vmsa::table::{RootTable, TablePhysAddr, TableShape};
         use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
 
         let Ok(root) = self.allocate_root() else {
@@ -593,11 +593,13 @@ impl<'a, E: Environment> TestContext<'a, E> {
             shape: TableShape::root(Level::L0),
             reject: true,
         };
-        let Ok(walker) = Walker::<WalkerProbeFormat, Stage1Walk, Granule4KiB, _>::new(
+        let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
             root_addr,
             Level::L0,
-            access,
-        ) else {
+            48,
+            48,
+        );
+        let Ok(walker) = Walker::new(root, access) else {
             return false;
         };
         let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
@@ -624,8 +626,8 @@ impl<'a, E: Environment> TestContext<'a, E> {
 
     pub fn verify_walker_cursor_error(&self) -> bool {
         use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-        use aarch64_vmsa::table::{TablePhysAddr, TableShape};
-        use aarch64_vmsa::translation::Stage1Walk;
+        use aarch64_vmsa::regime::NonSecureEl1Stage1;
+        use aarch64_vmsa::table::{RootTable, TablePhysAddr, TableShape};
         use aarch64_vmsa::translation::walk::{WalkCursorError, WalkError, WalkInputAddr, Walker};
 
         let Ok(root) = self.allocate_root() else {
@@ -643,9 +645,10 @@ impl<'a, E: Environment> TestContext<'a, E> {
             shape: TableShape::root(root_level),
             reject: false,
         };
-        let Ok(walker) = Walker::<WalkerProbeFormat, Stage1Walk, Granule4KiB, _>::new(
-            root_addr, root_level, access,
-        ) else {
+        let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
+            root_addr, root_level, 48, 48,
+        );
+        let Ok(walker) = Walker::new(root, access) else {
             return false;
         };
         let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
@@ -660,8 +663,8 @@ impl<'a, E: Environment> TestContext<'a, E> {
 
     pub fn verify_walker_invalid_table_address_error(&self) -> bool {
         use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-        use aarch64_vmsa::table::{TableAddressError, TablePhysAddr, TableShape};
-        use aarch64_vmsa::translation::Stage1Walk;
+        use aarch64_vmsa::regime::NonSecureEl1Stage1;
+        use aarch64_vmsa::table::{RootTable, TableAddressError, TablePhysAddr, TableShape};
         use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
 
         let Ok(root) = self.allocate_root() else {
@@ -680,11 +683,13 @@ impl<'a, E: Environment> TestContext<'a, E> {
             shape: TableShape::root(Level::L0),
             reject: false,
         };
-        let Ok(walker) = Walker::<WalkerProbeFormat, Stage1Walk, Granule4KiB, _>::new(
+        let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
             root_addr,
             Level::L0,
-            access,
-        ) else {
+            48,
+            48,
+        );
+        let Ok(walker) = Walker::new(root, access) else {
             return false;
         };
         let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
@@ -703,8 +708,8 @@ impl<'a, E: Environment> TestContext<'a, E> {
 
     pub fn verify_walker_entry_index_error(&self) -> bool {
         use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-        use aarch64_vmsa::table::{NextTable, TablePhysAddr, TableShape};
-        use aarch64_vmsa::translation::Stage1Walk;
+        use aarch64_vmsa::regime::NonSecureEl1Stage1;
+        use aarch64_vmsa::table::{NextTable, RootTable, TablePhysAddr, TableShape};
         use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
 
         let Ok(root) = self.allocate_root() else {
@@ -721,11 +726,13 @@ impl<'a, E: Environment> TestContext<'a, E> {
             shape: TableShape::root(Level::L3),
             reject: false,
         };
-        let Ok(walker) = Walker::<WalkerProbeFormat, Stage1Walk, Granule4KiB, _>::new(
+        let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
             root_addr,
             Level::NEG1,
-            access,
-        ) else {
+            48,
+            48,
+        );
+        let Ok(walker) = Walker::new(root, access) else {
             return false;
         };
         let Ok(cursor) = walker.cursor(WalkInputAddr::new(512 << 12)) else {
@@ -751,8 +758,8 @@ impl<'a, E: Environment> TestContext<'a, E> {
 
     pub fn verify_walker_final_table_error(&self) -> bool {
         use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-        use aarch64_vmsa::table::{TablePhysAddr, TableShape};
-        use aarch64_vmsa::translation::Stage1Walk;
+        use aarch64_vmsa::regime::NonSecureEl1Stage1;
+        use aarch64_vmsa::table::{RootTable, TablePhysAddr, TableShape};
         use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
 
         let Ok(root) = self.allocate_root() else {
@@ -771,11 +778,13 @@ impl<'a, E: Environment> TestContext<'a, E> {
             shape: TableShape::root(Level::L3),
             reject: false,
         };
-        let Ok(walker) = Walker::<WalkerProbeFormat, Stage1Walk, Granule4KiB, _>::new(
+        let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
             root_addr,
             Level::L3,
-            access,
-        ) else {
+            48,
+            48,
+        );
+        let Ok(walker) = Walker::new(root, access) else {
             return false;
         };
         let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
@@ -789,8 +798,8 @@ impl<'a, E: Environment> TestContext<'a, E> {
 
     pub fn verify_walker_output_overflow_error(&self) -> bool {
         use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-        use aarch64_vmsa::table::{TablePhysAddr, TableShape};
-        use aarch64_vmsa::translation::Stage1Walk;
+        use aarch64_vmsa::regime::NonSecureEl1Stage1;
+        use aarch64_vmsa::table::{RootTable, TablePhysAddr, TableShape};
         use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
 
         let Ok(root) = self.allocate_root() else {
@@ -809,11 +818,13 @@ impl<'a, E: Environment> TestContext<'a, E> {
             shape: TableShape::root(Level::L1),
             reject: false,
         };
-        let Ok(walker) = Walker::<WalkerProbeFormat, Stage1Walk, Granule4KiB, _>::new(
+        let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
             root_addr,
             Level::L1,
-            access,
-        ) else {
+            48,
+            48,
+        );
+        let Ok(walker) = Walker::new(root, access) else {
             return false;
         };
         let Ok(cursor) = walker.cursor(WalkInputAddr::new(1)) else {
@@ -1412,7 +1423,6 @@ impl<'a, E: Environment> TestContext<'a, E> {
             aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
         <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
-                    F,
                     aarch64_vmsa::regime::StageOf<R>,
                     G,
                     LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -1659,7 +1669,6 @@ impl<'a, E: Environment> TestContext<'a, E> {
             aarch64_vmsa::regime::StageOf<R>,
             aarch64_vmsa::address::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::descriptor::Vmsa128,
                 aarch64_vmsa::regime::StageOf<R>,
                 aarch64_vmsa::address::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
@@ -2896,17 +2905,16 @@ where
         })
     }
 
-    pub fn inspect_semantic_for<R, F, G, Codec, Cfg>(
+    pub fn inspect_semantic_for<R, F, G, Cfg>(
         &mut self,
         input: u64,
         config: &Cfg,
-    ) -> Result<Option<Codec::SemanticLeaf>, HarnessError>
+    ) -> Result<Option<F::SemanticLeaf>, HarnessError>
     where
         R: aarch64_vmsa::regime::TranslationRegime,
         F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
         G: TestGranule,
-        Codec: aarch64_vmsa::attrs::AttributeCodec<
-                F,
+        F: aarch64_vmsa::attrs::AttributeCodec<
                 R,
                 G,
                 Cfg,
@@ -2921,7 +2929,7 @@ where
                 .map_err(|_| HarnessError::InvalidState)?;
             mapping
                 .map(|mapping| {
-                    aarch64_vmsa::mapper::decode_semantic_leaf::<F, R, G, Codec, Cfg>(
+                    aarch64_vmsa::mapper::decode_semantic_leaf::<F, R, G, Cfg>(
                         config,
                         mapping.level(),
                         *mapping.fields(),
@@ -2936,21 +2944,20 @@ where
         })
     }
 
-    pub fn map_semantic_for<R, F, G, Codec, Cfg>(
+    pub fn map_semantic_for<R, F, G, Cfg>(
         &mut self,
         config: &Cfg,
         input: u64,
         output: u64,
         level: LookupLevel,
-        leaf: Codec::SemanticLeaf,
-        table: Codec::SemanticTable,
+        leaf: F::SemanticLeaf,
+        table: F::SemanticTable,
     ) -> Result<(), HarnessError>
     where
         R: aarch64_vmsa::regime::TranslationRegime,
         F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
         G: TestGranule,
-        Codec: aarch64_vmsa::attrs::AttributeCodec<
-                F,
+        F: aarch64_vmsa::attrs::AttributeCodec<
                 R,
                 G,
                 Cfg,
@@ -2961,7 +2968,7 @@ where
     {
         self.failures.check(HarnessFailurePoint::Map)?;
         self.with_mapper_for::<R, F, G, _>(|mapper| {
-            aarch64_vmsa::mapper::map_semantic_leaf::<F, R, G, _, _, _, Codec, Cfg>(
+            aarch64_vmsa::mapper::map_semantic_leaf::<F, R, G, _, _, _, Cfg>(
                 mapper,
                 config,
                 aarch64_vmsa::translation::WalkInputAddr::new(input),
@@ -3003,7 +3010,6 @@ where
             aarch64_vmsa::regime::StageOf<E::Regime>,
             G,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                F,
                 aarch64_vmsa::regime::StageOf<E::Regime>,
                 G,
                 LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -3053,7 +3059,6 @@ where
             aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
         <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
-                    F,
                     aarch64_vmsa::regime::StageOf<R>,
                     G,
                     LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -3102,7 +3107,6 @@ where
             aarch64_vmsa::regime::StageOf<E::Regime>,
             G,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                F,
                 aarch64_vmsa::regime::StageOf<E::Regime>,
                 G,
                 LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -3226,7 +3230,6 @@ where
             aarch64_vmsa::regime::StageOf<E::Regime>,
             G,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                F,
                 aarch64_vmsa::regime::StageOf<E::Regime>,
                 G,
                 LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -3281,7 +3284,6 @@ where
             aarch64_vmsa::regime::StageOf<E::Regime>,
             G,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                F,
                 aarch64_vmsa::regime::StageOf<E::Regime>,
                 G,
                 LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -3323,7 +3325,6 @@ where
             aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
         <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
-                    F,
                     aarch64_vmsa::regime::StageOf<R>,
                     G,
                     LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -3367,7 +3368,6 @@ where
             aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
         <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
-                    F,
                     aarch64_vmsa::regime::StageOf<R>,
                     G,
                     LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -3403,7 +3403,6 @@ where
             aarch64_vmsa::regime::StageOf<E::Regime>,
             G,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                F,
                 aarch64_vmsa::regime::StageOf<E::Regime>,
                 G,
                 LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -3453,7 +3452,6 @@ where
             aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
         <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
-                    F,
                     aarch64_vmsa::regime::StageOf<R>,
                     G,
                     LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -3619,9 +3617,7 @@ impl<E: Environment> LiveTranslation<'_, E> {
     where
         E: TranslationRegimeEnvironment,
         R: aarch64_vmsa::regime::TranslationRegime,
-        R::WalkProfile: aarch64_vmsa::translation::TranslationWalkProfile<
-                Stage = aarch64_vmsa::translation::Stage1,
-            >,
+        R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage1>,
         aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage1,
                 aarch64_vmsa::address::Granule4KiB,
@@ -3630,7 +3626,6 @@ impl<E: Environment> LiveTranslation<'_, E> {
             aarch64_vmsa::translation::Stage1,
             aarch64_vmsa::address::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::descriptor::Vmsa128,
                 aarch64_vmsa::translation::Stage1,
                 aarch64_vmsa::address::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
@@ -3663,9 +3658,7 @@ impl<E: Environment> LiveTranslation<'_, E> {
     where
         E: TranslationRegimeEnvironment,
         R: aarch64_vmsa::regime::TranslationRegime,
-        R::WalkProfile: aarch64_vmsa::translation::TranslationWalkProfile<
-                Stage = aarch64_vmsa::translation::Stage1,
-            >,
+        R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage1>,
         aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage1,
                 aarch64_vmsa::address::Granule4KiB,
@@ -3674,7 +3667,6 @@ impl<E: Environment> LiveTranslation<'_, E> {
             aarch64_vmsa::translation::Stage1,
             aarch64_vmsa::address::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::descriptor::Vmsa128,
                 aarch64_vmsa::translation::Stage1,
                 aarch64_vmsa::address::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
@@ -3705,9 +3697,7 @@ impl<E: Environment> LiveTranslation<'_, E> {
     where
         E: TranslationRegimeEnvironment,
         R: aarch64_vmsa::regime::TranslationRegime,
-        R::WalkProfile: aarch64_vmsa::translation::TranslationWalkProfile<
-                Stage = aarch64_vmsa::translation::Stage1,
-            >,
+        R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage1>,
         aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage1,
                 aarch64_vmsa::address::Granule4KiB,
@@ -3716,7 +3706,6 @@ impl<E: Environment> LiveTranslation<'_, E> {
             aarch64_vmsa::translation::Stage1,
             aarch64_vmsa::address::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::descriptor::Vmsa128,
                 aarch64_vmsa::translation::Stage1,
                 aarch64_vmsa::address::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
@@ -3748,9 +3737,7 @@ impl<E: Environment> LiveTranslation<'_, E> {
     where
         E: TranslationRegimeEnvironment,
         R: aarch64_vmsa::regime::TranslationRegime,
-        R::WalkProfile: aarch64_vmsa::translation::TranslationWalkProfile<
-                Stage = aarch64_vmsa::translation::Stage2,
-            >,
+        R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
         aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage2,
                 aarch64_vmsa::address::Granule4KiB,
@@ -3759,7 +3746,6 @@ impl<E: Environment> LiveTranslation<'_, E> {
             aarch64_vmsa::translation::Stage2,
             aarch64_vmsa::address::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::descriptor::Vmsa128,
                 aarch64_vmsa::translation::Stage2,
                 aarch64_vmsa::address::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2LeafAttrs,
@@ -3790,9 +3776,7 @@ impl<E: Environment> LiveTranslation<'_, E> {
     where
         E: TranslationRegimeEnvironment,
         R: aarch64_vmsa::regime::TranslationRegime,
-        R::WalkProfile: aarch64_vmsa::translation::TranslationWalkProfile<
-                Stage = aarch64_vmsa::translation::Stage2,
-            >,
+        R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
         aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage2,
                 aarch64_vmsa::address::Granule4KiB,
@@ -3801,7 +3785,6 @@ impl<E: Environment> LiveTranslation<'_, E> {
             aarch64_vmsa::translation::Stage2,
             aarch64_vmsa::address::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::descriptor::Vmsa128,
                 aarch64_vmsa::translation::Stage2,
                 aarch64_vmsa::address::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2LeafAttrs,

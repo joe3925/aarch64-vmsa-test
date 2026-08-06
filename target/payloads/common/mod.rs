@@ -1305,7 +1305,6 @@ impl AdapterCore {
             aarch64_vmsa::regime::StageOf<R>,
             aarch64_vmsa::address::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::descriptor::Vmsa64Lpa2,
                 aarch64_vmsa::regime::StageOf<R>,
                 aarch64_vmsa::address::Granule4KiB,
                 LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -1323,7 +1322,6 @@ impl AdapterCore {
             aarch64_vmsa::regime::StageOf<R>,
             aarch64_vmsa::address::Granule16KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::descriptor::Vmsa64Lpa2,
                 aarch64_vmsa::regime::StageOf<R>,
                 aarch64_vmsa::address::Granule16KiB,
                 LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -1341,7 +1339,6 @@ impl AdapterCore {
             aarch64_vmsa::regime::StageOf<R>,
             aarch64_vmsa::address::Granule64KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::descriptor::Vmsa64Lpa2,
                 aarch64_vmsa::regime::StageOf<R>,
                 aarch64_vmsa::address::Granule64KiB,
                 LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -1363,7 +1360,6 @@ impl AdapterCore {
             aarch64_vmsa::regime::StageOf<R>,
             aarch64_vmsa::address::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::descriptor::Vmsa128,
                 aarch64_vmsa::regime::StageOf<R>,
                 aarch64_vmsa::address::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
@@ -1380,7 +1376,6 @@ impl AdapterCore {
             aarch64_vmsa::regime::StageOf<R>,
             aarch64_vmsa::address::Granule16KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::descriptor::Vmsa128,
                 aarch64_vmsa::regime::StageOf<R>,
                 aarch64_vmsa::address::Granule16KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
@@ -1390,7 +1385,6 @@ impl AdapterCore {
             aarch64_vmsa::regime::StageOf<R>,
             aarch64_vmsa::address::Granule64KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::descriptor::Vmsa128,
                 aarch64_vmsa::regime::StageOf<R>,
                 aarch64_vmsa::address::Granule64KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,

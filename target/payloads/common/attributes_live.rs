@@ -19,7 +19,7 @@ pub(super) fn semantic_codec(context: &mut TestContext<'_, CurrentEnvironment>) 
     let table = semantic_table();
     let semantic = {
         let mut mapper = context.offline_mapper(&mut offline_root)?;
-        mapper.map_semantic_leaf::<aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
+        mapper.map_semantic_leaf::<_>(
             &config,
             ADDRESS,
             page.phys_addr(),
@@ -29,7 +29,7 @@ pub(super) fn semantic_codec(context: &mut TestContext<'_, CurrentEnvironment>) 
             table,
         )?;
         mapper
-            .inspect_semantic_leaf::<aarch64_vmsa::attrs::VmsaAttributeCodec, _>(ADDRESS, &config)?
+            .inspect_semantic_leaf::<_>(ADDRESS, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?
     };
     let capabilities = context.capabilities();
@@ -60,7 +60,6 @@ pub(super) fn semantic_codec(context: &mut TestContext<'_, CurrentEnvironment>) 
         CurrentRegime,
         aarch64_vmsa::descriptor::Vmsa64,
         aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::attrs::VmsaAttributeCodec,
         _,
     >(
         &config,
@@ -86,7 +85,6 @@ pub(super) fn semantic_codec(context: &mut TestContext<'_, CurrentEnvironment>) 
             CurrentRegime,
             aarch64_vmsa::descriptor::Vmsa64,
             aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::attrs::VmsaAttributeCodec,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -127,7 +125,7 @@ pub(super) fn missing_memory_attribute(
         shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
         output_pas: (),
     };
-    if mapper.map_semantic_leaf::<aarch64_vmsa::attrs::VmsaAttributeCodec, _>(
+    if mapper.map_semantic_leaf::<_>(
         &config,
         ADDRESS,
         page.phys_addr(),

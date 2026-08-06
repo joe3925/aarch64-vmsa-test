@@ -136,8 +136,7 @@ fn take_external_fault() -> Option<vmsa_test_architecture::exception::RawFault> 
 pub extern "C" fn vmsa_test_realm_stage2_plan() -> u64 {
     use aarch64_vmsa::attrs::{
         D128Stage1AliasKind, DataAccess, LiveVmsaConfig, RealmOrNonSecurePa, Shareability,
-        Stage2MemoryMode, VmsaAttributeCodec,
-    };
+        Stage2MemoryMode, };
     use aarch64_vmsa::mapper::decode_semantic_leaf;
     use vmsa_test_harness::MappingAttributes;
     use vmsa_test_harness::adapter::TestRegimeFor;
@@ -162,7 +161,6 @@ pub extern "C" fn vmsa_test_realm_stage2_plan() -> u64 {
         aarch64_vmsa::descriptor::Vmsa64,
         aarch64_vmsa::regime::RealmEl2Stage2,
         aarch64_vmsa::address::Granule4KiB,
-        VmsaAttributeCodec,
         _,
     >(&config, aarch64_vmsa::address::Level::L3, raw) else {
         return checks;
@@ -361,8 +359,7 @@ fn fixed_realm_ipa_stage1_semantic_access(
         AttributeCodec, Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement,
         LiveVmsaConfig, MemoryAttributes, SemanticStage1LeafAttrs,
         SemanticVmsa64Stage1LeafControls, Shareability, SoftwareMetadata, Stage2MemoryMode,
-        TwoPrivilegeLeafPermissions, VmsaAttributeCodec,
-    };
+        TwoPrivilegeLeafPermissions, };
     let config = LiveVmsaConfig {
         mair: 0x44,
         mair2: None,
@@ -395,16 +392,12 @@ fn fixed_realm_ipa_stage1_semantic_access(
             software: SoftwareMetadata::new(0),
         },
     };
-    let decoded = <VmsaAttributeCodec as AttributeCodec<
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::regime::RealmEl1Stage1,
+    let decoded = <aarch64_vmsa::descriptor::Vmsa64 as AttributeCodec<aarch64_vmsa::regime::RealmEl1Stage1,
         Granule4KiB,
         _,
     >>::resolve_leaf(&config, Level::L3, leaf)
     .and_then(|raw| {
-        <VmsaAttributeCodec as AttributeCodec<
-            aarch64_vmsa::descriptor::Vmsa64,
-            aarch64_vmsa::regime::RealmEl1Stage1,
+        <aarch64_vmsa::descriptor::Vmsa64 as AttributeCodec<aarch64_vmsa::regime::RealmEl1Stage1,
             Granule4KiB,
             _,
         >>::decode_leaf(&config, Level::L3, raw)

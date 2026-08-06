@@ -19,8 +19,7 @@ fn single_privilege_case(
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
         SinglePrivilegeLeafPermissions, SinglePrivilegeTablePermissionLimits, SoftwareMetadata,
-        Stage2MemoryMode, VmsaAttributeCodec,
-    };
+        Stage2MemoryMode, };
     use vmsa_test_harness::{
         AccessKind, AddressBits, ExpectedFault, FaultClass, FaultMatcher, FaultStage, FaultStatus,
         Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
@@ -116,7 +115,6 @@ fn single_privilege_case(
         CurrentRegime,
         aarch64_vmsa::descriptor::Vmsa64,
         aarch64_vmsa::address::Granule4KiB,
-        VmsaAttributeCodec,
         _,
     >(
         &config,
@@ -131,7 +129,6 @@ fn single_privilege_case(
             CurrentRegime,
             aarch64_vmsa::descriptor::Vmsa64,
             aarch64_vmsa::address::Granule4KiB,
-            VmsaAttributeCodec,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -238,8 +235,7 @@ fn two_privilege_case(
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
         SoftwareMetadata, Stage2MemoryMode, TwoPrivilegeLeafPermissions,
-        TwoPrivilegeTablePermissionLimits, VmsaAttributeCodec,
-    };
+        TwoPrivilegeTablePermissionLimits, };
     use vmsa_test_harness::{
         AccessKind, AddressBits, Asid, ExpectedFault, FaultClass, FaultMatcher, FaultStage,
         FaultStatus, Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
@@ -325,7 +321,7 @@ fn two_privilege_case(
             aarch64_vmsa::address::Granule4KiB,
             aarch64_vmsa::descriptor::Vmsa64,
         >(&mut root, aarch64_vmsa::address::Level::L0, 48, 48)?;
-        mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        mapper.map_semantic_leaf::<_>(
             &config,
             ADDRESS,
             page.phys_addr(),
@@ -357,7 +353,6 @@ fn two_privilege_case(
             crate::LowerRegime,
             aarch64_vmsa::descriptor::Vmsa64,
             aarch64_vmsa::address::Granule4KiB,
-            VmsaAttributeCodec,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;

@@ -4,8 +4,7 @@ use aarch64_vmsa::attrs::{
     DirtyBitManagement, LiveVmsaConfig, MemoryAttributes, SemanticStage1LeafAttrs,
     SemanticStage2LeafAttrs, SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage2LeafControls,
     Shareability, SinglePrivilegeLeafPermissions, SoftwareMetadata, Stage2LeafPermissions,
-    Stage2MemoryAttributes, Stage2MemoryMode, VmsaAttributeCodec,
-};
+    Stage2MemoryAttributes, Stage2MemoryMode, };
 use aarch64_vmsa::descriptor::Vmsa64;
 use aarch64_vmsa::regime::{NonSecureEl2Stage1, NonSecureEl2Stage2};
 use vmsa_test_harness::TestResult;
@@ -24,9 +23,7 @@ pub fn vmsa64_four_bit() -> TestResult {
     let mut failures = 0;
     for value in 0..=15u16 {
         let one = stage1_leaf(value);
-        let one_result = <VmsaAttributeCodec as AttributeCodec<
-            Vmsa64,
-            NonSecureEl2Stage1,
+        let one_result = <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
             Granule4KiB,
             _,
         >>::resolve_leaf(&config, Level::L3, one)
@@ -34,17 +31,13 @@ pub fn vmsa64_four_bit() -> TestResult {
             if raw.software.bits() != value as u8 {
                 return Err(AttrError::RawFieldOutOfRange);
             }
-            <VmsaAttributeCodec as AttributeCodec<
-                Vmsa64,
-                NonSecureEl2Stage1,
+            <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
                 Granule4KiB,
                 _,
             >>::decode_leaf(&config, Level::L3, raw)
         });
         let two = stage2_leaf(value);
-        let two_result = <VmsaAttributeCodec as AttributeCodec<
-            Vmsa64,
-            NonSecureEl2Stage2,
+        let two_result = <Vmsa64 as AttributeCodec<NonSecureEl2Stage2,
             Granule4KiB,
             _,
         >>::resolve_leaf(&config, Level::L3, two)
@@ -52,9 +45,7 @@ pub fn vmsa64_four_bit() -> TestResult {
             if raw.software.bits() != value as u8 {
                 return Err(AttrError::RawFieldOutOfRange);
             }
-            <VmsaAttributeCodec as AttributeCodec<
-                Vmsa64,
-                NonSecureEl2Stage2,
+            <Vmsa64 as AttributeCodec<NonSecureEl2Stage2,
                 Granule4KiB,
                 _,
             >>::decode_leaf(&config, Level::L3, raw)
@@ -63,16 +54,12 @@ pub fn vmsa64_four_bit() -> TestResult {
             failures += 1;
         }
     }
-    if <VmsaAttributeCodec as AttributeCodec<
-        Vmsa64,
-        NonSecureEl2Stage1,
+    if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
         Granule4KiB,
         _,
     >>::resolve_leaf(&config, Level::L3, stage1_leaf(16))
         != Err(AttrError::RawFieldOutOfRange)
-        || <VmsaAttributeCodec as AttributeCodec<
-            Vmsa64,
-            NonSecureEl2Stage2,
+        || <Vmsa64 as AttributeCodec<NonSecureEl2Stage2,
             Granule4KiB,
             _,
         >>::resolve_leaf(&config, Level::L3, stage2_leaf(16))
@@ -141,9 +128,7 @@ pub fn d128_stage1_ten_bit() -> TestResult {
     let mut failures = 0;
     for value in 0..=1023u16 {
         let semantic = leaf(value);
-        let round_trip = <VmsaAttributeCodec as AttributeCodec<
-            Vmsa128,
-            NonSecureEl2Stage1,
+        let round_trip = <Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
             Granule4KiB,
             _,
         >>::resolve_leaf(&config, Level::L3, semantic)
@@ -151,9 +136,7 @@ pub fn d128_stage1_ten_bit() -> TestResult {
             if raw.software.bits() != value {
                 return Err(AttrError::RawFieldOutOfRange);
             }
-            <VmsaAttributeCodec as AttributeCodec<
-                Vmsa128,
-                NonSecureEl2Stage1,
+            <Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
                 Granule4KiB,
                 _,
             >>::decode_leaf(&config, Level::L3, raw)
@@ -162,9 +145,7 @@ pub fn d128_stage1_ten_bit() -> TestResult {
             failures += 1;
         }
     }
-    if <VmsaAttributeCodec as AttributeCodec<
-        Vmsa128,
-        NonSecureEl2Stage1,
+    if <Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
         Granule4KiB,
         _,
     >>::resolve_leaf(&config, Level::L3, leaf(1024))
@@ -213,9 +194,7 @@ pub fn d128_stage2_ten_bit() -> TestResult {
     let mut failures = 0;
     for value in 0..=1023u16 {
         let semantic = leaf(value);
-        let round_trip = <VmsaAttributeCodec as AttributeCodec<
-            Vmsa128,
-            NonSecureEl2Stage2<Stage2Permissions>,
+        let round_trip = <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
             Granule4KiB,
             _,
         >>::resolve_leaf(&config, Level::L3, semantic)
@@ -223,9 +202,7 @@ pub fn d128_stage2_ten_bit() -> TestResult {
             if raw.software.bits() != value {
                 return Err(AttrError::RawFieldOutOfRange);
             }
-            <VmsaAttributeCodec as AttributeCodec<
-                Vmsa128,
-                NonSecureEl2Stage2<Stage2Permissions>,
+            <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
                 Granule4KiB,
                 _,
             >>::decode_leaf(&config, Level::L3, raw)
@@ -234,9 +211,7 @@ pub fn d128_stage2_ten_bit() -> TestResult {
             failures += 1;
         }
     }
-    if <VmsaAttributeCodec as AttributeCodec<
-        Vmsa128,
-        NonSecureEl2Stage2<Stage2Permissions>,
+    if <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
         Granule4KiB,
         _,
     >>::resolve_leaf(&config, Level::L3, leaf(1024))

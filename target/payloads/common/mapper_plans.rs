@@ -188,7 +188,6 @@ where
         aarch64_vmsa::translation::Stage1,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::descriptor::Vmsa128,
             aarch64_vmsa::translation::Stage1,
             G,
             TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
@@ -252,7 +251,6 @@ where
                 aarch64_vmsa::translation::Stage1,
                 G,
             >>::Layout as DescriptorLayout<
-                Vmsa128,
                 aarch64_vmsa::translation::Stage1,
                 G,
             >>::supports_table_transition(transition);

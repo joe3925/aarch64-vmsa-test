@@ -261,7 +261,6 @@ where
         aarch64_vmsa::translation::Stage1,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::descriptor::Vmsa64Lpa2,
             aarch64_vmsa::translation::Stage1,
             G,
             LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
@@ -277,9 +276,7 @@ where
         >,
     aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, CurrentRegime, G>:
         Copy + PartialEq,
-    aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
-            aarch64_vmsa::descriptor::Vmsa64Lpa2,
-            CurrentRegime,
+    aarch64_vmsa::descriptor::Vmsa64Lpa2: aarch64_vmsa::attrs::AttributeCodec<CurrentRegime,
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<

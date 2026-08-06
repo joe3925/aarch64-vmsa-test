@@ -30,7 +30,6 @@ pub fn d128_reserved_rejection() -> TestResult {
         software: TenBit::new(0).map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
     };
     match <Layout as DescriptorLayout<
-        Vmsa128,
         aarch64_vmsa::translation::Stage1,
         aarch64_vmsa::address::Granule4KiB,
     >>::leaf_descriptor(
@@ -67,8 +66,7 @@ where
         MemoryAttributes, RootExtendedPa, SemanticStage1LeafAttrs,
         SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs, Shareability,
         SoftwareMetadata, Stage1EffectivePermissions, Stage1PermissionRegisterPair,
-        Stage1PermissionRegisters, Stage2MemoryMode, VmsaAttributeCodec,
-    };
+        Stage1PermissionRegisters, Stage2MemoryMode, };
     let permissions = Stage1EffectivePermissions {
         privileged_data: DataAccess::ReadOnly,
         unprivileged_data: DataAccess::None,
@@ -132,7 +130,7 @@ where
     .enumerate()
     {
         let address = ADDRESS + index as u64 * 4096;
-        mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        mapper.map_semantic_leaf::<_>(
             &config,
             address,
             output.phys_addr() + index as u64 * 4096,
@@ -142,7 +140,7 @@ where
             SemanticVmsa128Stage1TableAttrs::default(),
         )?;
         let decoded = mapper
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &config)?
+            .inspect_semantic_leaf::<_>(address, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.permissions != permissions || decoded.pas != pas {
             return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();

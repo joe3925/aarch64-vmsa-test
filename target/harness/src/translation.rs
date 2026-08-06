@@ -935,7 +935,7 @@ use aarch64_vmsa::table::{
     TableAllocLayout, TableFrameProvider, TablePhysAddr, TableShape, TableTransition,
 };
 use aarch64_vmsa::translation::walk::{WalkInputAddr, WalkStep, Walker};
-use aarch64_vmsa::translation::{Stage1, Stage2, TranslationWalkProfile};
+use aarch64_vmsa::translation::{Stage1, Stage2};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
@@ -1803,7 +1803,7 @@ where
     .map_err(|_| HarnessError::InvalidState)?;
     type Layout<R> = <Vmsa64 as HasLayout<StageOf<R>, Granule4KiB>>::Layout;
     let descriptor =
-        <Layout<R> as DescriptorLayout<Vmsa64, StageOf<R>, Granule4KiB>>::table_descriptor(
+        <Layout<R> as DescriptorLayout<StageOf<R>, Granule4KiB>>::table_descriptor(
             PhysAddr(setup.root.get()),
             transition,
             <R as TestRegimeFor<Granule4KiB>>::raw_table()?,
@@ -1957,10 +1957,9 @@ pub(crate) fn replace_live_d128_stage1_mapping<R>(
 ) -> Result<MappingInspection, HarnessError>
 where
     R: TranslationRegime,
-    R::WalkProfile: TranslationWalkProfile<Stage = Stage1>,
+    R: aarch64_vmsa::regime::TranslationRegime<Stage = Stage1>,
     Vmsa128: HasLayout<Stage1, Granule4KiB>,
     <Vmsa128 as HasLayout<Stage1, Granule4KiB>>::Layout: DescriptorLayout<
-            Vmsa128,
             Stage1,
             Granule4KiB,
             LeafFields = RawVmsa128Stage1LeafAttrs,
@@ -2050,10 +2049,9 @@ pub(crate) fn replace_live_d128_stage2_mapping<R>(
 ) -> Result<MappingInspection, HarnessError>
 where
     R: TranslationRegime,
-    R::WalkProfile: TranslationWalkProfile<Stage = Stage2>,
+    R: aarch64_vmsa::regime::TranslationRegime<Stage = Stage2>,
     Vmsa128: HasLayout<Stage2, Granule4KiB>,
     <Vmsa128 as HasLayout<Stage2, Granule4KiB>>::Layout: DescriptorLayout<
-            Vmsa128,
             Stage2,
             Granule4KiB,
             LeafFields = RawVmsa128Stage2LeafAttrs,
@@ -2084,21 +2082,18 @@ where
     Vmsa64Lpa2: HasLayout<StageOf<R>, Granule16KiB>,
     Vmsa64Lpa2: HasLayout<StageOf<R>, Granule64KiB>,
     <Vmsa64Lpa2 as HasLayout<StageOf<R>, Granule4KiB>>::Layout: DescriptorLayout<
-            Vmsa64Lpa2,
             StageOf<R>,
             Granule4KiB,
             LeafFields = LeafFieldsOf<Vmsa64, R, Granule4KiB>,
             TableFields = TableFieldsOf<Vmsa64, R, Granule4KiB>,
         >,
     <Vmsa64Lpa2 as HasLayout<StageOf<R>, Granule16KiB>>::Layout: DescriptorLayout<
-            Vmsa64Lpa2,
             StageOf<R>,
             Granule16KiB,
             LeafFields = LeafFieldsOf<Vmsa64, R, Granule16KiB>,
             TableFields = TableFieldsOf<Vmsa64, R, Granule16KiB>,
         >,
     <Vmsa64Lpa2 as HasLayout<StageOf<R>, Granule64KiB>>::Layout: DescriptorLayout<
-            Vmsa64Lpa2,
             StageOf<R>,
             Granule64KiB,
             LeafFields = LeafFieldsOf<Vmsa64, R, Granule64KiB>,
@@ -2200,7 +2195,6 @@ where
     Vmsa64: HasLayout<StageOf<R>, G>,
     F: DescriptorFormat + HasLayout<StageOf<R>, G>,
     <F as HasLayout<StageOf<R>, G>>::Layout: DescriptorLayout<
-            F,
             StageOf<R>,
             G,
             LeafFields = LeafFieldsOf<Vmsa64, R, G>,
@@ -2578,7 +2572,6 @@ where
     G: TestGranule,
     Vmsa128: HasLayout<StageOf<R>, G>,
     <Vmsa128 as HasLayout<StageOf<R>, G>>::Layout: DescriptorLayout<
-            Vmsa128,
             StageOf<R>,
             G,
             LeafFields = RawVmsa128Stage1LeafAttrs,
@@ -3252,18 +3245,17 @@ where
     G: TestGranule,
     F: TestFormat + HasLayout<StageOf<R>, G>,
 {
-    pub fn map_semantic_leaf<Codec, Cfg>(
+    pub fn map_semantic_leaf<Cfg>(
         &mut self,
         config: &Cfg,
         input: u64,
         output: u64,
         level: LookupLevel,
-        leaf: Codec::SemanticLeaf,
-        table: Codec::SemanticTable,
+        leaf: F::SemanticLeaf,
+        table: F::SemanticTable,
     ) -> Result<(), HarnessError>
     where
-        Codec: aarch64_vmsa::attrs::AttributeCodec<
-                F,
+        F: aarch64_vmsa::attrs::AttributeCodec<
                 R,
                 G,
                 Cfg,
@@ -3272,7 +3264,7 @@ where
             >,
         aarch64_vmsa::regime::LeafFieldsOf<F, R, G>: Copy,
     {
-        aarch64_vmsa::mapper::map_semantic_leaf::<F, R, G, _, _, _, Codec, Cfg>(
+        aarch64_vmsa::mapper::map_semantic_leaf::<F, R, G, _, _, _, Cfg>(
             &mut self.inner,
             config,
             WalkInputAddr::new(input),
@@ -3297,14 +3289,13 @@ where
         IsolatedMalformedTable { mapper: self }
     }
 
-    pub fn inspect_semantic_leaf<Codec, Cfg>(
+    pub fn inspect_semantic_leaf<Cfg>(
         &mut self,
         input: u64,
         config: &Cfg,
-    ) -> Result<Option<Codec::SemanticLeaf>, HarnessError>
+    ) -> Result<Option<F::SemanticLeaf>, HarnessError>
     where
-        Codec: aarch64_vmsa::attrs::AttributeCodec<
-                F,
+        F: aarch64_vmsa::attrs::AttributeCodec<
                 R,
                 G,
                 Cfg,
@@ -3319,7 +3310,7 @@ where
             .map_err(|_| HarnessError::InvalidState)?;
         mapping
             .map(|mapping| {
-                aarch64_vmsa::mapper::decode_semantic_leaf::<F, R, G, Codec, Cfg>(
+                aarch64_vmsa::mapper::decode_semantic_leaf::<F, R, G, Cfg>(
                     config,
                     mapping.level(),
                     *mapping.fields(),
@@ -3343,12 +3334,8 @@ where
     ) -> Result<DescriptorBits, HarnessError> {
         let root = self.mapper.inner.root();
         let (location, entry_index, original) = {
-            let walker = Walker::<F, R::WalkProfile, G, _>::new(
-                root.addr(),
-                root.level(),
-                self.mapper.inner.access(),
-            )
-            .map_err(|_| HarnessError::InvalidState)?;
+            let walker = Walker::<F, R, G, _>::new(root, self.mapper.inner.access())
+                .map_err(|_| HarnessError::InvalidState)?;
             match walker
                 .walk(WalkInputAddr::new(input))
                 .map_err(|_| HarnessError::InvalidState)?
@@ -3449,7 +3436,7 @@ impl WalkInspection {
 }
 
 pub(crate) fn inspect_walk_with_access<R, G, F, A>(
-    root: RootTable<F, G>,
+    root: RootTable<F, R, G>,
     access: &A,
     input: u64,
 ) -> Result<WalkInspection, HarnessError>
@@ -3459,8 +3446,7 @@ where
     F: TestFormat + HasLayout<StageOf<R>, G>,
     A: TableAccess<F, G>,
 {
-    let walker = Walker::<F, R::WalkProfile, G, _>::new(root.addr(), root.level(), access)
-        .map_err(|_| HarnessError::InvalidState)?;
+    let walker = Walker::<F, R, G, _>::new(root, access).map_err(|_| HarnessError::InvalidState)?;
     let mut cursor = walker
         .cursor(WalkInputAddr::new(input))
         .map_err(|_| HarnessError::InvalidState)?;
@@ -3719,7 +3705,6 @@ where
     F: TestFormat + HasLayout<StageOf<R>, G>,
     Vmsa64: HasLayout<StageOf<R>, G>,
     <F as HasLayout<StageOf<R>, G>>::Layout: DescriptorLayout<
-            F,
             StageOf<R>,
             G,
             LeafFields = LeafFieldsOf<Vmsa64, R, G>,
@@ -4387,7 +4372,6 @@ where
     Vmsa64: HasLayout<StageOf<R>, G>,
     Vmsa64Lpa2: HasLayout<StageOf<R>, G>,
     <Vmsa64Lpa2 as HasLayout<StageOf<R>, G>>::Layout: DescriptorLayout<
-            Vmsa64Lpa2,
             StageOf<R>,
             G,
             LeafFields = LeafFieldsOf<Vmsa64, R, G>,
@@ -4437,7 +4421,6 @@ impl<R: TestRegime, G: TestGranule> TestMapper<R, G, Vmsa128>
 where
     Vmsa128: HasLayout<StageOf<R>, G>,
     <Vmsa128 as HasLayout<StageOf<R>, G>>::Layout: DescriptorLayout<
-            Vmsa128,
             StageOf<R>,
             G,
             LeafFields = RawVmsa128Stage1LeafAttrs,
@@ -4884,10 +4867,9 @@ where
 
 impl<R: TestRegime, G: TestGranule> TestMapper<R, G, Vmsa128>
 where
-    R::WalkProfile: TranslationWalkProfile<Stage = Stage2>,
+    R: aarch64_vmsa::regime::TranslationRegime<Stage = Stage2>,
     Vmsa128: HasLayout<Stage2, G>,
     <Vmsa128 as HasLayout<Stage2, G>>::Layout: DescriptorLayout<
-            Vmsa128,
             Stage2,
             G,
             LeafFields = RawVmsa128Stage2LeafAttrs,

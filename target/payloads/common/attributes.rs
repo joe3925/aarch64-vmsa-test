@@ -5,8 +5,7 @@ use aarch64_vmsa::attrs::{
     MemoryAttributes, MemoryTransience, SemanticStage1LeafAttrs, SemanticStage2LeafAttrs,
     SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage2LeafControls, Shareability,
     SinglePrivilegeLeafPermissions, SoftwareMetadata, Stage2LeafPermissions,
-    Stage2MemoryAttributes, Stage2MemoryMode, VmsaAttributeCodec,
-};
+    Stage2MemoryAttributes, Stage2MemoryMode, };
 use aarch64_vmsa::descriptor::Vmsa64;
 use aarch64_vmsa::regime::{NonSecureEl2Stage1, NonSecureEl2Stage2};
 use vmsa_test_harness::TestResult;
@@ -213,15 +212,11 @@ pub fn stage2_fwb_matrix() -> TestResult {
                 let mut encoded = raw;
                 encoded.mem_attr = FourBit::new(bits)
                     .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-                let without = <VmsaAttributeCodec as AttributeCodec<
-                    Vmsa64,
-                    NonSecureEl2Stage2,
+                let without = <Vmsa64 as AttributeCodec<NonSecureEl2Stage2,
                     Granule4KiB,
                     _,
                 >>::decode_leaf(&without_mte, Level::L3, encoded);
-                let with = <VmsaAttributeCodec as AttributeCodec<
-                    Vmsa64,
-                    NonSecureEl2Stage2,
+                let with = <Vmsa64 as AttributeCodec<NonSecureEl2Stage2,
                     Granule4KiB,
                     _,
                 >>::decode_leaf(&with_mte, Level::L3, encoded);
@@ -297,9 +292,7 @@ pub fn d128_mair2_matrix() -> TestResult {
     for mair2_index in 0..8u8 {
         let config = make_config(0, Some(0x44u64 << (u32::from(mair2_index) * 8)));
         let semantic = leaf(memory);
-        let result = <VmsaAttributeCodec as AttributeCodec<
-            Vmsa128,
-            NonSecureEl2Stage1,
+        let result = <Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
             Granule4KiB,
             _,
         >>::resolve_leaf(&config, Level::L3, semantic)
@@ -307,9 +300,7 @@ pub fn d128_mair2_matrix() -> TestResult {
             if raw.attr_index.bits() != mair2_index + 8 {
                 return Err(AttrError::RawFieldOutOfRange);
             }
-            <VmsaAttributeCodec as AttributeCodec<
-                Vmsa128,
-                NonSecureEl2Stage1,
+            <Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
                 Granule4KiB,
                 _,
             >>::decode_leaf(&config, Level::L3, raw)
@@ -321,9 +312,7 @@ pub fn d128_mair2_matrix() -> TestResult {
 
     let duplicate = make_config(0x44 << 24, Some(0x44));
     if !matches!(
-        <VmsaAttributeCodec as AttributeCodec<
-            Vmsa128,
-            NonSecureEl2Stage1,
+        <Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
             Granule4KiB,
             _,
         >>::resolve_leaf(&duplicate, Level::L3, leaf(memory)),
@@ -333,18 +322,14 @@ pub fn d128_mair2_matrix() -> TestResult {
     }
 
     let configured = make_config(0, Some(0x44));
-    match <VmsaAttributeCodec as AttributeCodec<
-        Vmsa128,
-        NonSecureEl2Stage1,
+    match <Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
         Granule4KiB,
         _,
     >>::resolve_leaf(&configured, Level::L3, leaf(memory))
     {
         Ok(raw) => {
             let unavailable = make_config(0, None);
-            if <VmsaAttributeCodec as AttributeCodec<
-                Vmsa128,
-                NonSecureEl2Stage1,
+            if <Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
                 Granule4KiB,
                 _,
             >>::decode_leaf(&unavailable, Level::L3, raw)
@@ -356,9 +341,7 @@ pub fn d128_mair2_matrix() -> TestResult {
             let mut invalid_raw = raw;
             invalid_raw.attr_index = aarch64_vmsa::low_level::raw::FourBit::new(8)
                 .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-            if <VmsaAttributeCodec as AttributeCodec<
-                Vmsa128,
-                NonSecureEl2Stage1,
+            if <Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
                 Granule4KiB,
                 _,
             >>::decode_leaf(&invalid, Level::L3, invalid_raw)
@@ -404,30 +387,22 @@ pub fn lpa2_shareability_matrix() -> TestResult {
         let mut config = base_config(0, Stage2MemoryMode::FwbDisabled);
         config.shareability = effective;
         let semantic = leaf(effective);
-        let four = <VmsaAttributeCodec as AttributeCodec<
-            Vmsa64Lpa2,
-            NonSecureEl2Stage1,
+        let four = <Vmsa64Lpa2 as AttributeCodec<NonSecureEl2Stage1,
             Granule4KiB,
             _,
         >>::resolve_leaf(&config, Level::L3, semantic)
         .and_then(|raw| {
-            <VmsaAttributeCodec as AttributeCodec<
-                Vmsa64Lpa2,
-                NonSecureEl2Stage1,
+            <Vmsa64Lpa2 as AttributeCodec<NonSecureEl2Stage1,
                 Granule4KiB,
                 _,
             >>::decode_leaf(&config, Level::L3, raw)
         });
-        let sixteen = <VmsaAttributeCodec as AttributeCodec<
-            Vmsa64Lpa2,
-            NonSecureEl2Stage1,
+        let sixteen = <Vmsa64Lpa2 as AttributeCodec<NonSecureEl2Stage1,
             Granule16KiB,
             _,
         >>::resolve_leaf(&config, Level::L3, semantic)
         .and_then(|raw| {
-            <VmsaAttributeCodec as AttributeCodec<
-                Vmsa64Lpa2,
-                NonSecureEl2Stage1,
+            <Vmsa64Lpa2 as AttributeCodec<NonSecureEl2Stage1,
                 Granule16KiB,
                 _,
             >>::decode_leaf(&config, Level::L3, raw)
@@ -443,9 +418,7 @@ pub fn lpa2_shareability_matrix() -> TestResult {
                 requested,
                 effective,
             });
-            if <VmsaAttributeCodec as AttributeCodec<
-                Vmsa64Lpa2,
-                NonSecureEl2Stage1,
+            if <Vmsa64Lpa2 as AttributeCodec<NonSecureEl2Stage1,
                 Granule4KiB,
                 _,
             >>::resolve_leaf(&config, Level::L3, leaf(requested))
@@ -453,9 +426,7 @@ pub fn lpa2_shareability_matrix() -> TestResult {
             {
                 failures += 1;
             }
-            if <VmsaAttributeCodec as AttributeCodec<
-                Vmsa64Lpa2,
-                NonSecureEl2Stage1,
+            if <Vmsa64Lpa2 as AttributeCodec<NonSecureEl2Stage1,
                 Granule16KiB,
                 _,
             >>::resolve_leaf(&config, Level::L3, leaf(requested))
@@ -468,16 +439,12 @@ pub fn lpa2_shareability_matrix() -> TestResult {
     let config = base_config(0, Stage2MemoryMode::FwbDisabled);
     for requested in values {
         let semantic = leaf(requested);
-        let sixty_four = <VmsaAttributeCodec as AttributeCodec<
-            Vmsa64Lpa2,
-            NonSecureEl2Stage1,
+        let sixty_four = <Vmsa64Lpa2 as AttributeCodec<NonSecureEl2Stage1,
             Granule64KiB,
             _,
         >>::resolve_leaf(&config, Level::L3, semantic)
         .and_then(|raw| {
-            <VmsaAttributeCodec as AttributeCodec<
-                Vmsa64Lpa2,
-                NonSecureEl2Stage1,
+            <Vmsa64Lpa2 as AttributeCodec<NonSecureEl2Stage1,
                 Granule64KiB,
                 _,
             >>::decode_leaf(&config, Level::L3, raw)
@@ -545,9 +512,7 @@ fn stage2_leaf(
     }
 }
 
-type RawStage1 = <VmsaAttributeCodec as AttributeCodec<
-    Vmsa64,
-    NonSecureEl2Stage1,
+type RawStage1 = <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
     Granule4KiB,
     LiveVmsaConfig,
 >>::RawLeaf;
@@ -556,7 +521,7 @@ fn resolve_stage1(
     config: &LiveVmsaConfig,
     memory: MemoryAttributes,
 ) -> Result<RawStage1, AttrError> {
-    <VmsaAttributeCodec as AttributeCodec<Vmsa64, NonSecureEl2Stage1, Granule4KiB, _>>::resolve_leaf(
+    <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::resolve_leaf(
         config,
         Level::L3,
         stage1_leaf(memory),
@@ -570,7 +535,7 @@ fn decode_stage1(
     SemanticStage1LeafAttrs<SinglePrivilegeLeafPermissions, (), SemanticVmsa64Stage1LeafControls>,
     AttrError,
 > {
-    <VmsaAttributeCodec as AttributeCodec<Vmsa64, NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
+    <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
         config,
         Level::L3,
         raw,
@@ -587,9 +552,7 @@ fn stage1_round_trip(
     Ok((index, decoded.memory))
 }
 
-type RawStage2 = <VmsaAttributeCodec as AttributeCodec<
-    Vmsa64,
-    NonSecureEl2Stage2,
+type RawStage2 = <Vmsa64 as AttributeCodec<NonSecureEl2Stage2,
     Granule4KiB,
     LiveVmsaConfig,
 >>::RawLeaf;
@@ -598,7 +561,7 @@ fn resolve_stage2(
     config: &LiveVmsaConfig,
     memory: Stage2MemoryAttributes,
 ) -> Result<RawStage2, AttrError> {
-    <VmsaAttributeCodec as AttributeCodec<Vmsa64, NonSecureEl2Stage2, Granule4KiB, _>>::resolve_leaf(
+    <Vmsa64 as AttributeCodec<NonSecureEl2Stage2, Granule4KiB, _>>::resolve_leaf(
         config,
         Level::L3,
         stage2_leaf(memory),
@@ -610,9 +573,7 @@ fn stage2_round_trip(
     memory: Stage2MemoryAttributes,
 ) -> Result<Stage2MemoryAttributes, AttrError> {
     let raw = resolve_stage2(config, memory)?;
-    let decoded = <VmsaAttributeCodec as AttributeCodec<
-        Vmsa64,
-        NonSecureEl2Stage2,
+    let decoded = <Vmsa64 as AttributeCodec<NonSecureEl2Stage2,
         Granule4KiB,
         _,
     >>::decode_leaf(config, Level::L3, raw)?;

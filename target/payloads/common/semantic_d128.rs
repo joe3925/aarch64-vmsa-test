@@ -40,8 +40,7 @@ fn current_stage1_case(
         SemanticStage1LeafAttrs, SemanticVmsa128Stage1LeafControls,
         SemanticVmsa128Stage1TableAttrs, Shareability, SoftwareMetadata,
         Stage1EffectivePermissions, Stage1PermissionRegisterPair, Stage1PermissionRegisters,
-        Stage2MemoryMode, VmsaAttributeCodec,
-    };
+        Stage2MemoryMode, };
     use aarch64_vmsa::descriptor::Vmsa128;
     use vmsa_test_harness::{
         AddressBits, Granule, LookupLevel, MemoryAttributeSlot, PhysicalAddress,
@@ -126,7 +125,7 @@ fn current_stage1_case(
                 52,
                 52,
             )?;
-        mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        mapper.map_semantic_leaf::<_>(
             &config,
             ADDRESS,
             page.phys_addr(),
@@ -135,7 +134,7 @@ fn current_stage1_case(
             table,
         )?;
         offline = mapper
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(ADDRESS, &config)?
+            .inspect_semantic_leaf::<_>(ADDRESS, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if offline != leaf {
             return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
@@ -170,7 +169,7 @@ fn current_stage1_case(
         &sandbox,
     )?;
     let live = translation
-        .inspect_semantic_for::<D128Regime, Vmsa128, Granule4KiB, VmsaAttributeCodec, _>(
+        .inspect_semantic_for::<D128Regime, Vmsa128, Granule4KiB, _>(
             ADDRESS, &config,
         )?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;

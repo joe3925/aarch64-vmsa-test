@@ -75,7 +75,7 @@ fn table() -> aarch64_vmsa::attrs::SemanticStage1TableAttrs<
 
 fn codec_case(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
     use aarch64_vmsa::address::{Granule4KiB, Level};
-    use aarch64_vmsa::attrs::{AttributeCodec, VmsaAttributeCodec};
+    use aarch64_vmsa::attrs::{AttributeCodec, };
     use aarch64_vmsa::descriptor::Vmsa64;
     use aarch64_vmsa::regime::RootEl3Stage1;
     let config = config();
@@ -88,7 +88,7 @@ fn codec_case(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
         aarch64_vmsa::attrs::RootExtendedPa::Realm => (true, true),
     };
     let leaf_ok =
-        <VmsaAttributeCodec as AttributeCodec<Vmsa64, RootEl3Stage1, Granule4KiB, _>>::resolve_leaf(
+        <Vmsa64 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::resolve_leaf(
             &config,
             Level::L3,
             leaf,
@@ -97,16 +97,12 @@ fn codec_case(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
             if raw.ns != ns || raw.alias_bit != nse {
                 return Err(aarch64_vmsa::attrs::AttrError::InvalidOutputAddressSpace);
             }
-            <VmsaAttributeCodec as AttributeCodec<
-            Vmsa64,
-            RootEl3Stage1,
+            <Vmsa64 as AttributeCodec<RootEl3Stage1,
             Granule4KiB,
             _,
         >>::decode_leaf(&config, Level::L3, raw)
         }) == Ok(leaf);
-    let table_ok = <VmsaAttributeCodec as AttributeCodec<
-        Vmsa64,
-        RootEl3Stage1,
+    let table_ok = <Vmsa64 as AttributeCodec<RootEl3Stage1,
         Granule4KiB,
         _,
     >>::resolve_table(&config, Level::L2, table)
@@ -114,9 +110,7 @@ fn codec_case(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
         if raw.ns_table {
             return Err(aarch64_vmsa::attrs::AttrError::InvalidOutputAddressSpace);
         }
-        <VmsaAttributeCodec as AttributeCodec<
-            Vmsa64,
-            RootEl3Stage1,
+        <Vmsa64 as AttributeCodec<RootEl3Stage1,
             Granule4KiB,
             _,
         >>::decode_table(&config, Level::L2, raw)
@@ -132,7 +126,6 @@ fn active_case(
     context: &mut TestContext<'_, CurrentEnvironment>,
     pas: aarch64_vmsa::attrs::RootExtendedPa,
 ) -> TestResult {
-    use aarch64_vmsa::attrs::VmsaAttributeCodec;
     use vmsa_test_harness::{
         AddressBits, Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
         TranslationStage,
@@ -190,7 +183,6 @@ fn active_case(
         aarch64_vmsa::regime::RootEl3Stage1,
         aarch64_vmsa::descriptor::Vmsa64,
         aarch64_vmsa::address::Granule4KiB,
-        VmsaAttributeCodec,
         _,
     >(
         &config,
@@ -205,7 +197,6 @@ fn active_case(
             aarch64_vmsa::regime::RootEl3Stage1,
             aarch64_vmsa::descriptor::Vmsa64,
             aarch64_vmsa::address::Granule4KiB,
-            VmsaAttributeCodec,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -221,7 +212,6 @@ fn delegated_realm_case(
     context: &mut TestContext<'_, CurrentEnvironment>,
     pas: aarch64_vmsa::attrs::RootExtendedPa,
 ) -> TestResult {
-    use aarch64_vmsa::attrs::VmsaAttributeCodec;
     use vmsa_test_harness::{
         AddressBits, Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
         TranslationStage,
@@ -261,7 +251,6 @@ fn delegated_realm_case(
         aarch64_vmsa::regime::RootEl3Stage1,
         aarch64_vmsa::descriptor::Vmsa64,
         aarch64_vmsa::address::Granule4KiB,
-        VmsaAttributeCodec,
         _,
     >(
         &config,

@@ -581,15 +581,40 @@ fn run_target(
             setup_error(error),
         );
     }
-    let (mut report, mut code) = match process::run(
-        command,
-        &container_name,
-        target.as_str(),
-        &directory,
-        observer.is_none(),
-        expects_termination.then_some(filter.unwrap_or_default()),
-        observer,
-    ) {
+    let mut command = Some(command);
+    let completed = loop {
+        let result = process::run(
+            command
+                .take()
+                .expect("each Podman launch attempt must have a command"),
+            &container_name,
+            target.as_str(),
+            &directory,
+            observer.is_none(),
+            expects_termination.then_some(filter.unwrap_or_default()),
+            observer,
+        );
+        if !matches!(result, Err(process::Failure::Startup(_)))
+            || !transient_podman_ssh_failure(&directory)
+            || crate::cancellation::requested()
+        {
+            break result;
+        }
+        let _ = log(
+            &mut host_log,
+            "retrying Podman launch after transient SSH handshake failure",
+        );
+        command = Some(podman::run_command(
+            &container_name,
+            repository,
+            crate_path,
+            &directory,
+            target.as_str(),
+            filter,
+            firmware_cache_key,
+        ));
+    };
+    let (mut report, mut code) = match completed {
         Ok(completed)
             if completed.counts.passed == 0
                 && completed.counts.failed == 0
@@ -683,6 +708,11 @@ fn run_target(
         eprintln!("artifacts retained at {}", directory.display());
     }
     (report, code)
+}
+
+fn transient_podman_ssh_failure(directory: &Path) -> bool {
+    fs::read_to_string(directory.join("container.stderr.log"))
+        .is_ok_and(|stderr| stderr.contains("ssh: handshake failed: EOF"))
 }
 
 fn classify_failure(error: process::Failure) -> (&'static str, ExitCode, String) {

@@ -19,9 +19,7 @@ where
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>,
     aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, HostRegime, G>:
         Copy + PartialEq,
-    aarch64_vmsa::attrs::VmsaAttributeCodec: aarch64_vmsa::attrs::AttributeCodec<
-            aarch64_vmsa::descriptor::Vmsa64,
-            HostRegime,
+    aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::attrs::AttributeCodec<HostRegime,
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<P>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
@@ -51,8 +49,7 @@ where
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
         SoftwareMetadata, Stage2MemoryMode, TwoPrivilegeLeafPermissions,
-        TwoPrivilegeTablePermissionLimits, VmsaAttributeCodec,
-    };
+        TwoPrivilegeTablePermissionLimits, };
     use aarch64_vmsa::descriptor::Vmsa64;
     use vmsa_test_harness::{AddressBits, LookupLevel, PhysicalAddress};
 
@@ -136,7 +133,7 @@ where
             width,
             48,
         )?;
-        mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        mapper.map_semantic_leaf::<_>(
             &config,
             input_base,
             output,
@@ -146,7 +143,7 @@ where
             table,
         )?;
         offline = mapper
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(input, &config)?
+            .inspect_semantic_leaf::<_>(input, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if offline != leaf
             || mapper
@@ -183,7 +180,7 @@ where
         &sandbox,
     )?;
     let live = translation
-        .inspect_semantic_for::<HostRegime, Vmsa64, G, VmsaAttributeCodec, _>(input, &config)?
+        .inspect_semantic_for::<HostRegime, Vmsa64, G, _>(input, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if live != offline || live.permissions != permissions {
         return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();

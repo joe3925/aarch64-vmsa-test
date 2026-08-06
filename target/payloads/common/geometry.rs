@@ -523,7 +523,8 @@ pub fn value_boundaries() -> TestResult {
     if TablePhysAddr::<Granule4KiB>::new(PhysAddr(0x4001)).is_ok() {
         return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
     }
-    let root = RootTable::<Vmsa64, Granule4KiB>::new(address, Level::L0, 48, 48);
+    let root =
+        RootTable::<Vmsa64, crate::CurrentRegime, Granule4KiB>::new(address, Level::L0, 48, 48);
     let cursor = TableCursor::<Vmsa64, Granule4KiB>::root(address, Level::L0);
     let path = TableWalkPath::<Vmsa64, Granule4KiB>::root();
     if root.addr() != address

@@ -43,8 +43,7 @@ fn secure_stage1_isolated(pas: aarch64_vmsa::attrs::SecureSelectablePa) -> TestR
     use aarch64_vmsa::attrs::{
         AttributeCodec, DataAccess, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1TableControls, SinglePrivilegeLeafPermissions,
-        SinglePrivilegeTablePermissionLimits, VmsaAttributeCodec,
-    };
+        SinglePrivilegeTablePermissionLimits, };
     use aarch64_vmsa::descriptor::Vmsa64;
     use aarch64_vmsa::regime::SecureEl2Stage1;
     let config = direct_config(());
@@ -65,15 +64,11 @@ fn secure_stage1_isolated(pas: aarch64_vmsa::attrs::SecureSelectablePa) -> TestR
         pas,
         controls: SemanticVmsa64Stage1TableControls::default(),
     };
-    let raw_leaf = <VmsaAttributeCodec as AttributeCodec<
-        Vmsa64,
-        SecureEl2Stage1,
+    let raw_leaf = <Vmsa64 as AttributeCodec<SecureEl2Stage1,
         Granule4KiB,
         _,
     >>::resolve_leaf(&config, Level::L3, leaf);
-    let raw_table = <VmsaAttributeCodec as AttributeCodec<
-        Vmsa64,
-        SecureEl2Stage1,
+    let raw_table = <Vmsa64 as AttributeCodec<SecureEl2Stage1,
         Granule4KiB,
         _,
     >>::resolve_table(&config, Level::L2, table);
@@ -84,9 +79,7 @@ fn secure_stage1_isolated(pas: aarch64_vmsa::attrs::SecureSelectablePa) -> TestR
             {
                 return Err(aarch64_vmsa::attrs::AttrError::InvalidOutputAddressSpace);
             }
-            <VmsaAttributeCodec as AttributeCodec<
-                Vmsa64,
-                SecureEl2Stage1,
+            <Vmsa64 as AttributeCodec<SecureEl2Stage1,
                 Granule4KiB,
                 _,
             >>::decode_leaf(&config, Level::L3, raw)
@@ -96,9 +89,7 @@ fn secure_stage1_isolated(pas: aarch64_vmsa::attrs::SecureSelectablePa) -> TestR
                 {
                     return Err(aarch64_vmsa::attrs::AttrError::InvalidOutputAddressSpace);
                 }
-                <VmsaAttributeCodec as AttributeCodec<
-                    Vmsa64,
-                    SecureEl2Stage1,
+                <Vmsa64 as AttributeCodec<SecureEl2Stage1,
                     Granule4KiB,
                     _,
                 >>::decode_table(&config, Level::L2, raw)
@@ -133,8 +124,7 @@ fn secure_stage1_active_case<
     use aarch64_vmsa::attrs::{
         DataAccess, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1TableControls, SinglePrivilegeLeafPermissions,
-        SinglePrivilegeTablePermissionLimits, VmsaAttributeCodec,
-    };
+        SinglePrivilegeTablePermissionLimits, };
     use vmsa_test_harness::{
         AddressBits, Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
         TranslationStage,
@@ -195,7 +185,6 @@ fn secure_stage1_active_case<
         aarch64_vmsa::regime::SecureEl2Stage1,
         aarch64_vmsa::descriptor::Vmsa64,
         aarch64_vmsa::address::Granule4KiB,
-        VmsaAttributeCodec,
         _,
     >(
         &config,
@@ -210,7 +199,6 @@ fn secure_stage1_active_case<
             aarch64_vmsa::regime::SecureEl2Stage1,
             aarch64_vmsa::descriptor::Vmsa64,
             aarch64_vmsa::address::Granule4KiB,
-            VmsaAttributeCodec,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -262,8 +250,7 @@ macro_rules! secure_stage2_isolated {
         use aarch64_vmsa::attrs::{
             AttrError, AttributeCodec, DataAccess, DirtyBitManagement, SemanticStage2LeafAttrs,
             SemanticVmsa64Stage2LeafControls, Shareability, SoftwareMetadata,
-            Stage2LeafPermissions, Stage2MemoryAttributes, VmsaAttributeCodec,
-        };
+            Stage2LeafPermissions, Stage2MemoryAttributes, };
         use aarch64_vmsa::descriptor::Vmsa64;
         let configured = $configured;
         let requested = $requested;
@@ -285,16 +272,14 @@ macro_rules! secure_stage2_isolated {
             },
         };
         let resolved =
-            <VmsaAttributeCodec as AttributeCodec<Vmsa64, $regime, Granule4KiB, _>>::resolve_leaf(
+            <Vmsa64 as AttributeCodec<$regime, Granule4KiB, _>>::resolve_leaf(
                 &config,
                 Level::L3,
                 leaf,
             );
         let expected = if configured == requested {
             resolved.and_then(|raw| {
-                                                            <VmsaAttributeCodec as AttributeCodec<
-                                                                Vmsa64,
-                                                                $regime,
+                                                            <Vmsa64 as AttributeCodec<$regime,
                                                                 Granule4KiB,
                                                                 _,
                                                             >>::decode_leaf(&config, Level::L3, raw)
@@ -355,8 +340,7 @@ fn realm_stage1_isolated(pas: aarch64_vmsa::attrs::RealmOrNonSecurePa) -> TestRe
     use aarch64_vmsa::attrs::{
         AttributeCodec, DataAccess, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1TableControls, SinglePrivilegeLeafPermissions,
-        SinglePrivilegeTablePermissionLimits, VmsaAttributeCodec,
-    };
+        SinglePrivilegeTablePermissionLimits, };
     use aarch64_vmsa::descriptor::Vmsa64;
     use aarch64_vmsa::regime::RealmEl2Stage1;
     let config = direct_config(());
@@ -377,15 +361,11 @@ fn realm_stage1_isolated(pas: aarch64_vmsa::attrs::RealmOrNonSecurePa) -> TestRe
         pas: (),
         controls: SemanticVmsa64Stage1TableControls::default(),
     };
-    let raw_leaf = <VmsaAttributeCodec as AttributeCodec<
-        Vmsa64,
-        RealmEl2Stage1,
+    let raw_leaf = <Vmsa64 as AttributeCodec<RealmEl2Stage1,
         Granule4KiB,
         _,
     >>::resolve_leaf(&config, Level::L3, leaf);
-    let raw_table = <VmsaAttributeCodec as AttributeCodec<
-        Vmsa64,
-        RealmEl2Stage1,
+    let raw_table = <Vmsa64 as AttributeCodec<RealmEl2Stage1,
         Granule4KiB,
         _,
     >>::resolve_table(&config, Level::L2, table);
@@ -395,7 +375,7 @@ fn realm_stage1_isolated(pas: aarch64_vmsa::attrs::RealmOrNonSecurePa) -> TestRe
         {
             return Err(aarch64_vmsa::attrs::AttrError::InvalidOutputAddressSpace);
         }
-        <VmsaAttributeCodec as AttributeCodec<Vmsa64, RealmEl2Stage1, Granule4KiB, _>>::decode_leaf(
+        <Vmsa64 as AttributeCodec<RealmEl2Stage1, Granule4KiB, _>>::decode_leaf(
             &config,
             Level::L3,
             raw,
@@ -405,9 +385,7 @@ fn realm_stage1_isolated(pas: aarch64_vmsa::attrs::RealmOrNonSecurePa) -> TestRe
             if raw.ns_table {
                 return Err(aarch64_vmsa::attrs::AttrError::InvalidOutputAddressSpace);
             }
-            <VmsaAttributeCodec as AttributeCodec<
-                    Vmsa64,
-                    RealmEl2Stage1,
+            <Vmsa64 as AttributeCodec<RealmEl2Stage1,
                     Granule4KiB,
                     _,
                 >>::decode_table(&config, Level::L2, raw)
@@ -436,8 +414,7 @@ fn realm_stage2_isolated(pas: aarch64_vmsa::attrs::RealmOrNonSecurePa) -> TestRe
     use aarch64_vmsa::attrs::{
         AttributeCodec, DataAccess, DirtyBitManagement, SemanticStage2LeafAttrs,
         SemanticVmsa64Stage2LeafControls, Shareability, SoftwareMetadata, Stage2LeafPermissions,
-        Stage2MemoryAttributes, VmsaAttributeCodec,
-    };
+        Stage2MemoryAttributes, };
     use aarch64_vmsa::descriptor::Vmsa64;
     use aarch64_vmsa::regime::RealmEl2Stage2;
     let config = direct_config(pas);
@@ -457,16 +434,12 @@ fn realm_stage2_isolated(pas: aarch64_vmsa::attrs::RealmOrNonSecurePa) -> TestRe
             software: SoftwareMetadata::new(0),
         },
     };
-    let decoded = <VmsaAttributeCodec as AttributeCodec<
-        Vmsa64,
-        RealmEl2Stage2,
+    let decoded = <Vmsa64 as AttributeCodec<RealmEl2Stage2,
         Granule4KiB,
         _,
     >>::resolve_leaf(&config, Level::L3, leaf)
     .and_then(|raw| {
-        <VmsaAttributeCodec as AttributeCodec<
-            Vmsa64,
-            RealmEl2Stage2,
+        <Vmsa64 as AttributeCodec<RealmEl2Stage2,
             Granule4KiB,
             _,
         >>::decode_leaf(&config, Level::L3, raw)
@@ -501,8 +474,7 @@ fn realm_stage1_active_case<
     use aarch64_vmsa::attrs::{
         DataAccess, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1TableControls, SinglePrivilegeLeafPermissions,
-        SinglePrivilegeTablePermissionLimits, VmsaAttributeCodec,
-    };
+        SinglePrivilegeTablePermissionLimits, };
     use vmsa_test_harness::{
         AddressBits, Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
         TranslationStage,
@@ -563,7 +535,6 @@ fn realm_stage1_active_case<
         aarch64_vmsa::regime::RealmEl2Stage1,
         aarch64_vmsa::descriptor::Vmsa64,
         aarch64_vmsa::address::Granule4KiB,
-        VmsaAttributeCodec,
         _,
     >(
         &config,
@@ -578,7 +549,6 @@ fn realm_stage1_active_case<
             aarch64_vmsa::regime::RealmEl2Stage1,
             aarch64_vmsa::descriptor::Vmsa64,
             aarch64_vmsa::address::Granule4KiB,
-            VmsaAttributeCodec,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -632,8 +602,7 @@ fn root_stage1_isolated(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult 
     use aarch64_vmsa::attrs::{
         AttributeCodec, DataAccess, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1TableControls, SinglePrivilegeLeafPermissions,
-        SinglePrivilegeTablePermissionLimits, VmsaAttributeCodec,
-    };
+        SinglePrivilegeTablePermissionLimits, };
     use aarch64_vmsa::descriptor::Vmsa64;
     use aarch64_vmsa::regime::RootEl3Stage1;
     let config = root_config();
@@ -661,14 +630,12 @@ fn root_stage1_isolated(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult 
         aarch64_vmsa::attrs::RootExtendedPa::Realm => (true, true),
     };
     let raw_leaf =
-        <VmsaAttributeCodec as AttributeCodec<Vmsa64, RootEl3Stage1, Granule4KiB, _>>::resolve_leaf(
+        <Vmsa64 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::resolve_leaf(
             &config,
             Level::L3,
             leaf,
         );
-    let raw_table = <VmsaAttributeCodec as AttributeCodec<
-        Vmsa64,
-        RootEl3Stage1,
+    let raw_table = <Vmsa64 as AttributeCodec<RootEl3Stage1,
         Granule4KiB,
         _,
     >>::resolve_table(&config, Level::L2, table);
@@ -676,7 +643,7 @@ fn root_stage1_isolated(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult 
         if raw.ns != ns || raw.alias_bit != nse {
             return Err(aarch64_vmsa::attrs::AttrError::InvalidOutputAddressSpace);
         }
-        <VmsaAttributeCodec as AttributeCodec<Vmsa64, RootEl3Stage1, Granule4KiB, _>>::decode_leaf(
+        <Vmsa64 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::decode_leaf(
             &config,
             Level::L3,
             raw,
@@ -686,9 +653,7 @@ fn root_stage1_isolated(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult 
             if raw.ns_table {
                 return Err(aarch64_vmsa::attrs::AttrError::InvalidOutputAddressSpace);
             }
-            <VmsaAttributeCodec as AttributeCodec<
-                    Vmsa64,
-                    RootEl3Stage1,
+            <Vmsa64 as AttributeCodec<RootEl3Stage1,
                     Granule4KiB,
                     _,
                 >>::decode_table(&config, Level::L2, raw)
@@ -726,8 +691,7 @@ fn root_stage1_active_case<
     use aarch64_vmsa::attrs::{
         DataAccess, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1TableControls, SinglePrivilegeLeafPermissions,
-        SinglePrivilegeTablePermissionLimits, VmsaAttributeCodec,
-    };
+        SinglePrivilegeTablePermissionLimits, };
     use vmsa_test_harness::{
         AddressBits, Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
         TranslationStage,
@@ -788,7 +752,6 @@ fn root_stage1_active_case<
         aarch64_vmsa::regime::RootEl3Stage1,
         aarch64_vmsa::descriptor::Vmsa64,
         aarch64_vmsa::address::Granule4KiB,
-        VmsaAttributeCodec,
         _,
     >(
         &config,
@@ -803,7 +766,6 @@ fn root_stage1_active_case<
             aarch64_vmsa::regime::RootEl3Stage1,
             aarch64_vmsa::descriptor::Vmsa64,
             aarch64_vmsa::address::Granule4KiB,
-            VmsaAttributeCodec,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -872,8 +834,7 @@ where
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls,
         SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, Shareability,
         SinglePrivilegeLeafPermissions, SinglePrivilegeTablePermissionLimits, SoftwareMetadata,
-        Stage2LeafPermissions, Stage2MemoryAttributes, Stage2MemoryMode, VmsaAttributeCodec,
-    };
+        Stage2LeafPermissions, Stage2MemoryAttributes, Stage2MemoryMode, };
     use aarch64_vmsa::descriptor::Vmsa64;
     use aarch64_vmsa::regime::{SecureEl2NonSecureIpaStage2, SecureEl2SecureIpaStage2};
 
@@ -939,7 +900,7 @@ where
             SecureSelectablePa::NonSecure,
         ),
     ] {
-        mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        mapper.map_semantic_leaf::<_>(
             &config,
             address,
             output,
@@ -949,7 +910,7 @@ where
             stage1_table(pas),
         )?;
         let decoded = mapper
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &config)?
+            .inspect_semantic_leaf::<_>(address, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.pas != pas {
             return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
@@ -992,7 +953,7 @@ where
             48,
             48,
         )?;
-    secure_mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
+    secure_mapper.map_semantic_leaf::<_>(
         &secure_config,
         SECURE_VA,
         secure_page.phys_addr(),
@@ -1002,7 +963,7 @@ where
         SemanticVmsa64Stage2TableAttrs::default(),
     )?;
     if secure_mapper
-        .inspect_semantic_leaf::<VmsaAttributeCodec, _>(SECURE_VA, &secure_config)?
+        .inspect_semantic_leaf::<_>(SECURE_VA, &secure_config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?
         .output_address_space
         != SecureSelectablePa::Secure
@@ -1021,7 +982,7 @@ where
         48,
         48,
     )?;
-    non_secure_mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
+    non_secure_mapper.map_semantic_leaf::<_>(
         &non_secure_config,
         NON_SECURE_VA,
         non_secure_page.phys_addr(),
@@ -1031,7 +992,7 @@ where
         SemanticVmsa64Stage2TableAttrs::default(),
     )?;
     if non_secure_mapper
-        .inspect_semantic_leaf::<VmsaAttributeCodec, _>(NON_SECURE_VA, &non_secure_config)?
+        .inspect_semantic_leaf::<_>(NON_SECURE_VA, &non_secure_config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?
         .output_address_space
         != SecureSelectablePa::NonSecure
@@ -1050,8 +1011,7 @@ pub fn realm_semantics<E: vmsa_test_harness::adapter::Environment>(
         DirtyBitManagement, LiveVmsaConfig, MemoryAttributes, MemoryTransience, RealmOrNonSecurePa,
         SemanticStage2LeafAttrs, SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs,
         Shareability, SoftwareMetadata, Stage2LeafPermissions, Stage2MemoryAttributes,
-        Stage2MemoryMode, VmsaAttributeCodec,
-    };
+        Stage2MemoryMode, };
     use aarch64_vmsa::descriptor::Vmsa64;
     use aarch64_vmsa::regime::RealmEl2Stage2;
 
@@ -1106,7 +1066,7 @@ pub fn realm_semantics<E: vmsa_test_harness::adapter::Environment>(
     {
         let address = ADDRESS + index as u64 * 4096;
         let config = config(pas);
-        mapper.map_semantic_leaf::<VmsaAttributeCodec, _>(
+        mapper.map_semantic_leaf::<_>(
             &config,
             address,
             output.phys_addr() + index as u64 * 4096,
@@ -1116,7 +1076,7 @@ pub fn realm_semantics<E: vmsa_test_harness::adapter::Environment>(
             SemanticVmsa64Stage2TableAttrs::default(),
         )?;
         let decoded = mapper
-            .inspect_semantic_leaf::<VmsaAttributeCodec, _>(address, &config)?
+            .inspect_semantic_leaf::<_>(address, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.output_address_space != pas {
             return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
@@ -1135,8 +1095,7 @@ pub fn fixed_realm_ipa_stage1_semantic_access<
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
         SoftwareMetadata, Stage2MemoryMode, TwoPrivilegeLeafPermissions,
-        TwoPrivilegeTablePermissionLimits, VmsaAttributeCodec,
-    };
+        TwoPrivilegeTablePermissionLimits, };
     use vmsa_test_harness::{
         AddressBits, Granule, LookupLevel, MappingAttributes, PhysicalAddress, RegimeAttributes,
         TranslationFormat, TranslationSetup, TranslationStage, Vmid,
@@ -1277,7 +1236,6 @@ pub fn fixed_realm_ipa_stage1_semantic_access<
         aarch64_vmsa::regime::RealmEl1Stage1,
         aarch64_vmsa::descriptor::Vmsa64,
         aarch64_vmsa::address::Granule4KiB,
-        VmsaAttributeCodec,
         _,
     >(
         &config,
@@ -1293,7 +1251,6 @@ pub fn fixed_realm_ipa_stage1_semantic_access<
             aarch64_vmsa::regime::RealmEl1Stage1,
             aarch64_vmsa::descriptor::Vmsa64,
             aarch64_vmsa::address::Granule4KiB,
-            VmsaAttributeCodec,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
