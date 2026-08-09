@@ -227,7 +227,7 @@ def build_rust(package: str, log: Path) -> Path:
     checked(
         [
             "/cache/cargo/bin/cargo", f"+{RUST_TOOLCHAIN}", "build",
-            "-Z", "build-std=core", "--release", "--locked", "-p", package,
+            "-Z", "build-std=core", "--release", "-p", package,
         ],
         TARGET_WORKSPACE,
         log,
