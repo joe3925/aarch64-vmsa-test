@@ -1,7 +1,7 @@
 #![allow(unused_imports, unused_macros)]
 
 use aarch64_vmsa::arch::{
-    FeatureStatus, IdRegisterSnapshot, SecurityStates, VmsaFeatures, decode_features,
+    Capability, FeatureStatus, IdRegisterSnapshot, SecurityStates, VmsaFeatures, decode_features,
 };
 use vmsa_test_harness::{Capabilities, FailureKind, TestFailure, TestResult};
 
@@ -83,11 +83,20 @@ macro_rules! require_live_format_agreement {
         use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
         let regime_supported = aarch64_vmsa::regime::validate_regime::<$regime>($features).is_ok();
         let lpa2_expected = regime_supported
-            && $features.lpa2.is_implemented()
-            && $features.extended_output_address.is_implemented();
+            && $features
+                .status(aarch64_vmsa::arch::Capability::Lpa2)
+                .is_implemented()
+            && $features
+                .status(aarch64_vmsa::arch::Capability::ExtendedOutputAddress)
+                .is_implemented();
         let d128_expected = regime_supported
-            && $features.d128.is_implemented()
-            && (!$stage2 || $features.d128_stage2.is_implemented());
+            && $features
+                .status(aarch64_vmsa::arch::Capability::D128)
+                .is_implemented()
+            && (!$stage2
+                || $features
+                    .status(aarch64_vmsa::arch::Capability::D128Stage2)
+                    .is_implemented());
         let lpa2_results = [
             aarch64_vmsa::regime::validate_regime_format::<Vmsa64Lpa2, $regime, Granule4KiB>(
                 $features,
@@ -136,28 +145,28 @@ pub fn regime_result(supported: bool) -> TestResult {
 
 pub fn requirement_unions() -> TestResult {
     let required = aarch64_vmsa::arch::FeatureRequirements::NONE
-        .with_el2()
-        .with_el3()
-        .with_el2_and0()
-        .with_sel2()
-        .with_stage2()
-        .with_xnx()
-        .with_lpa2()
-        .with_d128()
-        .with_d128_stage2()
-        .with_extended_input_address()
-        .with_extended_output_address()
-        .with_security_state(aarch64_vmsa::arch::SecurityStates::NON_SECURE);
+        .require(Capability::El2)
+        .require(Capability::El3)
+        .require(Capability::El2And0)
+        .require(Capability::Sel2)
+        .require(Capability::Stage2)
+        .require(Capability::Xnx)
+        .require(Capability::Lpa2)
+        .require(Capability::D128)
+        .require(Capability::D128Stage2)
+        .require(Capability::ExtendedInputAddress)
+        .require(Capability::ExtendedOutputAddress)
+        .require_security_state(aarch64_vmsa::arch::SecurityStates::NON_SECURE);
     let current = VmsaFeatures::current();
     if !current.verify(required) {
         return mismatch(0x40);
     }
     let union = aarch64_vmsa::arch::FeatureRequirements::NONE
-        .with_el2()
+        .require(Capability::El2)
         .union(
             aarch64_vmsa::arch::FeatureRequirements::NONE
-                .with_stage2()
-                .with_security_state(aarch64_vmsa::arch::SecurityStates::NON_SECURE),
+                .require(Capability::Stage2)
+                .require_security_state(aarch64_vmsa::arch::SecurityStates::NON_SECURE),
         );
     if !current.verify(union)
         || aarch64_vmsa::arch::FeatureStatus::Unknown(0xe).is_implemented()
@@ -211,11 +220,11 @@ pub fn decode_binary_raw_encodings() -> TestResult {
             },
         ];
         let actual = [
-            decode_features(snapshots[0]).sel2,
-            decode_features(snapshots[1]).el2_and0,
-            decode_features(snapshots[2]).xnx,
-            decode_features(snapshots[3]).d128,
-            decode_features(snapshots[4]).d128_stage2,
+            decode_features(snapshots[0]).status(Capability::Sel2),
+            decode_features(snapshots[1]).status(Capability::El2And0),
+            decode_features(snapshots[2]).status(Capability::Xnx),
+            decode_features(snapshots[3]).status(Capability::D128),
+            decode_features(snapshots[4]).status(Capability::D128Stage2),
         ];
         if actual.into_iter().any(|value| value != expected) {
             return mismatch(0x100 + u64::from(raw));
@@ -236,7 +245,11 @@ pub fn decode_exception_level_raw_encodings() -> TestResult {
                 id_aa64pfr0_el1: u64::from(raw) << shift,
                 ..IdRegisterSnapshot::default()
             });
-            let value = if shift == 8 { actual.el2 } else { actual.el3 };
+            let value = if shift == 8 {
+                actual.status(Capability::El2)
+            } else {
+                actual.status(Capability::El3)
+            };
             if value != expected {
                 return mismatch(0x200 + u64::from(raw));
             }
@@ -256,7 +269,10 @@ pub fn decode_rme_raw_encodings() -> TestResult {
             id_aa64pfr0_el1: u64::from(raw) << 52,
             ..IdRegisterSnapshot::default()
         });
-        if !matches!(status_result(actual.rme, expected, 0), TestResult::Pass) {
+        if !matches!(
+            status_result(actual.status(Capability::Rme), expected, 0),
+            TestResult::Pass
+        ) {
             return mismatch(0x300 + u64::from(raw));
         }
     }
@@ -274,7 +290,7 @@ pub fn decode_varange_raw_encodings() -> TestResult {
             id_aa64mmfr2_el1: u64::from(raw) << 16,
             ..IdRegisterSnapshot::default()
         });
-        if actual.extended_input_address != expected {
+        if actual.status(Capability::ExtendedInputAddress) != expected {
             return mismatch(0x400 + u64::from(raw));
         }
     }
@@ -292,7 +308,7 @@ pub fn decode_parange_raw_encodings() -> TestResult {
             id_aa64mmfr0_el1: u64::from(raw),
             ..IdRegisterSnapshot::default()
         });
-        if actual.extended_output_address != expected {
+        if actual.status(Capability::ExtendedOutputAddress) != expected {
             return mismatch(0x500 + u64::from(raw));
         }
     }
@@ -312,7 +328,7 @@ fn decode_lpa2_field(shift: u8, implemented: u8, absent: &[u8]) -> TestResult {
             id_aa64mmfr0_el1: u64::from(raw) << shift,
             ..IdRegisterSnapshot::default()
         });
-        if actual.lpa2 != expected {
+        if actual.status(Capability::Lpa2) != expected {
             return mismatch(0x600 + u64::from(shift) + u64::from(raw));
         }
     }
@@ -347,7 +363,7 @@ pub fn decode_lpa2_priority() -> TestResult {
             id_aa64mmfr0_el1: register,
             ..IdRegisterSnapshot::default()
         })
-        .lpa2
+        .status(Capability::Lpa2)
             != FeatureStatus::Unknown(expected)
         {
             return mismatch(0x700 + u64::from(expected));
@@ -358,7 +374,7 @@ pub fn decode_lpa2_priority() -> TestResult {
             id_aa64mmfr0_el1: register,
             ..IdRegisterSnapshot::default()
         })
-        .lpa2
+        .status(Capability::Lpa2)
             != FeatureStatus::Implemented
         {
             return mismatch(0x710);
@@ -412,8 +428,8 @@ pub fn decode_derived_merge_orderings() -> TestResult {
                 ..IdRegisterSnapshot::default()
             };
             let actual = decode_features(snapshot);
-            if actual.extended_input_address != expected_input
-                || actual.extended_output_address != expected_output
+            if actual.status(Capability::ExtendedInputAddress) != expected_input
+                || actual.status(Capability::ExtendedOutputAddress) != expected_output
             {
                 return mismatch(0x800 + u64::from(primary_raw) * 16 + u64::from(derived_raw));
             }
@@ -430,25 +446,56 @@ pub fn live_snapshot_agreement(capabilities: Capabilities) -> TestResult {
     }
 
     let agreements = [
-        (decoded.el2.is_implemented(), capabilities.el2),
-        (decoded.el3.is_implemented(), capabilities.el3),
-        (decoded.el2_and0.is_implemented(), capabilities.el2_and0),
-        (decoded.sel2.is_implemented(), capabilities.sel2),
-        (decoded.rme.is_implemented(), capabilities.rme),
-        (decoded.stage2.is_implemented(), capabilities.stage2),
-        (decoded.xnx.is_implemented(), capabilities.xnx),
-        (decoded.lpa2.is_implemented(), capabilities.lpa2),
-        (decoded.d128.is_implemented(), capabilities.d128),
         (
-            decoded.d128_stage2.is_implemented(),
+            decoded.status(Capability::El2).is_implemented(),
+            capabilities.el2,
+        ),
+        (
+            decoded.status(Capability::El3).is_implemented(),
+            capabilities.el3,
+        ),
+        (
+            decoded.status(Capability::El2And0).is_implemented(),
+            capabilities.el2_and0,
+        ),
+        (
+            decoded.status(Capability::Sel2).is_implemented(),
+            capabilities.sel2,
+        ),
+        (
+            decoded.status(Capability::Rme).is_implemented(),
+            capabilities.rme,
+        ),
+        (
+            decoded.status(Capability::Stage2).is_implemented(),
+            capabilities.stage2,
+        ),
+        (
+            decoded.status(Capability::Xnx).is_implemented(),
+            capabilities.xnx,
+        ),
+        (
+            decoded.status(Capability::Lpa2).is_implemented(),
+            capabilities.lpa2,
+        ),
+        (
+            decoded.status(Capability::D128).is_implemented(),
+            capabilities.d128,
+        ),
+        (
+            decoded.status(Capability::D128Stage2).is_implemented(),
             capabilities.d128_stage2,
         ),
         (
-            decoded.extended_input_address.is_implemented(),
+            decoded
+                .status(Capability::ExtendedInputAddress)
+                .is_implemented(),
             capabilities.extended_input_address,
         ),
         (
-            decoded.extended_output_address.is_implemented(),
+            decoded
+                .status(Capability::ExtendedOutputAddress)
+                .is_implemented(),
             capabilities.extended_output_address,
         ),
     ];
@@ -457,7 +504,7 @@ pub fn live_snapshot_agreement(capabilities: Capabilities) -> TestResult {
             return mismatch(0x10 + index as u64);
         }
     }
-    if decoded.security_states.bits() != capabilities.security_states {
+    if decoded.security_states().bits() != capabilities.security_states {
         return mismatch(0x20);
     }
     TestResult::Pass
@@ -468,7 +515,7 @@ pub fn security_state_membership(
     required_security_state: SecurityStates,
 ) -> TestResult {
     let features = VmsaFeatures::current();
-    if features.security_states.contains(required_security_state) {
+    if features.security_states().contains(required_security_state) {
         TestResult::Pass
     } else if required_security_state == SecurityStates::ROOT && !capabilities.rme {
         TestResult::Skip(vmsa_test_harness::SkipReason::Unsupported)
