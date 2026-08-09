@@ -16,109 +16,50 @@ use crate::{
 };
 use vmsa_test_architecture::AccessWidth;
 
+type StageOf<R> = <R as aarch64_vmsa::regime::TranslationRegime>::Stage;
+type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeLeafFields<F, R, G>;
+type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeTableFields<F, R, G>;
+
+trait RootTableCompat<F, R, G> {
+    fn new(
+        addr: aarch64_vmsa::table::TableAddr<G>,
+        level: aarch64_vmsa::address::Level,
+        addr_bits: u8,
+        output_addr_bits: u8,
+    ) -> Self
+    where
+        F: aarch64_vmsa::descriptor::DescriptorFormat,
+        R: aarch64_vmsa::regime::TranslationRegime,
+        G: aarch64_vmsa::address::TranslationGranule;
+}
+
+impl<F, R, G> RootTableCompat<F, R, G> for aarch64_vmsa::table::RootTable<F, R, G>
+where
+    F: aarch64_vmsa::descriptor::DescriptorFormat,
+    R: aarch64_vmsa::regime::TranslationRegime,
+    G: aarch64_vmsa::address::TranslationGranule,
+{
+    fn new(
+        addr: aarch64_vmsa::table::TableAddr<G>,
+        level: aarch64_vmsa::address::Level,
+        addr_bits: u8,
+        output_addr_bits: u8,
+    ) -> Self {
+        Self::from_geometry(
+            aarch64_vmsa::table::RootTableGeometry::new_at_level(
+                addr,
+                level,
+                addr_bits,
+                output_addr_bits,
+            )
+            .expect("validated translation geometry"),
+        )
+    }
+}
+
 struct CleanupState(UnsafeCell<bool>);
 
-#[derive(Clone, Copy)]
-struct WalkerProbeFormat;
-
-#[derive(Clone, Copy)]
-struct WalkerProbeLayout;
-
-impl aarch64_vmsa::descriptor::DescriptorFormat for WalkerProbeFormat {
-    type Raw = u64;
-    const DESCRIPTOR_BYTES: usize = 8;
-    const DESCRIPTOR_SHIFT: u8 = 3;
-    const OUTPUT_ADDRESS_BITS: u8 = 64;
-    const BASE_LOWEST_ROOT_LEVEL: aarch64_vmsa::address::Level = aarch64_vmsa::address::Level::L0;
-    const EXTENDED_LOWEST_ROOT_LEVEL: aarch64_vmsa::address::Level =
-        aarch64_vmsa::address::Level::new(-20);
-    const REQUIRED_FEATURES: aarch64_vmsa::arch::FeatureRequirements =
-        aarch64_vmsa::arch::FeatureRequirements::NONE;
-
-    fn invalid() -> Self::Raw {
-        0
-    }
-
-    fn supports_leaf_level<G: aarch64_vmsa::address::TranslationGranule>(
-        _: aarch64_vmsa::address::Level,
-    ) -> bool {
-        true
-    }
-
-    unsafe fn read_descriptor(ptr: *const Self::Raw) -> Self::Raw {
-        unsafe { ptr.read_volatile() }
-    }
-
-    unsafe fn write_descriptor(ptr: *mut Self::Raw, raw: Self::Raw) {
-        unsafe { ptr.write_volatile(raw) }
-    }
-}
-
-impl
-    aarch64_vmsa::descriptor::HasLayout<
-        aarch64_vmsa::translation::Stage1,
-        aarch64_vmsa::address::Granule4KiB,
-    > for WalkerProbeFormat
-{
-    type Layout = WalkerProbeLayout;
-}
-
-impl
-    aarch64_vmsa::descriptor::DescriptorLayout<
-        aarch64_vmsa::translation::Stage1,
-        aarch64_vmsa::address::Granule4KiB,
-    > for WalkerProbeLayout
-{
-    type Format = WalkerProbeFormat;
-    type LeafFields = ();
-    type TableFields = ();
-    const ADDRESS_FIELD_MASK: u128 = u64::MAX as u128;
-
-    fn kind(raw: u64, _: aarch64_vmsa::address::Level) -> aarch64_vmsa::descriptor::DescriptorKind {
-        match raw {
-            1 => aarch64_vmsa::descriptor::DescriptorKind::Table,
-            2 => aarch64_vmsa::descriptor::DescriptorKind::Block,
-            _ => aarch64_vmsa::descriptor::DescriptorKind::Invalid,
-        }
-    }
-
-    fn decode_leaf_fields(_: u64, _: aarch64_vmsa::address::Level) {}
-    fn decode_table_fields(_: u64, _: aarch64_vmsa::address::Level) {}
-
-    fn leaf_descriptor(
-        _: aarch64_vmsa::address::PhysAddr,
-        _: aarch64_vmsa::address::Level,
-        _: (),
-    ) -> Result<u64, aarch64_vmsa::descriptor::DescriptorError> {
-        Ok(2)
-    }
-
-    fn table_descriptor(
-        _: aarch64_vmsa::address::PhysAddr,
-        _: aarch64_vmsa::table::TableTransition<
-            WalkerProbeFormat,
-            aarch64_vmsa::address::Granule4KiB,
-        >,
-        _: (),
-    ) -> Result<u64, aarch64_vmsa::descriptor::DescriptorError> {
-        Ok(1)
-    }
-
-    fn output_address(_: u64, _: aarch64_vmsa::address::Level) -> aarch64_vmsa::address::PhysAddr {
-        aarch64_vmsa::address::PhysAddr(u64::MAX)
-    }
-
-    fn next_table(
-        _: u64,
-        level: aarch64_vmsa::address::Level,
-    ) -> Option<aarch64_vmsa::descriptor::NextTableDescriptor> {
-        Some(aarch64_vmsa::descriptor::NextTableDescriptor {
-            address: aarch64_vmsa::address::PhysAddr(1),
-            level: level.next(),
-            stride_count: 1,
-        })
-    }
-}
+type WalkerProbeFormat = aarch64_vmsa::config::format::Vmsa64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum WalkerProbeAccessError {
@@ -127,11 +68,15 @@ enum WalkerProbeAccessError {
 
 struct WalkerProbeAccess {
     base: NonNull<u64>,
-    shape: aarch64_vmsa::table::TableShape<WalkerProbeFormat, aarch64_vmsa::address::Granule4KiB>,
+    shape: aarch64_vmsa::table::TableShape<
+        WalkerProbeFormat,
+        aarch64_vmsa::config::granule::Granule4KiB,
+    >,
     reject: bool,
 }
 
-unsafe impl aarch64_vmsa::table::TableAccess<WalkerProbeFormat, aarch64_vmsa::address::Granule4KiB>
+unsafe impl
+    aarch64_vmsa::table::TableAccess<WalkerProbeFormat, aarch64_vmsa::config::granule::Granule4KiB>
     for WalkerProbeAccess
 {
     type Error = WalkerProbeAccessError;
@@ -140,13 +85,13 @@ unsafe impl aarch64_vmsa::table::TableAccess<WalkerProbeFormat, aarch64_vmsa::ad
         &'a self,
         _: aarch64_vmsa::table::TableAccessLocation<
             WalkerProbeFormat,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
     ) -> Result<
         aarch64_vmsa::table::TranslationTable<
             'a,
             WalkerProbeFormat,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
         Self::Error,
     > {
@@ -156,7 +101,7 @@ unsafe impl aarch64_vmsa::table::TableAccess<WalkerProbeFormat, aarch64_vmsa::ad
         // SAFETY: Every probe keeps its arena-owned 4 KiB root alive. Probe
         // shapes have at most 512 entries, and out-of-range cases fail before
         // a descriptor pointer is formed.
-        Ok(unsafe { aarch64_vmsa::table::TranslationTable::from_ptr(self.base, self.shape) })
+        Ok(unsafe { aarch64_vmsa::table::TranslationTable::from_raw_parts(self.base, self.shape) })
     }
 }
 
@@ -528,8 +473,9 @@ impl<'a, E: Environment> TestContext<'a, E> {
     }
 
     pub fn verify_translation_table_read_write(&self) -> bool {
-        use aarch64_vmsa::address::{Granule4KiB, Level, VirtAddr};
-        use aarch64_vmsa::descriptor::Vmsa64;
+        use aarch64_vmsa::address::{Level, VirtAddr};
+        use aarch64_vmsa::config::format::Vmsa64;
+        use aarch64_vmsa::config::granule::Granule4KiB;
         use aarch64_vmsa::table::{TableError, TableShape, TranslationTableMut};
 
         let Ok(root) = self.allocate_root() else {
@@ -541,7 +487,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         let shape = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0);
         // SAFETY: `root` owns a live, aligned 4 KiB VMSA64 table for the whole
         // lifetime of this bounded verification method.
-        let mut table = unsafe { TranslationTableMut::from_ptr(pointer, shape) };
+        let mut table = unsafe { TranslationTableMut::from_raw_parts(pointer, shape) };
         let entries = table.entries();
         let last = entries - 1;
         let value = 0xfeed_face_cafe_beefu64;
@@ -574,9 +520,10 @@ impl<'a, E: Environment> TestContext<'a, E> {
     }
 
     pub fn verify_walker_access_error(&self) -> bool {
-        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-        use aarch64_vmsa::regime::NonSecureEl1Stage1;
-        use aarch64_vmsa::table::{RootTable, TablePhysAddr, TableShape};
+        use aarch64_vmsa::address::{Level, PhysAddr};
+        use aarch64_vmsa::config::granule::Granule4KiB;
+        use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
+        use aarch64_vmsa::table::{RootTable, TableAddr, TableShape};
         use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
 
         let Ok(root) = self.allocate_root() else {
@@ -585,7 +532,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         let Some(base) = NonNull::new(root.virtual_address().cast::<u64>()) else {
             return false;
         };
-        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+        let Ok(root_addr) = TableAddr::<Granule4KiB>::new(root.phys_addr()) else {
             return false;
         };
         let access = WalkerProbeAccess {
@@ -625,91 +572,38 @@ impl<'a, E: Environment> TestContext<'a, E> {
     }
 
     pub fn verify_walker_cursor_error(&self) -> bool {
-        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-        use aarch64_vmsa::regime::NonSecureEl1Stage1;
-        use aarch64_vmsa::table::{RootTable, TablePhysAddr, TableShape};
-        use aarch64_vmsa::translation::walk::{WalkCursorError, WalkError, WalkInputAddr, Walker};
+        use aarch64_vmsa::address::Level;
+        use aarch64_vmsa::config::format::Vmsa64;
+        use aarch64_vmsa::config::granule::Granule4KiB;
+        use aarch64_vmsa::table::{RootGeometryError, RootTableGeometry, TableAddr};
 
         let Ok(root) = self.allocate_root() else {
-            return false;
-        };
-        let Some(base) = NonNull::new(root.virtual_address().cast::<u64>()) else {
             return false;
         };
         let root_level = Level::new(-20);
-        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+        let Ok(root_addr) = TableAddr::<Granule4KiB>::new(root.phys_addr()) else {
             return false;
         };
-        let access = WalkerProbeAccess {
-            base,
-            shape: TableShape::root(root_level),
-            reject: false,
-        };
-        let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
-            root_addr, root_level, 48, 48,
-        );
-        let Ok(walker) = Walker::new(root, access) else {
-            return false;
-        };
-        let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
-            return false;
-        };
-        matches!(
-            walker.step(cursor),
-            Err(WalkError::Cursor(WalkCursorError::InvalidLevel { level }))
-                if level == root_level
-        )
+        RootTableGeometry::<Vmsa64, Granule4KiB>::new_at_level(root_addr, root_level, 48, 48)
+            == Err(RootGeometryError::InvalidLevel)
     }
 
     pub fn verify_walker_invalid_table_address_error(&self) -> bool {
-        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-        use aarch64_vmsa::regime::NonSecureEl1Stage1;
-        use aarch64_vmsa::table::{RootTable, TableAddressError, TablePhysAddr, TableShape};
-        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
+        use aarch64_vmsa::config::granule::Granule4KiB;
+        use aarch64_vmsa::table::{TableAddr, TableAddressError};
 
-        let Ok(root) = self.allocate_root() else {
-            return false;
-        };
-        let Some(base) = NonNull::new(root.virtual_address().cast::<u64>()) else {
-            return false;
-        };
-        // SAFETY: index zero is inside the live root allocation.
-        unsafe { base.as_ptr().write_volatile(1) };
-        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
-            return false;
-        };
-        let access = WalkerProbeAccess {
-            base,
-            shape: TableShape::root(Level::L0),
-            reject: false,
-        };
-        let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
-            root_addr,
-            Level::L0,
-            48,
-            48,
-        );
-        let Ok(walker) = Walker::new(root, access) else {
-            return false;
-        };
-        let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
-            return false;
-        };
-        matches!(
-            walker.step(cursor),
-            Err(WalkError::InvalidTableAddress(
-                TableAddressError::Unaligned {
-                    addr: PhysAddr(1),
-                    align: 4096,
-                }
-            ))
-        )
+        TableAddr::<Granule4KiB>::new(1)
+            == Err(TableAddressError::Unaligned {
+                addr: 1,
+                align: 4096,
+            })
     }
 
     pub fn verify_walker_entry_index_error(&self) -> bool {
-        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-        use aarch64_vmsa::regime::NonSecureEl1Stage1;
-        use aarch64_vmsa::table::{NextTable, RootTable, TablePhysAddr, TableShape};
+        use aarch64_vmsa::address::{Level, PhysAddr};
+        use aarch64_vmsa::config::granule::Granule4KiB;
+        use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
+        use aarch64_vmsa::table::{NextTable, RootTable, TableAddr, TableShape};
         use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
 
         let Ok(root) = self.allocate_root() else {
@@ -718,7 +612,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         let Some(base) = NonNull::new(root.virtual_address().cast::<u64>()) else {
             return false;
         };
-        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+        let Ok(root_addr) = TableAddr::<Granule4KiB>::new(root.phys_addr()) else {
             return false;
         };
         let access = WalkerProbeAccess {
@@ -738,7 +632,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         let Ok(cursor) = walker.cursor(WalkInputAddr::new(512 << 12)) else {
             return false;
         };
-        let Ok(zero) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(0)) else {
+        let Ok(zero) = TableAddr::<Granule4KiB>::new(0) else {
             return false;
         };
         let Ok(next) = NextTable::<WalkerProbeFormat, Granule4KiB>::new(zero, Level::L3, 4) else {
@@ -757,97 +651,57 @@ impl<'a, E: Environment> TestContext<'a, E> {
     }
 
     pub fn verify_walker_final_table_error(&self) -> bool {
-        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-        use aarch64_vmsa::regime::NonSecureEl1Stage1;
-        use aarch64_vmsa::table::{RootTable, TablePhysAddr, TableShape};
-        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
+        use aarch64_vmsa::address::Level;
+        use aarch64_vmsa::config::format::Vmsa64;
+        use aarch64_vmsa::config::granule::Granule4KiB;
+        use aarch64_vmsa::table::{RootGeometryError, RootTableGeometry, TableAddr};
 
         let Ok(root) = self.allocate_root() else {
             return false;
         };
-        let Some(base) = NonNull::new(root.virtual_address().cast::<u64>()) else {
-            return false;
-        };
-        // SAFETY: index zero is inside the live root allocation.
-        unsafe { base.as_ptr().write_volatile(1) };
-        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
-            return false;
-        };
-        let access = WalkerProbeAccess {
-            base,
-            shape: TableShape::root(Level::L3),
-            reject: false,
-        };
-        let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
-            root_addr,
-            Level::L3,
-            48,
-            48,
-        );
-        let Ok(walker) = Walker::new(root, access) else {
-            return false;
-        };
-        let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
+        let Ok(root_addr) = TableAddr::<Granule4KiB>::new(root.phys_addr()) else {
             return false;
         };
         matches!(
-            walker.step(cursor),
-            Err(WalkError::TableDescriptorAtFinalLevel { level: Level::L3 })
+            RootTableGeometry::<Vmsa64, Granule4KiB>::new_at_level(root_addr, Level::L3, 48, 48,),
+            Err(RootGeometryError::InvalidInputAddressBits {
+                requested: 48,
+                maximum: 21
+            })
         )
     }
 
     pub fn verify_walker_output_overflow_error(&self) -> bool {
-        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-        use aarch64_vmsa::regime::NonSecureEl1Stage1;
-        use aarch64_vmsa::table::{RootTable, TablePhysAddr, TableShape};
-        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
+        use aarch64_vmsa::address::Level;
+        use aarch64_vmsa::config::format::Vmsa64;
+        use aarch64_vmsa::config::granule::Granule4KiB;
+        use aarch64_vmsa::table::{RootGeometryError, RootTableGeometry, TableAddr};
 
         let Ok(root) = self.allocate_root() else {
             return false;
         };
-        let Some(base) = NonNull::new(root.virtual_address().cast::<u64>()) else {
-            return false;
-        };
-        // SAFETY: index zero is inside the live root allocation.
-        unsafe { base.as_ptr().write_volatile(2) };
-        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
-            return false;
-        };
-        let access = WalkerProbeAccess {
-            base,
-            shape: TableShape::root(Level::L1),
-            reject: false,
-        };
-        let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
-            root_addr,
-            Level::L1,
-            48,
-            48,
-        );
-        let Ok(walker) = Walker::new(root, access) else {
-            return false;
-        };
-        let Ok(cursor) = walker.cursor(WalkInputAddr::new(1)) else {
+        let Ok(root_addr) = TableAddr::<Granule4KiB>::new(root.phys_addr()) else {
             return false;
         };
         matches!(
-            walker.step(cursor),
-            Err(WalkError::OutputAddressOverflow {
-                base: PhysAddr(u64::MAX),
-                offset: 1,
+            RootTableGeometry::<Vmsa64, Granule4KiB>::new_at_level(root_addr, Level::L1, 39, 56,),
+            Err(RootGeometryError::InvalidOutputAddressBits {
+                requested: 56,
+                maximum: 48
             })
         )
     }
 
     pub fn verify_recursive_index_error(&self) -> bool {
-        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr, VirtAddr};
-        use aarch64_vmsa::descriptor::Vmsa64;
-        use aarch64_vmsa::table::{AccessError, RecursiveTableAccess, TablePhysAddr};
+        use aarch64_vmsa::address::{Level, PhysAddr, VirtAddr};
+        use aarch64_vmsa::config::format::Vmsa64;
+        use aarch64_vmsa::config::granule::Granule4KiB;
+        use aarch64_vmsa::table::{AccessError, RecursiveTableAccess, TableAddr};
 
         let Ok(root) = self.allocate_root() else {
             return false;
         };
-        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+        let Ok(root_addr) = TableAddr::<Granule4KiB>::new(root.phys_addr()) else {
             return false;
         };
         // SAFETY: This rejection probe cannot construct an access object: the
@@ -869,14 +723,15 @@ impl<'a, E: Environment> TestContext<'a, E> {
     }
 
     pub fn verify_recursive_base_errors(&self) -> bool {
-        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr, VirtAddr};
-        use aarch64_vmsa::descriptor::Vmsa64;
-        use aarch64_vmsa::table::{AccessError, RecursiveTableAccess, TablePhysAddr};
+        use aarch64_vmsa::address::{Level, PhysAddr, VirtAddr};
+        use aarch64_vmsa::config::format::Vmsa64;
+        use aarch64_vmsa::config::granule::Granule4KiB;
+        use aarch64_vmsa::table::{AccessError, RecursiveTableAccess, TableAddr};
 
         let Ok(root) = self.allocate_root() else {
             return false;
         };
-        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+        let Ok(root_addr) = TableAddr::<Granule4KiB>::new(root.phys_addr()) else {
             return false;
         };
         // SAFETY: Each malformed base is rejected by constructor validation;
@@ -909,14 +764,15 @@ impl<'a, E: Environment> TestContext<'a, E> {
     }
 
     pub fn verify_recursive_level_error(&self) -> bool {
-        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr, VirtAddr};
-        use aarch64_vmsa::descriptor::Vmsa64;
-        use aarch64_vmsa::table::{AccessError, RecursiveTableAccess, TablePhysAddr};
+        use aarch64_vmsa::address::{Level, PhysAddr, VirtAddr};
+        use aarch64_vmsa::config::format::Vmsa64;
+        use aarch64_vmsa::config::granule::Granule4KiB;
+        use aarch64_vmsa::table::{AccessError, RecursiveTableAccess, TableAddr};
 
         let Ok(root) = self.allocate_root() else {
             return false;
         };
-        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+        let Ok(root_addr) = TableAddr::<Granule4KiB>::new(root.phys_addr()) else {
             return false;
         };
         // SAFETY: The level is rejected before the recursive mapping is used.
@@ -934,8 +790,9 @@ impl<'a, E: Environment> TestContext<'a, E> {
     }
 
     pub fn verify_recursive_path_errors(&self) -> bool {
-        use aarch64_vmsa::address::{Granule4KiB, Level};
-        use aarch64_vmsa::descriptor::Vmsa64;
+        use aarch64_vmsa::address::Level;
+        use aarch64_vmsa::config::format::Vmsa64;
+        use aarch64_vmsa::config::granule::Granule4KiB;
         use aarch64_vmsa::table::{AccessError, TableShape, TableWalkPath};
 
         let parent = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0);
@@ -961,16 +818,19 @@ impl<'a, E: Environment> TestContext<'a, E> {
     }
 
     pub fn verify_recursive_overflow_error(&self) -> bool {
-        use aarch64_vmsa::address::{Granule64KiB, Level, PhysAddr, VirtAddr};
-        use aarch64_vmsa::descriptor::Vmsa64;
+        use aarch64_vmsa::address::{Level, PhysAddr, VirtAddr};
+        use aarch64_vmsa::config::format::Vmsa64;
+        use aarch64_vmsa::config::granule::Granule64KiB;
+        use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
         use aarch64_vmsa::table::{
-            AccessError, NextTable, RecursiveTableAccess, TableAccess, TableCursor, TablePhysAddr,
+            AccessError, NextTable, RecursiveTableAccess, RootTable, TableAddr,
         };
+        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
 
         let Ok(root) = self.allocate_root_64k() else {
             return false;
         };
-        let Ok(root_addr) = TablePhysAddr::<Granule64KiB>::new(PhysAddr(root.phys_addr())) else {
+        let Ok(root_addr) = TableAddr::<Granule64KiB>::new(root.phys_addr()) else {
             return false;
         };
         let recursive_base = (1 << 55) | (1 << 42) | (1 << 29) | (1 << 16);
@@ -987,10 +847,21 @@ impl<'a, E: Environment> TestContext<'a, E> {
         }) else {
             return false;
         };
-        let Ok(zero) = TablePhysAddr::<Granule64KiB>::new(PhysAddr(0)) else {
+        let Ok(zero) = TableAddr::<Granule64KiB>::new(0) else {
             return false;
         };
-        let cursor = TableCursor::<Vmsa64, Granule64KiB>::root(root_addr, Level::L0);
+        let root_table = RootTable::<Vmsa64, NonSecureEl1Stage1, Granule64KiB>::new(
+            root_addr,
+            Level::L0,
+            48,
+            48,
+        );
+        let Ok(walker) = Walker::new(root_table, &access) else {
+            return false;
+        };
+        let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
+            return false;
+        };
         let Ok(cursor) = cursor.next_table(
             0,
             NextTable::new(zero, Level::L1, 4).expect("zero satisfies the wide alignment"),
@@ -1003,23 +874,26 @@ impl<'a, E: Environment> TestContext<'a, E> {
         ) else {
             return false;
         };
-        let Ok(location) = cursor.location() else {
-            return false;
-        };
-        matches!(access.table_at(location), Err(AccessError::AddressOverflow))
+        matches!(
+            walker.step(cursor),
+            Err(WalkError::Access(AccessError::AddressOverflow))
+        )
     }
 
     pub fn verify_recursive_null_mapping_error(&self) -> bool {
-        use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr, VirtAddr};
-        use aarch64_vmsa::descriptor::Vmsa64;
+        use aarch64_vmsa::address::{Level, PhysAddr, VirtAddr};
+        use aarch64_vmsa::config::format::Vmsa64;
+        use aarch64_vmsa::config::granule::Granule4KiB;
+        use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
         use aarch64_vmsa::table::{
-            AccessError, NextTable, RecursiveTableAccess, TableAccess, TableCursor, TablePhysAddr,
+            AccessError, NextTable, RecursiveTableAccess, RootTable, TableAddr,
         };
+        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
 
         let Ok(root) = self.allocate_root() else {
             return false;
         };
-        let Ok(root_addr) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(root.phys_addr())) else {
+        let Ok(root_addr) = TableAddr::<Granule4KiB>::new(root.phys_addr()) else {
             return false;
         };
         let recursive_base = (1 << 39) | (1 << 30) | (1 << 21) | (1 << 12);
@@ -1036,10 +910,17 @@ impl<'a, E: Environment> TestContext<'a, E> {
         }) else {
             return false;
         };
-        let Ok(zero) = TablePhysAddr::<Granule4KiB>::new(PhysAddr(0)) else {
+        let Ok(zero) = TableAddr::<Granule4KiB>::new(0) else {
             return false;
         };
-        let cursor = TableCursor::<Vmsa64, Granule4KiB>::root(root_addr, Level::L0);
+        let root_table =
+            RootTable::<Vmsa64, NonSecureEl1Stage1, Granule4KiB>::new(root_addr, Level::L0, 48, 48);
+        let Ok(walker) = Walker::new(root_table, &access) else {
+            return false;
+        };
+        let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
+            return false;
+        };
         let Ok(cursor) = cursor.next_table(
             0,
             NextTable::new(zero, Level::L1, 4).expect("zero satisfies the wide alignment"),
@@ -1052,10 +933,10 @@ impl<'a, E: Environment> TestContext<'a, E> {
         ) else {
             return false;
         };
-        let Ok(location) = cursor.location() else {
-            return false;
-        };
-        matches!(access.table_at(location), Err(AccessError::NullMapping))
+        matches!(
+            walker.step(cursor),
+            Err(WalkError::Access(AccessError::NullMapping))
+        )
     }
 
     pub fn verify_arena_exhaustion_boundary(&self) -> bool {
@@ -1145,15 +1026,15 @@ impl<'a, E: Environment> TestContext<'a, E> {
     ) -> Result<TestMapper<E::Regime>, HarnessError>
     where
         E: TranslationRegimeEnvironment,
-        E::Regime: TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-        aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                aarch64_vmsa::address::Granule4KiB,
+        E::Regime: TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<E::Regime>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
+        LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
             E::Regime,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >: Copy,
     {
         self.offline_mapper_for::<E::Regime>(root)
@@ -1164,58 +1045,62 @@ impl<'a, E: Environment> TestContext<'a, E> {
         root: &mut RootTableMemory,
     ) -> Result<TestMapper<R>, HarnessError>
     where
-        R: TestRegime + TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-        aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule4KiB,
+        R: TestRegime + TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
+        LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
             R,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >: Copy,
     {
-        self.offline_mapper_for_granule::<R, aarch64_vmsa::address::Granule4KiB>(root)
+        self.offline_mapper_for_granule::<R, aarch64_vmsa::config::granule::Granule4KiB>(root)
     }
 
     pub fn offline_mapper_16k(
         &self,
         root: &mut RootTableMemory,
-    ) -> Result<TestMapper<E::Regime, aarch64_vmsa::address::Granule16KiB>, HarnessError>
+    ) -> Result<TestMapper<E::Regime, aarch64_vmsa::config::granule::Granule16KiB>, HarnessError>
     where
         E: TranslationRegimeEnvironment,
-        E::Regime: TestRegimeFor<aarch64_vmsa::address::Granule16KiB>,
-        aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                aarch64_vmsa::address::Granule16KiB,
+        E::Regime: TestRegimeFor<aarch64_vmsa::config::granule::Granule16KiB>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<E::Regime>,
+                aarch64_vmsa::config::granule::Granule16KiB,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
+        LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
             E::Regime,
-            aarch64_vmsa::address::Granule16KiB,
+            aarch64_vmsa::config::granule::Granule16KiB,
         >: Copy,
     {
-        self.offline_mapper_for_granule::<E::Regime, aarch64_vmsa::address::Granule16KiB>(root)
+        self.offline_mapper_for_granule::<E::Regime, aarch64_vmsa::config::granule::Granule16KiB>(
+            root,
+        )
     }
 
     pub fn offline_mapper_64k(
         &self,
         root: &mut RootTableMemory,
-    ) -> Result<TestMapper<E::Regime, aarch64_vmsa::address::Granule64KiB>, HarnessError>
+    ) -> Result<TestMapper<E::Regime, aarch64_vmsa::config::granule::Granule64KiB>, HarnessError>
     where
         E: TranslationRegimeEnvironment,
-        E::Regime: TestRegimeFor<aarch64_vmsa::address::Granule64KiB>,
-        aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                aarch64_vmsa::address::Granule64KiB,
+        E::Regime: TestRegimeFor<aarch64_vmsa::config::granule::Granule64KiB>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<E::Regime>,
+                aarch64_vmsa::config::granule::Granule64KiB,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
+        LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
             E::Regime,
-            aarch64_vmsa::address::Granule64KiB,
+            aarch64_vmsa::config::granule::Granule64KiB,
         >: Copy,
     {
-        self.offline_mapper_for_granule::<E::Regime, aarch64_vmsa::address::Granule64KiB>(root)
+        self.offline_mapper_for_granule::<E::Regime, aarch64_vmsa::config::granule::Granule64KiB>(
+            root,
+        )
     }
 
     pub fn offline_mapper_for_granule<R, G>(
@@ -1225,12 +1110,11 @@ impl<'a, E: Environment> TestContext<'a, E> {
     where
         R: TestRegime + TestRegimeFor<G>,
         G: TestGranule,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
-        aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>: Copy,
     {
         let capabilities = self.capabilities();
-        self.offline_mapper_for_format_with_geometry::<R, G, aarch64_vmsa::descriptor::Vmsa64>(
+        self.offline_mapper_for_format_with_geometry::<R, G, aarch64_vmsa::config::format::Vmsa64>(
             root,
             G::DEFAULT_START_LEVEL,
             R::default_input_bits(capabilities),
@@ -1249,7 +1133,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         R: aarch64_vmsa::regime::TranslationRegime,
         G: TestGranule,
         F: aarch64_vmsa::descriptor::DescriptorFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
     {
         self.with_environment(|environment| {
             TestMapper::new(
@@ -1273,7 +1157,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         R: aarch64_vmsa::regime::TranslationRegime,
         G: TestGranule,
         F: aarch64_vmsa::descriptor::DescriptorFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
     {
         self.with_environment(|environment| {
             TestMapper::<R, G, F>::validate_new(
@@ -1297,7 +1181,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         R: aarch64_vmsa::regime::TranslationRegime,
         G: TestGranule,
         F: aarch64_vmsa::descriptor::DescriptorFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
     {
         self.with_environment(|environment| {
             TestMapper::<R, G, F>::validate_new_at(
@@ -1319,22 +1203,22 @@ impl<'a, E: Environment> TestContext<'a, E> {
     ) -> Result<
         TestMapper<
             E::Regime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa64Lpa2,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64Lpa2,
         >,
         HarnessError,
     >
     where
         E: TranslationRegimeEnvironment,
-        aarch64_vmsa::descriptor::Vmsa64Lpa2: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64Lpa2: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<E::Regime>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
     {
         self.offline_mapper_for_format_with_geometry::<
             E::Regime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa64Lpa2,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64Lpa2,
         >(
             root,
             aarch64_vmsa::address::Level::new(start_level.get()),
@@ -1352,22 +1236,22 @@ impl<'a, E: Environment> TestContext<'a, E> {
     ) -> Result<
         TestMapper<
             E::Regime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
         >,
         HarnessError,
     >
     where
         E: TranslationRegimeEnvironment,
-        aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<E::Regime>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
     {
         self.offline_mapper_for_format_with_geometry::<
             E::Regime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
         >(
             root,
             aarch64_vmsa::address::Level::new(start_level.get()),
@@ -1385,21 +1269,21 @@ impl<'a, E: Environment> TestContext<'a, E> {
     ) -> Result<TestMapper<E::Regime>, HarnessError>
     where
         E: TranslationRegimeEnvironment,
-        E::Regime: TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-        aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                aarch64_vmsa::address::Granule4KiB,
+        E::Regime: TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<E::Regime>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
+        LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
             E::Regime,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >: Copy,
     {
         self.offline_mapper_for_format_with_geometry::<
             E::Regime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa64,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64,
         >(
             root,
             aarch64_vmsa::address::Level::new(start_level.get()),
@@ -1416,36 +1300,26 @@ impl<'a, E: Environment> TestContext<'a, E> {
     ) -> Result<TransitionSandbox, HarnessError>
     where
         R: TestRegimeFor<G>,
-        R: TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
+        R: TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>>::Layout:
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
-                    aarch64_vmsa::regime::StageOf<R>,
+                    StageOf<R>,
                     G,
-                    LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                        aarch64_vmsa::descriptor::Vmsa64,
-                        R,
-                        G,
-                    >,
-                    TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                        aarch64_vmsa::descriptor::Vmsa64,
-                        R,
-                        G,
-                    >,
+                    LeafFields = LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
+                    TableFields = TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
                 >,
-        aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>:
-            Copy + PartialEq,
-        aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule4KiB,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>: Copy + PartialEq,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
+        LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
             R,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >: Copy + PartialEq,
     {
         const STACK_ADDRESS: u64 = 0x6b00_0000;
@@ -1519,8 +1393,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
                 .ok_or(HarnessError::Memory)?;
         }
         let runtime_data = self.environment().transition_runtime_data();
-        let lower_stack_page =
-            (runtime_data[2] != 0).then(|| runtime_data[2] & !(G::SIZE - 1));
+        let lower_stack_page = (runtime_data[2] != 0).then(|| runtime_data[2] & !(G::SIZE - 1));
         for address in [
             lower_stack_page,
             Some(arena_start & !(G::SIZE - 1)),
@@ -1546,9 +1419,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         let mut arena_page = arena_start & !(G::SIZE - 1);
         while arena_page < arena_end {
             let table_page = self.with_environment(|environment| {
-                environment
-                    .memory()
-                    .address_is_table_allocation(arena_page)
+                environment.memory().address_is_table_allocation(arena_page)
             });
             let expected_arena_attributes = crate::MappingAttributes {
                 writable: true,
@@ -1560,11 +1431,11 @@ impl<'a, E: Environment> TestContext<'a, E> {
                 arena_page,
                 expected_arena_attributes,
             )? {
-                mapper
-                    .unmap_exact(arena_page)
-                    .map_err(|_| HarnessError::TransitionPreparation(
+                mapper.unmap_exact(arena_page).map_err(|_| {
+                    HarnessError::TransitionPreparation(
                         crate::TransitionPreparationError::CandidateRuntime,
-                    ))?;
+                    )
+                })?;
                 mapper.map_attributes_leaf(
                     arena_page,
                     arena_page,
@@ -1580,8 +1451,8 @@ impl<'a, E: Environment> TestContext<'a, E> {
         {
             let mut recovery_mapper = self.offline_mapper_for_format_with_geometry::<
                 R,
-                aarch64_vmsa::address::Granule4KiB,
-                aarch64_vmsa::descriptor::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
             >(
                 &mut recovery_root,
                 aarch64_vmsa::address::Level::L0,
@@ -1654,34 +1525,34 @@ impl<'a, E: Environment> TestContext<'a, E> {
         &self,
         mapper: &mut TestMapper<
             R,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
         >,
         entry: u64,
     ) -> Result<TransitionSandbox, HarnessError>
     where
-        R: TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-        aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule4KiB,
+        R: TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+        aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<R>,
-            aarch64_vmsa::address::Granule4KiB,
+        <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+            StageOf<R>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule4KiB,
+                StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
             >,
-        aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
+        LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
             R,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >: Copy + PartialEq,
     {
         const STACK_ADDRESS: u64 = 0x6b00_0000;
@@ -1728,8 +1599,8 @@ impl<'a, E: Environment> TestContext<'a, E> {
         {
             let mut recovery_mapper = self.offline_mapper_for_format_with_geometry::<
                 R,
-                aarch64_vmsa::address::Granule4KiB,
-                aarch64_vmsa::descriptor::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
             >(
                 &mut recovery_root,
                 aarch64_vmsa::address::Level::L0,
@@ -2780,12 +2651,12 @@ where
     where
         G: TestGranule,
         E::Regime: HardwareManagedStage1Regime<G>,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
-        aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, E::Regime, G>: Copy,
+        aarch64_vmsa::config::format::Vmsa64:
+            aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>: Copy,
     {
         self.failures.check(HarnessFailurePoint::Map)?;
-        self.with_mapper::<aarch64_vmsa::descriptor::Vmsa64, G, _>(|mapper| {
+        self.with_mapper::<aarch64_vmsa::config::format::Vmsa64, G, _>(|mapper| {
             mapper
                 .map_leaf(
                     aarch64_vmsa::translation::WalkInputAddr::new(input),
@@ -2806,11 +2677,11 @@ where
     where
         G: TestGranule,
         E::Regime: HardwareManagedStage1Regime<G>,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
-        aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, E::Regime, G>: Copy,
+        aarch64_vmsa::config::format::Vmsa64:
+            aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>: Copy,
     {
-        self.with_mapper::<aarch64_vmsa::descriptor::Vmsa64, G, _>(|mapper| {
+        self.with_mapper::<aarch64_vmsa::config::format::Vmsa64, G, _>(|mapper| {
             mapper
                 .translate(aarch64_vmsa::translation::WalkInputAddr::new(input))
                 .map_err(|_| HarnessError::InvalidState)?
@@ -2827,10 +2698,9 @@ where
         input: u64,
     ) -> Result<Option<crate::MappingInspection>, HarnessError>
     where
-        F: TestFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
         G: TestGranule,
-        aarch64_vmsa::regime::LeafFieldsOf<F, E::Regime, G>: Copy,
+        LeafFieldsOf<F, E::Regime, G>: Copy,
     {
         self.with_mapper::<F, G, _>(|mapper| {
             mapper
@@ -2848,10 +2718,9 @@ where
 
     pub fn inspect_walk<F, G>(&mut self, input: u64) -> Result<crate::WalkInspection, HarnessError>
     where
-        F: TestFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
         G: TestGranule,
-        aarch64_vmsa::regime::LeafFieldsOf<F, E::Regime, G>: Copy,
+        LeafFieldsOf<F, E::Regime, G>: Copy,
     {
         self.with_mapper::<F, G, _>(|mapper| {
             crate::translation::inspect_walk_with_access::<E::Regime, G, F, _>(
@@ -2868,9 +2737,9 @@ where
     ) -> Result<crate::WalkInspection, HarnessError>
     where
         R: aarch64_vmsa::regime::TranslationRegime,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
         G: TestGranule,
-        aarch64_vmsa::regime::LeafFieldsOf<F, R, G>: Copy,
+        LeafFieldsOf<F, R, G>: Copy,
     {
         self.with_mapper_for::<R, F, G, _>(|mapper| {
             crate::translation::inspect_walk_with_access::<R, G, F, _>(
@@ -2887,9 +2756,9 @@ where
     ) -> Result<Option<crate::MappingInspection>, HarnessError>
     where
         R: aarch64_vmsa::regime::TranslationRegime,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
         G: TestGranule,
-        aarch64_vmsa::regime::LeafFieldsOf<F, R, G>: Copy,
+        LeafFieldsOf<F, R, G>: Copy,
     {
         self.with_mapper_for::<R, F, G, _>(|mapper| {
             mapper
@@ -2909,19 +2778,19 @@ where
         &mut self,
         input: u64,
         config: &Cfg,
-    ) -> Result<Option<F::SemanticLeaf>, HarnessError>
+    ) -> Result<Option<<F as crate::AttributeCodecCompat<R, G, Cfg>>::SemanticLeaf>, HarnessError>
     where
         R: aarch64_vmsa::regime::TranslationRegime,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
         G: TestGranule,
-        F: aarch64_vmsa::attrs::AttributeCodec<
+        F: crate::AttributeCodecCompat<
                 R,
                 G,
                 Cfg,
-                RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, R, G>,
-                RawTable = aarch64_vmsa::regime::TableFieldsOf<F, R, G>,
+                RawLeaf = LeafFieldsOf<F, R, G>,
+                RawTable = TableFieldsOf<F, R, G>,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<F, R, G>: Copy,
+        LeafFieldsOf<F, R, G>: Copy,
     {
         self.with_mapper_for::<R, F, G, _>(|mapper| {
             let mapping = mapper
@@ -2950,45 +2819,47 @@ where
         input: u64,
         output: u64,
         level: LookupLevel,
-        leaf: F::SemanticLeaf,
-        table: F::SemanticTable,
+        leaf: <F as crate::AttributeCodecCompat<R, G, Cfg>>::SemanticLeaf,
+        table: <F as crate::AttributeCodecCompat<R, G, Cfg>>::SemanticTable,
     ) -> Result<(), HarnessError>
     where
         R: aarch64_vmsa::regime::TranslationRegime,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
         G: TestGranule,
-        F: aarch64_vmsa::attrs::AttributeCodec<
+        F: crate::AttributeCodecCompat<
                 R,
                 G,
                 Cfg,
-                RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, R, G>,
-                RawTable = aarch64_vmsa::regime::TableFieldsOf<F, R, G>,
+                RawLeaf = LeafFieldsOf<F, R, G>,
+                RawTable = TableFieldsOf<F, R, G>,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<F, R, G>: Copy,
+        LeafFieldsOf<F, R, G>: Copy,
     {
         self.failures.check(HarnessFailurePoint::Map)?;
         self.with_mapper_for::<R, F, G, _>(|mapper| {
-            aarch64_vmsa::mapper::map_semantic_leaf::<F, R, G, _, _, _, Cfg>(
-                mapper,
-                config,
-                aarch64_vmsa::translation::WalkInputAddr::new(input),
-                aarch64_vmsa::address::PhysAddr(output),
-                aarch64_vmsa::address::Level::new(level.get()),
-                leaf,
-                table,
-            )
-            .map(|_| ())
-            .map_err(|error| match error {
-                aarch64_vmsa::mapper::SemanticMapperError::Attribute(error) => {
-                    HarnessError::Attribute(crate::translation::normalize_attribute_error(error))
-                }
-                aarch64_vmsa::mapper::SemanticMapperError::Mapper(_) => {
-                    HarnessError::CrateBehavior {
-                        expected: 1,
-                        actual: 0,
+            mapper
+                .map_semantic_leaf::<Cfg>(
+                    config,
+                    aarch64_vmsa::translation::WalkInputAddr::new(input),
+                    aarch64_vmsa::address::PhysAddr(output),
+                    aarch64_vmsa::address::Level::new(level.get()),
+                    leaf,
+                    table,
+                )
+                .map(|_| ())
+                .map_err(|error| match error {
+                    aarch64_vmsa::mapper::SemanticMapperError::Attribute(error) => {
+                        HarnessError::Attribute(crate::translation::normalize_attribute_error(
+                            error,
+                        ))
                     }
-                }
-            })
+                    aarch64_vmsa::mapper::SemanticMapperError::Mapper(_) => {
+                        HarnessError::CrateBehavior {
+                            expected: 1,
+                            actual: 0,
+                        }
+                    }
+                })
         })
     }
 
@@ -3002,32 +2873,17 @@ where
     where
         E::Regime: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            G,
-        >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                G,
-                LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    E::Regime,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        aarch64_vmsa::config::format::Vmsa64:
+            aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>>::Layout:
+            aarch64_vmsa::descriptor::DescriptorLayout<
+                    StageOf<E::Regime>,
                     G,
+                    LeafFields = LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>,
+                    TableFields = TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>,
                 >,
-                TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    E::Regime,
-                    G,
-                >,
-            >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
-            E::Regime,
-            G,
-        >: Copy,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>: Copy,
     {
         self.failures.check(HarnessFailurePoint::Map)?;
         self.with_mapper::<F, G, _>(|mapper| {
@@ -3054,25 +2910,16 @@ where
     where
         R: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>>::Layout:
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
-                    aarch64_vmsa::regime::StageOf<R>,
+                    StageOf<R>,
                     G,
-                    LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                        aarch64_vmsa::descriptor::Vmsa64,
-                        R,
-                        G,
-                    >,
-                    TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                        aarch64_vmsa::descriptor::Vmsa64,
-                        R,
-                        G,
-                    >,
+                    LeafFields = LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
+                    TableFields = TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
                 >,
-        aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>: Copy,
     {
         self.with_mapper_for::<R, F, G, _>(|mapper| {
             mapper
@@ -3099,32 +2946,17 @@ where
     where
         E::Regime: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            G,
-        >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                G,
-                LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    E::Regime,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        aarch64_vmsa::config::format::Vmsa64:
+            aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>>::Layout:
+            aarch64_vmsa::descriptor::DescriptorLayout<
+                    StageOf<E::Regime>,
                     G,
+                    LeafFields = LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>,
+                    TableFields = TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>,
                 >,
-                TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    E::Regime,
-                    G,
-                >,
-            >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
-            E::Regime,
-            G,
-        >: Copy,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>: Copy,
     {
         self.failures.check(HarnessFailurePoint::Map)?;
         self.with_mapper::<F, G, _>(|mapper| {
@@ -3148,15 +2980,13 @@ where
 
     pub fn unmap<F, G>(&mut self, input: u64) -> Result<crate::MappingInspection, HarnessError>
     where
-        F: TestFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
         G: TestGranule,
-        aarch64_vmsa::regime::LeafFieldsOf<F, E::Regime, G>: Copy,
+        LeafFieldsOf<F, E::Regime, G>: Copy,
     {
         self.failures.check(HarnessFailurePoint::Unmap)?;
         self.with_mapper::<F, G, _>(|mapper| {
-            mapper
-                .unmap(aarch64_vmsa::translation::WalkInputAddr::new(input))
+            unsafe { mapper.unmap(aarch64_vmsa::translation::WalkInputAddr::new(input)) }
                 .map(|result| crate::MappingInspection {
                     output: result.old().output().0,
                     level: LookupLevel::new(result.old().level().as_i8())
@@ -3172,14 +3002,13 @@ where
     ) -> Result<crate::MappingInspection, HarnessError>
     where
         R: aarch64_vmsa::regime::TranslationRegime,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
         G: TestGranule,
-        aarch64_vmsa::regime::LeafFieldsOf<F, R, G>: Copy,
+        LeafFieldsOf<F, R, G>: Copy,
     {
         self.failures.check(HarnessFailurePoint::Unmap)?;
         self.with_mapper_for::<R, F, G, _>(|mapper| {
-            mapper
-                .unmap(aarch64_vmsa::translation::WalkInputAddr::new(input))
+            unsafe { mapper.unmap(aarch64_vmsa::translation::WalkInputAddr::new(input)) }
                 .map(|result| crate::MappingInspection {
                     output: result.old().output().0,
                     level: LookupLevel::new(result.old().level().as_i8())
@@ -3191,15 +3020,13 @@ where
 
     pub fn unmap_reclaim<F, G>(&mut self, input: u64) -> Result<crate::UnmapResult, HarnessError>
     where
-        F: TestFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
         G: TestGranule,
-        aarch64_vmsa::regime::LeafFieldsOf<F, E::Regime, G>: Copy,
+        LeafFieldsOf<F, E::Regime, G>: Copy,
     {
         self.failures.check(HarnessFailurePoint::Unmap)?;
         self.with_mapper::<F, G, _>(|mapper| {
-            mapper
-                .unmap_reclaim(aarch64_vmsa::translation::WalkInputAddr::new(input))
+            unsafe { mapper.unmap_reclaim(aarch64_vmsa::translation::WalkInputAddr::new(input)) }
                 .map(|result| crate::UnmapResult {
                     mapping: crate::MappingInspection {
                         output: result.old().output().0,
@@ -3222,37 +3049,18 @@ where
     where
         E::Regime: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            G,
-        >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                G,
-                LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    E::Regime,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        aarch64_vmsa::config::format::Vmsa64:
+            aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>>::Layout:
+            aarch64_vmsa::descriptor::DescriptorLayout<
+                    StageOf<E::Regime>,
                     G,
+                    LeafFields = LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>,
+                    TableFields = TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>,
                 >,
-                TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    E::Regime,
-                    G,
-                >,
-            >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
-            E::Regime,
-            G,
-        >: Copy,
-        aarch64_vmsa::regime::TableFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
-            E::Regime,
-            G,
-        >: Copy,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>: Copy,
+        TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>: Copy,
     {
         self.failures.check(HarnessFailurePoint::Remap)?;
         self.failures.check(HarnessFailurePoint::Invalidation)?;
@@ -3276,37 +3084,18 @@ where
     where
         E::Regime: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            G,
-        >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                G,
-                LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    E::Regime,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        aarch64_vmsa::config::format::Vmsa64:
+            aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>>::Layout:
+            aarch64_vmsa::descriptor::DescriptorLayout<
+                    StageOf<E::Regime>,
                     G,
+                    LeafFields = LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>,
+                    TableFields = TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>,
                 >,
-                TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    E::Regime,
-                    G,
-                >,
-            >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
-            E::Regime,
-            G,
-        >: Copy,
-        aarch64_vmsa::regime::TableFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
-            E::Regime,
-            G,
-        >: Copy,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>: Copy,
+        TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>: Copy,
     {
         self.break_before_make::<F, G>(input, Some(output), attributes)
     }
@@ -3320,26 +3109,17 @@ where
     where
         R: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>>::Layout:
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
-                    aarch64_vmsa::regime::StageOf<R>,
+                    StageOf<R>,
                     G,
-                    LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                        aarch64_vmsa::descriptor::Vmsa64,
-                        R,
-                        G,
-                    >,
-                    TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                        aarch64_vmsa::descriptor::Vmsa64,
-                        R,
-                        G,
-                    >,
+                    LeafFields = LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
+                    TableFields = TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
                 >,
-        aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
-        aarch64_vmsa::regime::TableFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>: Copy,
+        TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>: Copy,
     {
         self.failures.check(HarnessFailurePoint::Remap)?;
         self.failures.check(HarnessFailurePoint::Invalidation)?;
@@ -3363,26 +3143,17 @@ where
     where
         R: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>>::Layout:
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
-                    aarch64_vmsa::regime::StageOf<R>,
+                    StageOf<R>,
                     G,
-                    LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                        aarch64_vmsa::descriptor::Vmsa64,
-                        R,
-                        G,
-                    >,
-                    TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                        aarch64_vmsa::descriptor::Vmsa64,
-                        R,
-                        G,
-                    >,
+                    LeafFields = LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
+                    TableFields = TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
                 >,
-        aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
-        aarch64_vmsa::regime::TableFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>: Copy,
+        TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>: Copy,
     {
         self.break_before_make_for::<R, F, G>(input, Some(output), attributes)
     }
@@ -3395,37 +3166,18 @@ where
     where
         E::Regime: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            G,
-        >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                G,
-                LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    E::Regime,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        aarch64_vmsa::config::format::Vmsa64:
+            aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>>::Layout:
+            aarch64_vmsa::descriptor::DescriptorLayout<
+                    StageOf<E::Regime>,
                     G,
+                    LeafFields = LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>,
+                    TableFields = TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>,
                 >,
-                TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    E::Regime,
-                    G,
-                >,
-            >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
-            E::Regime,
-            G,
-        >: Copy,
-        aarch64_vmsa::regime::TableFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
-            E::Regime,
-            G,
-        >: Copy,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>: Copy,
+        TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, E::Regime, G>: Copy,
     {
         self.failures.check(HarnessFailurePoint::Protect)?;
         self.with_mapper::<F, G, _>(|mapper| {
@@ -3447,26 +3199,17 @@ where
     where
         R: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
-        aarch64_vmsa::descriptor::Vmsa64:
-            aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>>::Layout:
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
-                    aarch64_vmsa::regime::StageOf<R>,
+                    StageOf<R>,
                     G,
-                    LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                        aarch64_vmsa::descriptor::Vmsa64,
-                        R,
-                        G,
-                    >,
-                    TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                        aarch64_vmsa::descriptor::Vmsa64,
-                        R,
-                        G,
-                    >,
+                    LeafFields = LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
+                    TableFields = TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
                 >,
-        aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
-        aarch64_vmsa::regime::TableFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
+        LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>: Copy,
+        TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>: Copy,
     {
         self.failures.check(HarnessFailurePoint::Protect)?;
         self.with_mapper_for::<R, F, G, _>(|mapper| {
@@ -3487,10 +3230,9 @@ where
         ) -> Result<T, HarnessError>,
     ) -> Result<T, HarnessError>
     where
-        F: TestFormat
-            + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<E::Regime>, G>,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
         G: TestGranule,
-        aarch64_vmsa::regime::LeafFieldsOf<F, E::Regime, G>: Copy,
+        LeafFieldsOf<F, E::Regime, G>: Copy,
     {
         if self.installed.is_none() {
             return Err(HarnessError::InvalidState);
@@ -3515,7 +3257,7 @@ where
     ) -> Result<T, HarnessError>
     where
         R: aarch64_vmsa::regime::TranslationRegime,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
         G: TestGranule,
     {
         let mut mapper =
@@ -3536,15 +3278,15 @@ where
         ) -> Result<T, HarnessError>,
     ) -> Result<T, HarnessError>
     where
-        E::Regime: TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-        aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                aarch64_vmsa::address::Granule4KiB,
+        E::Regime: TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<E::Regime>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
+        LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
             E::Regime,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >: Copy,
     {
         if self.installed.is_none() || self.lower {
@@ -3572,15 +3314,15 @@ where
         attributes: crate::MappingAttributes,
     ) -> Result<crate::MappingInspection, HarnessError>
     where
-        E::Regime: TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-        aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<E::Regime>,
-                aarch64_vmsa::address::Granule4KiB,
+        E::Regime: TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<E::Regime>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
+        LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
             E::Regime,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >: Copy,
     {
         self.failures.check(HarnessFailurePoint::Map)?;
@@ -3590,10 +3332,10 @@ where
                     aarch64_vmsa::translation::WalkInputAddr::new(input),
                     aarch64_vmsa::address::PhysAddr(output),
                     aarch64_vmsa::address::Level::L3,
-                    <E::Regime as TestRegimeFor<aarch64_vmsa::address::Granule4KiB>>::raw_leaf(
+                    <E::Regime as TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>>::raw_leaf(
                         attributes,
                     )?,
-                    <E::Regime as TestRegimeFor<aarch64_vmsa::address::Granule4KiB>>::raw_table()?,
+                    <E::Regime as TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>>::raw_table()?,
                 )
                 .map_err(|_| HarnessError::InvalidState)?;
             mapper
@@ -3618,24 +3360,24 @@ impl<E: Environment> LiveTranslation<'_, E> {
         E: TranslationRegimeEnvironment,
         R: aarch64_vmsa::regime::TranslationRegime,
         R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage1>,
-        aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
+        aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage1,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+        <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
             aarch64_vmsa::translation::Stage1,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
                 aarch64_vmsa::translation::Stage1,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
             >,
     {
         self.with_mapper_for::<
             R,
-            aarch64_vmsa::descriptor::Vmsa128,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
             _,
         >(|mapper| {
             mapper
@@ -3659,16 +3401,16 @@ impl<E: Environment> LiveTranslation<'_, E> {
         E: TranslationRegimeEnvironment,
         R: aarch64_vmsa::regime::TranslationRegime,
         R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage1>,
-        aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
+        aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage1,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+        <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
             aarch64_vmsa::translation::Stage1,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
                 aarch64_vmsa::translation::Stage1,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
             >,
@@ -3676,8 +3418,8 @@ impl<E: Environment> LiveTranslation<'_, E> {
         self.failures.check(HarnessFailurePoint::Remap)?;
         self.with_mapper_for::<
             R,
-            aarch64_vmsa::descriptor::Vmsa128,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
             _,
         >(|mapper| {
             crate::translation::replace_live_d128_stage1_mapping(
@@ -3698,16 +3440,16 @@ impl<E: Environment> LiveTranslation<'_, E> {
         E: TranslationRegimeEnvironment,
         R: aarch64_vmsa::regime::TranslationRegime,
         R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage1>,
-        aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
+        aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage1,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+        <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
             aarch64_vmsa::translation::Stage1,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
                 aarch64_vmsa::translation::Stage1,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
             >,
@@ -3715,8 +3457,8 @@ impl<E: Environment> LiveTranslation<'_, E> {
         self.failures.check(HarnessFailurePoint::Protect)?;
         self.with_mapper_for::<
             R,
-            aarch64_vmsa::descriptor::Vmsa128,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
             _,
         >(|mapper| {
             crate::translation::replace_live_d128_stage1_mapping(
@@ -3738,16 +3480,16 @@ impl<E: Environment> LiveTranslation<'_, E> {
         E: TranslationRegimeEnvironment,
         R: aarch64_vmsa::regime::TranslationRegime,
         R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
-        aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
+        aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage2,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+        <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
             aarch64_vmsa::translation::Stage2,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
                 aarch64_vmsa::translation::Stage2,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2TableAttrs,
             >,
@@ -3755,8 +3497,8 @@ impl<E: Environment> LiveTranslation<'_, E> {
         self.failures.check(HarnessFailurePoint::Remap)?;
         self.with_mapper_for::<
             R,
-            aarch64_vmsa::descriptor::Vmsa128,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
             _,
         >(|mapper| {
             crate::translation::replace_live_d128_stage2_mapping(
@@ -3777,16 +3519,16 @@ impl<E: Environment> LiveTranslation<'_, E> {
         E: TranslationRegimeEnvironment,
         R: aarch64_vmsa::regime::TranslationRegime,
         R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
-        aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
+        aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage2,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+        <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
             aarch64_vmsa::translation::Stage2,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
                 aarch64_vmsa::translation::Stage2,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2TableAttrs,
             >,
@@ -3794,8 +3536,8 @@ impl<E: Environment> LiveTranslation<'_, E> {
         self.failures.check(HarnessFailurePoint::Protect)?;
         self.with_mapper_for::<
             R,
-            aarch64_vmsa::descriptor::Vmsa128,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
             _,
         >(|mapper| {
             crate::translation::replace_live_d128_stage2_mapping(

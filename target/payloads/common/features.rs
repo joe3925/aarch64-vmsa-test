@@ -14,8 +14,8 @@ pub(crate) use require_regimes;
 
 macro_rules! require_base_format {
     ($features:expr; $regime:ty) => {{
-        use aarch64_vmsa::address::{Granule4KiB, Granule16KiB, Granule64KiB};
-        use aarch64_vmsa::descriptor::Vmsa64;
+        use aarch64_vmsa::config::format::Vmsa64;
+        use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
         aarch64_vmsa::regime::validate_regime_format::<Vmsa64, $regime, Granule4KiB>($features)
             .is_ok()
             && aarch64_vmsa::regime::validate_regime_format::<Vmsa64, $regime, Granule16KiB>(
@@ -32,8 +32,10 @@ pub(crate) use require_base_format;
 
 macro_rules! require_all_formats {
     ($features:expr; $regime:ty) => {{
-        use aarch64_vmsa::address::{Granule16KiB, Granule4KiB, Granule64KiB};
-        use aarch64_vmsa::descriptor::{Vmsa128, Vmsa64Lpa2};
+        use aarch64_vmsa::address::{};
+        use aarch64_vmsa::config::granule::{Granule16KiB, Granule4KiB, Granule64KiB};
+        use aarch64_vmsa::descriptor::{};
+        use aarch64_vmsa::config::format::{Vmsa128, Vmsa64Lpa2};
         $crate::features::require_base_format!($features; $regime)
             && aarch64_vmsa::regime::validate_regime_format::<
                 Vmsa64Lpa2,
@@ -77,8 +79,8 @@ pub(crate) use require_all_formats;
 
 macro_rules! require_live_format_agreement {
     ($features:expr; $regime:ty, stage2 = $stage2:expr) => {{
-        use aarch64_vmsa::address::{Granule4KiB, Granule16KiB, Granule64KiB};
-        use aarch64_vmsa::descriptor::{Vmsa64Lpa2, Vmsa128};
+        use aarch64_vmsa::config::format::{Vmsa64Lpa2, Vmsa128};
+        use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
         let regime_supported = aarch64_vmsa::regime::validate_regime::<$regime>($features).is_ok();
         let lpa2_expected = regime_supported
             && $features.lpa2.is_implemented()

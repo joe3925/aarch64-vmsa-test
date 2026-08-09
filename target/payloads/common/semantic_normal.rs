@@ -13,10 +13,11 @@ where
     G: vmsa_test_harness::adapter::TestGranule,
     P: Copy + core::fmt::Debug + Eq + PartialEq,
     LowerRegime: vmsa_test_harness::adapter::TestRegimeFor<G>,
-    aarch64_vmsa::descriptor::Vmsa64:
+    aarch64_vmsa::config::format::Vmsa64:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>,
-    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, LowerRegime, G>: Copy,
-    aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::attrs::AttributeCodec<LowerRegime,
+    crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, LowerRegime, G>: Copy,
+    aarch64_vmsa::config::format::Vmsa64: vmsa_test_harness::AttributeCodecCompat<
+            LowerRegime,
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<P>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
@@ -29,16 +30,8 @@ where
                 P,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1TableControls,
             >,
-            RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<
-                aarch64_vmsa::descriptor::Vmsa64,
-                LowerRegime,
-                G,
-            >,
-            RawTable = aarch64_vmsa::regime::TableFieldsOf<
-                aarch64_vmsa::descriptor::Vmsa64,
-                LowerRegime,
-                G,
-            >,
+            RawLeaf = crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, LowerRegime, G>,
+            RawTable = crate::TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, LowerRegime, G>,
         >,
 {
     use aarch64_vmsa::attrs::{
@@ -46,8 +39,9 @@ where
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
         SoftwareMetadata, Stage2MemoryMode, TwoPrivilegeLeafPermissions,
-        TwoPrivilegeTablePermissionLimits, };
-    use aarch64_vmsa::descriptor::Vmsa64;
+        TwoPrivilegeTablePermissionLimits,
+    };
+    use aarch64_vmsa::config::format::Vmsa64;
     use vmsa_test_harness::{AddressBits, LookupLevel, PhysicalAddress};
 
     const VALUE: u64 = 0x4c4f_5745_5253_454d;
@@ -60,7 +54,11 @@ where
         context.write_u64(page.virtual_address() as u64 + 8, VALUE),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let covered =
         aarch64_vmsa::table::TableGeometry::<Vmsa64, G>::offset_at_level_raw(u64::MAX, leaf_level)
@@ -150,7 +148,11 @@ where
                 .translate(input)?
                 .is_none_or(|mapping| mapping.output != target)
         {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     let controls = vmsa_test_harness::vmsa64_el1_stage1_controls(granule, input_bits, output_bits)
@@ -200,7 +202,11 @@ where
         .inspect_semantic_for::<LowerRegime, Vmsa64, G, _>(input, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if live != offline || live.permissions != permissions {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let result = if granule == vmsa_test_harness::Granule::Size16KiB {
         match context.translate_lower_stage1(input, vmsa_test_harness::TranslationQueryAccess::Read)
@@ -223,7 +229,11 @@ where
                 })
             }
             vmsa_test_harness::TranslationQueryResult::Unsupported => {
-                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into()
             }
         }
     } else {
@@ -251,7 +261,7 @@ macro_rules! lower_case {
 
 lower_case!(
     lower_4k_l1,
-    aarch64_vmsa::address::Granule4KiB,
+    aarch64_vmsa::config::granule::Granule4KiB,
     allocate_root,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::L0,
@@ -260,7 +270,7 @@ lower_case!(
 
 lower_case!(
     lower_4k_l2,
-    aarch64_vmsa::address::Granule4KiB,
+    aarch64_vmsa::config::granule::Granule4KiB,
     allocate_root,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::L0,
@@ -268,7 +278,7 @@ lower_case!(
 );
 lower_case!(
     lower_4k_l3,
-    aarch64_vmsa::address::Granule4KiB,
+    aarch64_vmsa::config::granule::Granule4KiB,
     allocate_root,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::L0,
@@ -276,7 +286,7 @@ lower_case!(
 );
 lower_case!(
     lower_16k_l2,
-    aarch64_vmsa::address::Granule16KiB,
+    aarch64_vmsa::config::granule::Granule16KiB,
     allocate_root_16k,
     vmsa_test_harness::Granule::Size16KiB,
     aarch64_vmsa::address::Level::L1,
@@ -284,7 +294,7 @@ lower_case!(
 );
 lower_case!(
     lower_16k_l3,
-    aarch64_vmsa::address::Granule16KiB,
+    aarch64_vmsa::config::granule::Granule16KiB,
     allocate_root_16k,
     vmsa_test_harness::Granule::Size16KiB,
     aarch64_vmsa::address::Level::L1,
@@ -292,7 +302,7 @@ lower_case!(
 );
 lower_case!(
     lower_64k_l2,
-    aarch64_vmsa::address::Granule64KiB,
+    aarch64_vmsa::config::granule::Granule64KiB,
     allocate_root_64k,
     vmsa_test_harness::Granule::Size64KiB,
     aarch64_vmsa::address::Level::L2,
@@ -300,7 +310,7 @@ lower_case!(
 );
 lower_case!(
     lower_64k_l3,
-    aarch64_vmsa::address::Granule64KiB,
+    aarch64_vmsa::config::granule::Granule64KiB,
     allocate_root_64k,
     vmsa_test_harness::Granule::Size64KiB,
     aarch64_vmsa::address::Level::L2,

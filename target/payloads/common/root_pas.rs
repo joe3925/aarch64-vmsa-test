@@ -74,10 +74,11 @@ fn table() -> aarch64_vmsa::attrs::SemanticStage1TableAttrs<
 }
 
 fn codec_case(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
-    use aarch64_vmsa::attrs::{AttributeCodec, };
-    use aarch64_vmsa::descriptor::Vmsa64;
-    use aarch64_vmsa::regime::RootEl3Stage1;
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::attrs::AttributeCodec;
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::RootEl3Stage1;
     let config = config();
     let leaf = leaf(pas);
     let table = table();
@@ -87,38 +88,44 @@ fn codec_case(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
         aarch64_vmsa::attrs::RootExtendedPa::Root => (false, true),
         aarch64_vmsa::attrs::RootExtendedPa::Realm => (true, true),
     };
-    let leaf_ok =
-        <Vmsa64 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::resolve_leaf(
+    let leaf_ok = <Vmsa64 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::encode_leaf(
+        &config,
+        Level::L3,
+        leaf,
+    )
+    .and_then(|raw| {
+        if raw.ns != ns || raw.alias_bit != nse {
+            return Err(aarch64_vmsa::attrs::AttrError::InvalidOutputAddressSpace);
+        }
+        <Vmsa64 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::decode_leaf(
             &config,
             Level::L3,
-            leaf,
+            raw,
         )
-        .and_then(|raw| {
-            if raw.ns != ns || raw.alias_bit != nse {
-                return Err(aarch64_vmsa::attrs::AttrError::InvalidOutputAddressSpace);
-            }
-            <Vmsa64 as AttributeCodec<RootEl3Stage1,
-            Granule4KiB,
-            _,
-        >>::decode_leaf(&config, Level::L3, raw)
-        }) == Ok(leaf);
-    let table_ok = <Vmsa64 as AttributeCodec<RootEl3Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_table(&config, Level::L2, table)
+    }) == Ok(leaf);
+    let table_ok = <Vmsa64 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::encode_table(
+        &config,
+        Level::L2,
+        table,
+    )
     .and_then(|raw| {
         if raw.ns_table {
             return Err(aarch64_vmsa::attrs::AttrError::InvalidOutputAddressSpace);
         }
-        <Vmsa64 as AttributeCodec<RootEl3Stage1,
-            Granule4KiB,
-            _,
-        >>::decode_table(&config, Level::L2, raw)
+        <Vmsa64 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::decode_table(
+            &config,
+            Level::L2,
+            raw,
+        )
     }) == Ok(table);
     if leaf_ok && table_ok {
         TestResult::Pass
     } else {
-        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+        vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into()
     }
 }
 
@@ -180,9 +187,9 @@ fn active_case(
         },
     )?;
     live.map_semantic_for::<
-        aarch64_vmsa::regime::RootEl3Stage1,
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::regime::RootEl3Stage1,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
         _,
     >(
         &config,
@@ -194,14 +201,18 @@ fn active_case(
     )?;
     let decoded = live
         .inspect_semantic_for::<
-            aarch64_vmsa::regime::RootEl3Stage1,
-            aarch64_vmsa::descriptor::Vmsa64,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::regime::RootEl3Stage1,
+            aarch64_vmsa::config::format::Vmsa64,
+            aarch64_vmsa::config::granule::Granule4KiB,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if decoded != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let result = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE);
     live.restore()?;
@@ -248,9 +259,9 @@ fn delegated_realm_case(
         },
     )?;
     live.map_semantic_for::<
-        aarch64_vmsa::regime::RootEl3Stage1,
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::regime::RootEl3Stage1,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
         _,
     >(
         &config,
@@ -313,7 +324,11 @@ pub(super) fn unavailable_firmware_shared_pool_rejected(
     {
         TestResult::Pass
     } else {
-        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+        vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into()
     }
 }
 

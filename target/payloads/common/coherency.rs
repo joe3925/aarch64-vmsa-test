@@ -9,20 +9,21 @@ pub fn generated_execution<E: vmsa_test_harness::adapter::TranslationRegimeEnvir
     regime: RegimeAttributes,
 ) -> TestResult
 where
-    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-    aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule4KiB,
+    E::Regime:
+        vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+    aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<
-        aarch64_vmsa::descriptor::Vmsa64,
+    crate::LeafFieldsOf<
+        aarch64_vmsa::config::format::Vmsa64,
         E::Regime,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >: Copy,
-    aarch64_vmsa::regime::TableFieldsOf<
-        aarch64_vmsa::descriptor::Vmsa64,
+    crate::TableFieldsOf<
+        aarch64_vmsa::config::format::Vmsa64,
         E::Regime,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >: Copy,
 {
     const EXECUTE_ADDRESS: u64 = 0x6400_0000;
@@ -55,16 +56,17 @@ where
         regime,
     };
     let mut translation = context.install_owned(root, setup)?;
-    translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        EXECUTE_ADDRESS,
-        page.phys_addr(),
-        LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        MappingAttributes {
-            writable: false,
-            executable: true,
-            user_accessible: false,
-        },
-    )?;
+    translation
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            EXECUTE_ADDRESS,
+            page.phys_addr(),
+            LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            MappingAttributes {
+                writable: false,
+                executable: true,
+                user_accessible: false,
+            },
+        )?;
     context.maintain_cache(
         vmsa_test_harness::CacheMaintenanceOperation::InstructionCoherency {
             address: EXECUTE_ADDRESS,
@@ -89,7 +91,7 @@ where
     if !matches!(modified, TestResult::Pass) {
         return modified;
     }
-    translation.protect::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+    translation.protect::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
         EXECUTE_ADDRESS,
         MappingAttributes::READ_WRITE,
     )?;
@@ -105,7 +107,7 @@ where
     if !matches!(execute_never, TestResult::Pass) {
         return execute_never;
     }
-    translation.protect::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+    translation.protect::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
         EXECUTE_ADDRESS,
         MappingAttributes {
             writable: false,
@@ -147,16 +149,18 @@ pub fn multi_pe_translation_visibility<E>(
 ) -> TestResult
 where
     E: vmsa_test_harness::adapter::TranslationRegimeEnvironment,
-    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule4KiB>
-        + vmsa_test_harness::adapter::HardwareManagedStage1Regime<aarch64_vmsa::address::Granule4KiB>,
-    aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule4KiB,
+    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>
+        + vmsa_test_harness::adapter::HardwareManagedStage1Regime<
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<
-        aarch64_vmsa::descriptor::Vmsa64,
+    aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
+        >,
+    crate::LeafFieldsOf<
+        aarch64_vmsa::config::format::Vmsa64,
         E::Regime,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >: Copy,
 {
     const ADDRESS: u64 = 0x6800_0000;
@@ -174,7 +178,11 @@ where
         context.write_u64(remap_backing, remap_value),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let root = context.allocate_root()?;
     let capabilities = context.capabilities();
@@ -198,12 +206,13 @@ where
             regime,
         },
     )?;
-    translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        page.phys_addr(),
-        LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            page.phys_addr(),
+            LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            MappingAttributes::READ_WRITE,
+        )?;
     context.maintain_cache(vmsa_test_harness::CacheMaintenanceOperation::CleanData {
         address: backing,
         bytes: core::mem::size_of::<u64>(),
@@ -227,11 +236,12 @@ where
     if !matches!(result, TestResult::Pass) {
         return result;
     }
-    translation.remap::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        remap_page.phys_addr(),
-        MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .remap::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            remap_page.phys_addr(),
+            MappingAttributes::READ_WRITE,
+        )?;
     context.maintain_cache(vmsa_test_harness::CacheMaintenanceOperation::CleanData {
         address: remap_backing,
         bytes: core::mem::size_of::<u64>(),
@@ -254,7 +264,11 @@ where
         context.write_u64(ADDRESS, 7),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     context.maintain_cache(vmsa_test_harness::CacheMaintenanceOperation::MultiPeVisibility)?;
     let mut execution = context.execution(vmsa_test_harness::ExecutionContext::SecondaryPe)?;
@@ -267,7 +281,11 @@ where
             physical_address, ..
         } if physical_address == remap_page.phys_addr()
     ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     if !matches!(
         execution.write_u8(ADDRESS, 0x5a),
@@ -314,7 +332,11 @@ where
             second
         } if second == VALUE + 1
     ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let secondary_fault = expect_fault(
         execution.read_pair_u64(ADDRESS + 1),
@@ -330,8 +352,10 @@ where
     }
     execution.finish()?;
     translation
-        .unmap::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(ADDRESS)?;
-    translation.map_hardware_managed::<aarch64_vmsa::address::Granule4KiB>(
+        .unmap::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+        )?;
+    translation.map_hardware_managed::<aarch64_vmsa::config::granule::Granule4KiB>(
         ADDRESS,
         remap_page.phys_addr(),
         LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
@@ -354,10 +378,14 @@ where
         }
     }
     if !translation
-        .inspect_hardware_updates::<aarch64_vmsa::address::Granule4KiB>(ADDRESS)?
+        .inspect_hardware_updates::<aarch64_vmsa::config::granule::Granule4KiB>(ADDRESS)?
         .access_flag
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }

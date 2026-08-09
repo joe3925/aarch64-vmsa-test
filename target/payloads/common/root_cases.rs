@@ -1,22 +1,30 @@
 use vmsa_test_harness::{TestContext, TestResult};
 
 pub fn d128_reserved_rejection() -> TestResult {
-    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout, Vmsa128};
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout};
     use aarch64_vmsa::low_level::raw::{
         FourBit, PermissionIndices, RawShareability, RawVmsa128Stage1LeafAttrs, Stage1NotDirty,
         TenBit,
     };
     type Layout = <Vmsa128 as HasLayout<
         aarch64_vmsa::translation::Stage1,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >>::Layout;
-    let zero4 = FourBit::new(0).map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let zero4 = FourBit::new(0).map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
     let fields = RawVmsa128Stage1LeafAttrs {
         attr_index: zero4,
         bbm_nt: true,
         not_dirty: Stage1NotDirty::new(false),
-        shareability: RawShareability::from_bits(0)
-            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+        shareability: RawShareability::from_bits(0).map_err(|_| {
+            vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+        })?,
         access_flag: true,
         alias_bit: false,
         contiguous: false,
@@ -27,38 +35,46 @@ pub fn d128_reserved_rejection() -> TestResult {
             po: zero4,
         },
         ns: false,
-        software: TenBit::new(0).map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+        software: TenBit::new(0).map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?,
     };
     match <Layout as DescriptorLayout<
         aarch64_vmsa::translation::Stage1,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >>::leaf_descriptor(
         aarch64_vmsa::address::PhysAddr(0x4000),
         aarch64_vmsa::address::Level::L3,
         fields,
     ) {
         Err(DescriptorError::InvalidNtBbmCombination { .. }) => TestResult::Pass,
-        _ => vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+        _ => vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into(),
     }
 }
 
 pub fn d128_permission_indirection<
     E: vmsa_test_harness::adapter::TranslationRegimeEnvironment<
-            Regime = aarch64_vmsa::regime::RootEl3Stage1,
+            Regime = aarch64_vmsa::config::regime::RootEl3Stage1,
         >,
 >(
     context: &mut TestContext<'_, E>,
 ) -> TestResult
 where
-    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-    aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule4KiB,
+    E::Regime:
+        vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+    aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<
-        aarch64_vmsa::descriptor::Vmsa128,
+    crate::LeafFieldsOf<
+        aarch64_vmsa::config::format::Vmsa128,
         E::Regime,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >: Copy,
 {
     use aarch64_vmsa::attrs::{
@@ -66,7 +82,8 @@ where
         MemoryAttributes, RootExtendedPa, SemanticStage1LeafAttrs,
         SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs, Shareability,
         SoftwareMetadata, Stage1EffectivePermissions, Stage1PermissionRegisterPair,
-        Stage1PermissionRegisters, Stage2MemoryMode, };
+        Stage1PermissionRegisters, Stage2MemoryMode,
+    };
     let permissions = Stage1EffectivePermissions {
         privileged_data: DataAccess::ReadOnly,
         unprivileged_data: DataAccess::None,
@@ -143,7 +160,11 @@ where
             .inspect_semantic_leaf::<_>(address, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.permissions != permissions || decoded.pas != pas {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     TestResult::Pass

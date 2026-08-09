@@ -8,8 +8,8 @@ pub fn stage1_address_size(context: &mut TestContext<'_, crate::CurrentEnvironme
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             crate::CurrentRegime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa64,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64,
         >(
             &mut root,
             aarch64_vmsa::address::Level::L1,
@@ -106,7 +106,11 @@ pub fn unexpected_exception_destructive(
     _: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
     vmsa_test_architecture::trigger_unexpected_exception();
-    vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+    vmsa_test_harness::HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    }
+    .into()
 }
 
 pub fn stage2_malformed_walk(
@@ -131,9 +135,9 @@ pub fn stage2_malformed_walk(
     let ipa = target_region | (page.phys_addr() - table_walk_region);
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
-            aarch64_vmsa::regime::NonSecureEl1Stage1,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa64,
+            aarch64_vmsa::config::regime::NonSecureEl1Stage1,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64,
         >(
             &mut stage1_root,
             aarch64_vmsa::address::Level::L1,
@@ -144,9 +148,9 @@ pub fn stage2_malformed_walk(
     }
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
-            aarch64_vmsa::regime::NonSecureEl2Stage2,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa64,
+            aarch64_vmsa::config::regime::NonSecureEl2Stage2,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64,
         >(
             &mut stage2_root,
             aarch64_vmsa::address::Level::L1,

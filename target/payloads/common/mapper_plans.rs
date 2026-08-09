@@ -11,15 +11,19 @@ fn fields()
         disch: false,
         protected: false,
         ns_table: false,
-        software: TenBit::new(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+        software: TenBit::new(0).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?,
     })
 }
 
 pub fn step_by_one_plan() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
-    use aarch64_vmsa::descriptor::Vmsa128;
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::mapper::{StepByOneTablePlan, TablePlanContext, TablePlanProvider};
-    use aarch64_vmsa::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::table::TableShape;
     use aarch64_vmsa::translation::WalkInputAddr;
 
@@ -35,21 +39,29 @@ pub fn step_by_one_plan() -> TestResult {
         &mut step,
         TablePlanContext::new(extended_root, Level::L3, input),
     )
-    .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    .map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
     if step_plan.child_shape().level() != Level::NEG1
         || step_plan.child_shape().stride_count().raw() != 1
         || step_plan.into_fields() != fields
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
 
 pub fn bounded_skl_plan() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
-    use aarch64_vmsa::descriptor::Vmsa128;
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::mapper::{BoundedSklTablePlan, TablePlanContext, TablePlanProvider};
-    use aarch64_vmsa::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::table::TableShape;
     use aarch64_vmsa::translation::WalkInputAddr;
 
@@ -67,20 +79,28 @@ pub fn bounded_skl_plan() -> TestResult {
             WalkInputAddr::new(0x1234_0000),
         ),
     )
-    .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    .map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
     if bounded_plan.child_shape().level() != Level::L0
         || bounded_plan.child_shape().stride_count().raw() != 2
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
 
 pub fn maximum_skl_plan() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
-    use aarch64_vmsa::descriptor::Vmsa128;
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::mapper::{MaxSklTablePlan, TablePlanContext, TablePlanProvider};
-    use aarch64_vmsa::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::table::TableShape;
     use aarch64_vmsa::translation::WalkInputAddr;
 
@@ -98,20 +118,28 @@ pub fn maximum_skl_plan() -> TestResult {
             WalkInputAddr::new(0x1234_0000),
         ),
     )
-    .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    .map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
     if maximum_plan.child_shape().level() != Level::L2
         || maximum_plan.child_shape().stride_count().raw() != 4
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
 
 pub fn bounded_skl_no_plan() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
-    use aarch64_vmsa::descriptor::Vmsa128;
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::mapper::{BoundedSklTablePlan, TablePlanContext, TablePlanProvider};
-    use aarch64_vmsa::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::table::{AccessError, TableShape};
     use aarch64_vmsa::translation::WalkInputAddr;
 
@@ -135,11 +163,12 @@ pub fn bounded_skl_no_plan() -> TestResult {
 }
 
 pub fn max_skl_extended_root() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
-    use aarch64_vmsa::descriptor::Vmsa128;
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::low_level::raw::{RawVmsa128Stage1TableAttrs, TenBit};
     use aarch64_vmsa::mapper::{MaxSklTablePlan, TablePlanContext, TablePlanProvider};
-    use aarch64_vmsa::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::table::TableShape;
     use aarch64_vmsa::translation::WalkInputAddr;
 
@@ -149,7 +178,10 @@ pub fn max_skl_extended_root() -> TestResult {
         disch: false,
         protected: false,
         ns_table: false,
-        software: TenBit::new(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+        software: TenBit::new(0).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?,
     };
     let mut planner = MaxSklTablePlan::new(fields);
     let plan = <MaxSklTablePlan<_> as TablePlanProvider<
@@ -182,9 +214,9 @@ pub fn max_skl_extended_root() -> TestResult {
 fn d128_skl_transition_failures<G>() -> Result<u64, HarnessError>
 where
     G: aarch64_vmsa::address::TranslationGranule,
-    aarch64_vmsa::descriptor::Vmsa128:
+    aarch64_vmsa::config::format::Vmsa128:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>,
-    <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+    <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
         aarch64_vmsa::translation::Stage1,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
@@ -194,12 +226,13 @@ where
         >,
 {
     use aarch64_vmsa::address::{GranuleKind, Level};
-    use aarch64_vmsa::descriptor::{DescriptorLayout, HasLayout, Vmsa128};
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage1;
+    use aarch64_vmsa::descriptor::{DescriptorLayout, HasLayout};
     use aarch64_vmsa::mapper::{
         BoundedSklTablePlan, MaxSklTablePlan, StepByOneTablePlan, TablePlanContext,
         TablePlanProvider,
     };
-    use aarch64_vmsa::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::table::{AccessError, TableShape, TableTransition};
     use aarch64_vmsa::translation::WalkInputAddr;
 
@@ -246,7 +279,10 @@ where
                 }
             };
             let transition =
-                TableTransition::new(parent, child).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+                TableTransition::new(parent, child).map_err(|_| HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                })?;
             let supported = <<Vmsa128 as HasLayout<
                 aarch64_vmsa::translation::Stage1,
                 G,
@@ -283,10 +319,16 @@ where
                     Level::new(parent_raw + budget_step as i8),
                     budget_step,
                 )
-                .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+                .map_err(|_| HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                })?;
                 let budget = budget_shape
                     .alloc_layout()
-                    .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?
+                    .map_err(|_| HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    })?
                     .bytes();
                 let mut bounded = BoundedSklTablePlan::new(raw_fields, budget);
                 let bounded_plan =
@@ -306,9 +348,15 @@ where
             }
 
             let minimum_bytes = TableShape::<Vmsa128, G>::new(parent_level.next(), 1)
-                .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?
+                .map_err(|_| HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                })?
                 .alloc_layout()
-                .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?
+                .map_err(|_| HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                })?
                 .bytes();
             let mut no_plan = BoundedSklTablePlan::new(raw_fields, minimum_bytes - 1);
             if !matches!(
@@ -326,9 +374,9 @@ where
 }
 
 pub fn d128_skl_transition_matrix() -> TestResult {
-    let failures = d128_skl_transition_failures::<aarch64_vmsa::address::Granule4KiB>()?
-        + d128_skl_transition_failures::<aarch64_vmsa::address::Granule16KiB>()?
-        + d128_skl_transition_failures::<aarch64_vmsa::address::Granule64KiB>()?;
+    let failures = d128_skl_transition_failures::<aarch64_vmsa::config::granule::Granule4KiB>()?
+        + d128_skl_transition_failures::<aarch64_vmsa::config::granule::Granule16KiB>()?
+        + d128_skl_transition_failures::<aarch64_vmsa::config::granule::Granule64KiB>()?;
     if failures == 0 {
         TestResult::Pass
     } else {
@@ -348,23 +396,23 @@ fn d128_plan_mapper<'a>(
 ) -> Result<
     vmsa_test_harness::TestMapper<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa128,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa128,
     >,
     HarnessError,
 > {
     context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa128,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa128,
     >(root, start_level, input_bits, 52)
 }
 
 fn verify_d128_plan_walk(
     mapper: &vmsa_test_harness::TestMapper<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa128,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa128,
     >,
     expected_levels: &[i8],
 ) -> Result<bool, HarnessError> {
@@ -420,6 +468,7 @@ fn operation_error_code(error: vmsa_test_harness::MapperOperationError) -> u64 {
         vmsa_test_harness::MapperOperationError::AlreadyMapped { .. } => 118,
         vmsa_test_harness::MapperOperationError::NotMapped { .. } => 119,
         vmsa_test_harness::MapperOperationError::Unexpected => 120,
+        vmsa_test_harness::MapperOperationError::TableAddressOutOfRange { .. } => 121,
     }
 }
 
@@ -515,7 +564,7 @@ where
     R: aarch64_vmsa::regime::TranslationRegime,
     G: vmsa_test_harness::TestGranule,
     F: aarch64_vmsa::descriptor::DescriptorFormat
-        + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+        + aarch64_vmsa::descriptor::HasLayout<crate::StageOf<R>, G>,
 {
     let mut root = context.allocate_root_in(context.native_pas(), G::GRANULE)?;
     let mapper = context.offline_mapper_for_format_with_geometry::<R, G, F>(
@@ -527,7 +576,11 @@ where
     if mapper.verify_offline_accessors_into_parts() {
         TestResult::Pass
     } else {
-        HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+        HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into()
     }
 }
 
@@ -538,7 +591,8 @@ where
     R: aarch64_vmsa::regime::TranslationRegime,
     G: vmsa_test_harness::TestGranule,
     F: aarch64_vmsa::descriptor::DescriptorFormat
-        + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::regime::StageOf<R>, G>,
+        + aarch64_vmsa::descriptor::SupportsLiveDescriptorIo
+        + aarch64_vmsa::descriptor::HasLayout<crate::StageOf<R>, G>,
 {
     let mut root = context.allocate_root_in(context.native_pas(), G::GRANULE)?;
     let mapper = context.offline_mapper_for_format_with_geometry::<R, G, F>(
@@ -550,7 +604,11 @@ where
     if mapper.verify_live_accessors_into_parts() {
         TestResult::Pass
     } else {
-        HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+        HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into()
     }
 }
 
@@ -577,216 +635,216 @@ macro_rules! live_parts_identity {
 offline_parts_identity!(
     offline_parts_s1_vmsa64_4k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule4KiB,
-    aarch64_vmsa::descriptor::Vmsa64
+    aarch64_vmsa::config::granule::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa64
 );
 offline_parts_identity!(
     offline_parts_s1_vmsa64_16k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule16KiB,
-    aarch64_vmsa::descriptor::Vmsa64
+    aarch64_vmsa::config::granule::Granule16KiB,
+    aarch64_vmsa::config::format::Vmsa64
 );
 offline_parts_identity!(
     offline_parts_s1_vmsa64_64k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule64KiB,
-    aarch64_vmsa::descriptor::Vmsa64
+    aarch64_vmsa::config::granule::Granule64KiB,
+    aarch64_vmsa::config::format::Vmsa64
 );
 offline_parts_identity!(
     offline_parts_s1_lpa2_4k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule4KiB,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2
+    aarch64_vmsa::config::granule::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2
 );
 offline_parts_identity!(
     offline_parts_s1_lpa2_16k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule16KiB,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2
+    aarch64_vmsa::config::granule::Granule16KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2
 );
 offline_parts_identity!(
     offline_parts_s1_lpa2_64k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule64KiB,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2
+    aarch64_vmsa::config::granule::Granule64KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2
 );
 offline_parts_identity!(
     offline_parts_s1_d128_4k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule4KiB,
-    aarch64_vmsa::descriptor::Vmsa128
+    aarch64_vmsa::config::granule::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa128
 );
 offline_parts_identity!(
     offline_parts_s1_d128_16k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule16KiB,
-    aarch64_vmsa::descriptor::Vmsa128
+    aarch64_vmsa::config::granule::Granule16KiB,
+    aarch64_vmsa::config::format::Vmsa128
 );
 offline_parts_identity!(
     offline_parts_s1_d128_64k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule64KiB,
-    aarch64_vmsa::descriptor::Vmsa128
+    aarch64_vmsa::config::granule::Granule64KiB,
+    aarch64_vmsa::config::format::Vmsa128
 );
 offline_parts_identity!(
     offline_parts_s2_vmsa64_4k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule4KiB,
-    aarch64_vmsa::descriptor::Vmsa64
+    aarch64_vmsa::config::granule::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa64
 );
 offline_parts_identity!(
     offline_parts_s2_vmsa64_16k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule16KiB,
-    aarch64_vmsa::descriptor::Vmsa64
+    aarch64_vmsa::config::granule::Granule16KiB,
+    aarch64_vmsa::config::format::Vmsa64
 );
 offline_parts_identity!(
     offline_parts_s2_vmsa64_64k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule64KiB,
-    aarch64_vmsa::descriptor::Vmsa64
+    aarch64_vmsa::config::granule::Granule64KiB,
+    aarch64_vmsa::config::format::Vmsa64
 );
 offline_parts_identity!(
     offline_parts_s2_lpa2_4k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule4KiB,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2
+    aarch64_vmsa::config::granule::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2
 );
 offline_parts_identity!(
     offline_parts_s2_lpa2_16k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule16KiB,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2
+    aarch64_vmsa::config::granule::Granule16KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2
 );
 offline_parts_identity!(
     offline_parts_s2_lpa2_64k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule64KiB,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2
+    aarch64_vmsa::config::granule::Granule64KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2
 );
 offline_parts_identity!(
     offline_parts_s2_d128_4k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule4KiB,
-    aarch64_vmsa::descriptor::Vmsa128
+    aarch64_vmsa::config::granule::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa128
 );
 offline_parts_identity!(
     offline_parts_s2_d128_16k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule16KiB,
-    aarch64_vmsa::descriptor::Vmsa128
+    aarch64_vmsa::config::granule::Granule16KiB,
+    aarch64_vmsa::config::format::Vmsa128
 );
 offline_parts_identity!(
     offline_parts_s2_d128_64k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule64KiB,
-    aarch64_vmsa::descriptor::Vmsa128
+    aarch64_vmsa::config::granule::Granule64KiB,
+    aarch64_vmsa::config::format::Vmsa128
 );
 live_parts_identity!(
     live_parts_s1_vmsa64_4k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule4KiB,
-    aarch64_vmsa::descriptor::Vmsa64
+    aarch64_vmsa::config::granule::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa64
 );
 live_parts_identity!(
     live_parts_s1_vmsa64_16k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule16KiB,
-    aarch64_vmsa::descriptor::Vmsa64
+    aarch64_vmsa::config::granule::Granule16KiB,
+    aarch64_vmsa::config::format::Vmsa64
 );
 live_parts_identity!(
     live_parts_s1_vmsa64_64k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule64KiB,
-    aarch64_vmsa::descriptor::Vmsa64
+    aarch64_vmsa::config::granule::Granule64KiB,
+    aarch64_vmsa::config::format::Vmsa64
 );
 live_parts_identity!(
     live_parts_s1_lpa2_4k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule4KiB,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2
+    aarch64_vmsa::config::granule::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2
 );
 live_parts_identity!(
     live_parts_s1_lpa2_16k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule16KiB,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2
+    aarch64_vmsa::config::granule::Granule16KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2
 );
 live_parts_identity!(
     live_parts_s1_lpa2_64k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule64KiB,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2
+    aarch64_vmsa::config::granule::Granule64KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2
 );
 live_parts_identity!(
     live_parts_s1_d128_4k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule4KiB,
-    aarch64_vmsa::descriptor::Vmsa128
+    aarch64_vmsa::config::granule::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa128
 );
 live_parts_identity!(
     live_parts_s1_d128_16k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule16KiB,
-    aarch64_vmsa::descriptor::Vmsa128
+    aarch64_vmsa::config::granule::Granule16KiB,
+    aarch64_vmsa::config::format::Vmsa128
 );
 live_parts_identity!(
     live_parts_s1_d128_64k,
     crate::CurrentRegime,
-    aarch64_vmsa::address::Granule64KiB,
-    aarch64_vmsa::descriptor::Vmsa128
+    aarch64_vmsa::config::granule::Granule64KiB,
+    aarch64_vmsa::config::format::Vmsa128
 );
 live_parts_identity!(
     live_parts_s2_vmsa64_4k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule4KiB,
-    aarch64_vmsa::descriptor::Vmsa64
+    aarch64_vmsa::config::granule::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa64
 );
 live_parts_identity!(
     live_parts_s2_vmsa64_16k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule16KiB,
-    aarch64_vmsa::descriptor::Vmsa64
+    aarch64_vmsa::config::granule::Granule16KiB,
+    aarch64_vmsa::config::format::Vmsa64
 );
 live_parts_identity!(
     live_parts_s2_vmsa64_64k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule64KiB,
-    aarch64_vmsa::descriptor::Vmsa64
+    aarch64_vmsa::config::granule::Granule64KiB,
+    aarch64_vmsa::config::format::Vmsa64
 );
 live_parts_identity!(
     live_parts_s2_lpa2_4k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule4KiB,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2
+    aarch64_vmsa::config::granule::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2
 );
 live_parts_identity!(
     live_parts_s2_lpa2_16k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule16KiB,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2
+    aarch64_vmsa::config::granule::Granule16KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2
 );
 live_parts_identity!(
     live_parts_s2_lpa2_64k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule64KiB,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2
+    aarch64_vmsa::config::granule::Granule64KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2
 );
 live_parts_identity!(
     live_parts_s2_d128_4k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule4KiB,
-    aarch64_vmsa::descriptor::Vmsa128
+    aarch64_vmsa::config::granule::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa128
 );
 live_parts_identity!(
     live_parts_s2_d128_16k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule16KiB,
-    aarch64_vmsa::descriptor::Vmsa128
+    aarch64_vmsa::config::granule::Granule16KiB,
+    aarch64_vmsa::config::format::Vmsa128
 );
 live_parts_identity!(
     live_parts_s2_d128_64k,
     crate::Stage2Regime,
-    aarch64_vmsa::address::Granule64KiB,
-    aarch64_vmsa::descriptor::Vmsa128
+    aarch64_vmsa::config::granule::Granule64KiB,
+    aarch64_vmsa::config::format::Vmsa128
 );

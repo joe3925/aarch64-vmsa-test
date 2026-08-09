@@ -596,8 +596,7 @@ impl AdapterCore {
         let environment_entry = if self.lower_el_entry != 0 {
             self.lower_el_entry
         } else {
-            self.run_on_secondary
-                .map_or(0, |run| run as usize as u64)
+            self.run_on_secondary.map_or(0, |run| run as usize as u64)
         };
         [
             self as *const Self as u64,
@@ -1262,131 +1261,131 @@ impl AdapterCore {
         mut setup: TranslationSetup,
     ) -> Result<InstalledTranslation, AdapterError>
     where
-        R: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule4KiB>
-            + vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule16KiB>
-            + vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule64KiB>,
-        aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule4KiB,
+        R: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>
+            + vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule16KiB>
+            + vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule64KiB>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
+        crate::LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
             R,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >: Copy + PartialEq,
-        aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule16KiB,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule16KiB,
             > + aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule64KiB,
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule64KiB,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
+        crate::LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
             R,
-            aarch64_vmsa::address::Granule16KiB,
+            aarch64_vmsa::config::granule::Granule16KiB,
         >: Copy + PartialEq,
-        aarch64_vmsa::regime::LeafFieldsOf<
-            aarch64_vmsa::descriptor::Vmsa64,
+        crate::LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
             R,
-            aarch64_vmsa::address::Granule64KiB,
+            aarch64_vmsa::config::granule::Granule64KiB,
         >: Copy + PartialEq,
-        aarch64_vmsa::descriptor::Vmsa64Lpa2: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64Lpa2: aarch64_vmsa::descriptor::HasLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             > + aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule16KiB,
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule16KiB,
             > + aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule64KiB,
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule64KiB,
             >,
-        <aarch64_vmsa::descriptor::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<R>,
-            aarch64_vmsa::address::Granule4KiB,
+        <aarch64_vmsa::config::format::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<R>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule4KiB,
-                LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
+                LeafFields = crate::LeafFieldsOf<
+                    aarch64_vmsa::config::format::Vmsa64,
                     R,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                 >,
-                TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
+                TableFields = crate::TableFieldsOf<
+                    aarch64_vmsa::config::format::Vmsa64,
                     R,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                 >,
             >,
-        <aarch64_vmsa::descriptor::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<R>,
-            aarch64_vmsa::address::Granule16KiB,
+        <aarch64_vmsa::config::format::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<R>,
+            aarch64_vmsa::config::granule::Granule16KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule16KiB,
-                LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule16KiB,
+                LeafFields = crate::LeafFieldsOf<
+                    aarch64_vmsa::config::format::Vmsa64,
                     R,
-                    aarch64_vmsa::address::Granule16KiB,
+                    aarch64_vmsa::config::granule::Granule16KiB,
                 >,
-                TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
+                TableFields = crate::TableFieldsOf<
+                    aarch64_vmsa::config::format::Vmsa64,
                     R,
-                    aarch64_vmsa::address::Granule16KiB,
+                    aarch64_vmsa::config::granule::Granule16KiB,
                 >,
             >,
-        <aarch64_vmsa::descriptor::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<R>,
-            aarch64_vmsa::address::Granule64KiB,
+        <aarch64_vmsa::config::format::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<R>,
+            aarch64_vmsa::config::granule::Granule64KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule64KiB,
-                LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule64KiB,
+                LeafFields = crate::LeafFieldsOf<
+                    aarch64_vmsa::config::format::Vmsa64,
                     R,
-                    aarch64_vmsa::address::Granule64KiB,
+                    aarch64_vmsa::config::granule::Granule64KiB,
                 >,
-                TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
+                TableFields = crate::TableFieldsOf<
+                    aarch64_vmsa::config::format::Vmsa64,
                     R,
-                    aarch64_vmsa::address::Granule64KiB,
+                    aarch64_vmsa::config::granule::Granule64KiB,
                 >,
             >,
-        aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-        <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<R>,
-            aarch64_vmsa::address::Granule4KiB,
+        <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<R>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule4KiB,
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
             >,
-        aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule16KiB,
+        aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule16KiB,
             > + aarch64_vmsa::descriptor::HasLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule64KiB,
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule64KiB,
             >,
-        <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<R>,
-            aarch64_vmsa::address::Granule16KiB,
+        <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<R>,
+            aarch64_vmsa::config::granule::Granule16KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule16KiB,
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule16KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
             >,
-        <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<R>,
-            aarch64_vmsa::address::Granule64KiB,
+        <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<R>,
+            aarch64_vmsa::config::granule::Granule64KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::regime::StageOf<R>,
-                aarch64_vmsa::address::Granule64KiB,
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule64KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
             >,
@@ -1490,7 +1489,7 @@ impl AdapterCore {
                     vmsa_test_architecture::exception::runtime_state_address();
                 match setup.granule {
                     vmsa_test_harness::Granule::Size4KiB => {
-                        prepare_lower_runtime_d128::<R, aarch64_vmsa::address::Granule4KiB>(
+                        prepare_lower_runtime_d128::<R, aarch64_vmsa::config::granule::Granule4KiB>(
                             &mut self.memory,
                             setup,
                             self.lower_el_entry,
@@ -1500,7 +1499,7 @@ impl AdapterCore {
                         )
                     }
                     vmsa_test_harness::Granule::Size16KiB => {
-                        prepare_lower_runtime_d128::<R, aarch64_vmsa::address::Granule16KiB>(
+                        prepare_lower_runtime_d128::<R, aarch64_vmsa::config::granule::Granule16KiB>(
                             &mut self.memory,
                             setup,
                             self.lower_el_entry,
@@ -1510,7 +1509,7 @@ impl AdapterCore {
                         )
                     }
                     vmsa_test_harness::Granule::Size64KiB => {
-                        prepare_lower_runtime_d128::<R, aarch64_vmsa::address::Granule64KiB>(
+                        prepare_lower_runtime_d128::<R, aarch64_vmsa::config::granule::Granule64KiB>(
                             &mut self.memory,
                             setup,
                             self.lower_el_entry,

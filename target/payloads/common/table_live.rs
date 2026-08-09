@@ -46,7 +46,13 @@ pub(super) fn recursive_table_access(
             1 => 30,
             2 => 21,
             3 => 12,
-            _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+            _ => {
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
+            }
         };
         recursive_base |= (RECURSIVE_INDEX as u64) << shift;
     }
@@ -59,7 +65,11 @@ pub(super) fn recursive_table_access(
         MappingAttributes::READ_WRITE,
     )?;
     if mapping.output != page.phys_addr() {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     drop(updates);
     let written = vmsa_test_harness::expect_completed(context.write_u64(ADDRESS, 0x5245_4355));
@@ -75,7 +85,11 @@ pub(super) fn translation_table_read_write(
     if context.verify_translation_table_read_write() {
         TestResult::Pass
     } else {
-        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+        vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into()
     }
 }
 
@@ -85,15 +99,15 @@ fn offline_vmsa64_mapper<'a>(
 ) -> Result<
     vmsa_test_harness::TestMapper<
         CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >,
     vmsa_test_harness::HarnessError,
 > {
     context.offline_mapper_for_format_with_geometry::<
         CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(root, aarch64_vmsa::address::Level::L0, 48, 48)
 }
 
@@ -105,7 +119,11 @@ pub(super) fn walker_invalid_agreement(
     let input = 0x1234_5678;
     let walk = mapper.inspect_walk(input)?;
     let Some(step) = walk.leaf() else {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     };
     if walk.steps().len() != 1
         || step.level != vmsa_test_harness::LookupLevel::new(0).unwrap()
@@ -115,7 +133,11 @@ pub(super) fn walker_invalid_agreement(
         || step.output.is_some()
         || mapper.translate(input)?.is_some()
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -136,7 +158,11 @@ pub(super) fn walker_block_agreement(
     )?;
     let walk = mapper.inspect_walk(INPUT_BASE + OFFSET)?;
     let Some(leaf) = walk.leaf() else {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     };
     let translated = mapper
         .translate(INPUT_BASE + OFFSET)?
@@ -150,7 +176,11 @@ pub(super) fn walker_block_agreement(
         || translated.output != OUTPUT_BASE + OFFSET
         || translated.level != vmsa_test_harness::LookupLevel::new(1).unwrap()
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -172,7 +202,11 @@ pub(super) fn walker_table_page_agreement(
     let walk = mapper.inspect_walk(INPUT_BASE + OFFSET)?;
     for (index, level) in (0i8..3).enumerate() {
         let Some(step) = walk.steps().get(index).and_then(|step| *step) else {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         };
         if step.level != vmsa_test_harness::LookupLevel::new(level).unwrap()
             || step.kind != vmsa_test_harness::WalkDescriptorKind::Table
@@ -180,11 +214,19 @@ pub(super) fn walker_table_page_agreement(
             || step.next_table.is_none()
             || step.output.is_some()
         {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     let Some(leaf) = walk.leaf() else {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     };
     let translated = mapper
         .translate(INPUT_BASE + OFFSET)?
@@ -196,7 +238,11 @@ pub(super) fn walker_table_page_agreement(
         || translated.output != OUTPUT_BASE + OFFSET
         || translated.level != vmsa_test_harness::LookupLevel::new(3).unwrap()
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -207,7 +253,11 @@ macro_rules! walker_error_case {
             if context.$verification() {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into()
             }
         }
     };

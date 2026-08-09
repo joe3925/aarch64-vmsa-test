@@ -90,25 +90,18 @@ where
     R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
     F: vmsa_test_harness::adapter::TestFormat
         + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
-    aarch64_vmsa::descriptor::Vmsa64:
+    aarch64_vmsa::config::format::Vmsa64:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
     <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
                 aarch64_vmsa::translation::Stage2,
                 G,
-                LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    R,
-                    G,
-                >,
-                TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    R,
-                    G,
-                >,
+                LeafFields = crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
+                TableFields = crate::TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
             >,
-    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
-    F: aarch64_vmsa::attrs::AttributeCodec<R,
+    crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>: Copy,
+    F: vmsa_test_harness::AttributeCodecCompat<
+            R,
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
@@ -117,8 +110,8 @@ where
                 aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
             >,
             SemanticTable = aarch64_vmsa::attrs::SemanticVmsa64Stage2TableAttrs,
-            RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, R, G>,
-            RawTable = aarch64_vmsa::regime::TableFieldsOf<F, R, G>,
+            RawLeaf = crate::LeafFieldsOf<F, R, G>,
+            RawTable = crate::TableFieldsOf<F, R, G>,
         >,
 {
     use vmsa_test_harness::{
@@ -139,7 +132,11 @@ where
                 context.write_u32(backing + offset, instruction),
                 vmsa_test_harness::AccessResult::Completed { .. }
             ) {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
         }
         context.maintain_cache(
@@ -152,7 +149,11 @@ where
         context.write_u64(backing, VALUE),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let covered_size =
         aarch64_vmsa::table::TableGeometry::<F, G>::offset_at_level_raw(u64::MAX, leaf_level)
@@ -165,7 +166,11 @@ where
     let output_base = target_pa & !(covered_size - 1);
     let output_offset = target_pa - output_base;
     if output_offset == 0 || output_base.checked_add(output_offset) != Some(target_pa) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let input_base = input_hint & !(covered_size - 1);
     let target_ipa = input_base
@@ -173,7 +178,11 @@ where
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if !active_geometry_matches::<F, G>(granule, start_level, leaf_level, target_ipa, covered_size)
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let stage1_bits = AddressBits::new(52).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let stage2_input =
@@ -197,8 +206,8 @@ where
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             LowerRegime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa64Lpa2,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64Lpa2,
         >(
             &mut stage1_root,
             aarch64_vmsa::address::Level::NEG1,
@@ -219,7 +228,10 @@ where
                     user_accessible: matches!(operation, ActivePermissionOperation::ExecuteEl0),
                 },
             )
-            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?;
     }
     let offline_walk;
     let offline_semantic;
@@ -237,28 +249,47 @@ where
                 leaf_level.as_i8(),
                 MappingAttributes::READ_WRITE,
             )
-            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?;
         let expected_kind = if leaf_level == aarch64_vmsa::address::Level::L3 {
             vmsa_test_harness::WalkDescriptorKind::Page
         } else {
             vmsa_test_harness::WalkDescriptorKind::Block
         };
-        let expected_tables = usize::try_from(leaf_level.as_i8() - start_level.as_i8())
-            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        let expected_tables =
+            usize::try_from(leaf_level.as_i8() - start_level.as_i8()).map_err(|_| {
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+            })?;
         if outcome.level != LookupLevel::new(leaf_level.as_i8()).expect("valid leaf level")
             || outcome.kind != expected_kind
             || outcome.covered_size != covered_size
             || usize::from(outcome.tables_allocated) != expected_tables
         {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
-        let removed = mapper
-            .unmap_exact(input_base)
-            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        let removed = mapper.unmap_exact(input_base).map_err(|_| {
+            vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+        })?;
         if removed.output != output_base
             || removed.level != LookupLevel::new(leaf_level.as_i8()).expect("valid leaf level")
         {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
         let memory = aarch64_vmsa::attrs::MemoryAttributes::Normal {
             inner: aarch64_vmsa::attrs::Cacheability::NonCacheable,
@@ -285,7 +316,11 @@ where
         )?;
         let walk = mapper.inspect_walk(target_ipa)?;
         if walk.steps().len() != expected_tables + 1 {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
         for (index, step) in walk.steps().iter().enumerate() {
             let step = step.ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -297,28 +332,37 @@ where
                 || step.entry_index != expected_index
                 || step.raw.is_none()
             {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
             if index == expected_tables {
                 if step.kind != expected_kind
                     || step.next_table.is_some()
                     || step.output != Some(target_pa)
                 {
-                    return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                    return vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                    .into();
                 }
             } else if step.kind != vmsa_test_harness::WalkDescriptorKind::Table
                 || step.next_table.is_none()
                 || step.output.is_some()
             {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
         }
         offline_walk = walk;
         offline_semantic = mapper
-            .inspect_semantic_leaf::<_>(
-                target_ipa,
-                &semantic_config,
-            )?
+            .inspect_semantic_leaf::<_>(target_ipa, &semantic_config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         let recovery = MappingAttributes {
             writable: true,
@@ -343,11 +387,17 @@ where
                 recovery_level.as_i8(),
                 recovery,
             )
-            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?;
         if physical_region != 0 {
             mapper
                 .map_attributes_leaf_exact(0, 0, recovery_level.as_i8(), recovery)
-                .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+                .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                })?;
         }
     }
     let stage1_setup = TranslationSetup {
@@ -384,17 +434,22 @@ where
         .stage2_mut()?
         .inspect_walk_for::<R, F, G>(target_ipa)?;
     if installed != offline_walk {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let installed_semantic = combined
         .stage2_mut()?
-        .inspect_semantic_for::<R, F, G, _>(
-            target_ipa,
-            &semantic_config,
-        )?
+        .inspect_semantic_for::<R, F, G, _>(target_ipa, &semantic_config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if installed_semantic != offline_semantic {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let installed_leaf = installed
         .leaf()
@@ -402,7 +457,11 @@ where
     if installed_leaf.level != LookupLevel::new(leaf_level.as_i8()).expect("valid leaf level")
         || installed_leaf.output != Some(target_pa)
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     match observation {
         Observation::Access => match operation {
@@ -477,7 +536,11 @@ where
                     expected: target_pa,
                     actual: physical_address,
                 }),
-                _ => vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+                _ => vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into(),
             }
         }
     }
@@ -505,25 +568,18 @@ where
     R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
     F: vmsa_test_harness::adapter::TestFormat
         + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
-    aarch64_vmsa::descriptor::Vmsa64:
+    aarch64_vmsa::config::format::Vmsa64:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
     <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
                 aarch64_vmsa::translation::Stage2,
                 G,
-                LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    R,
-                    G,
-                >,
-                TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    R,
-                    G,
-                >,
+                LeafFields = crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
+                TableFields = crate::TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
             >,
-    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, R, G>: Copy,
-    F: aarch64_vmsa::attrs::AttributeCodec<R,
+    crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>: Copy,
+    F: vmsa_test_harness::AttributeCodecCompat<
+            R,
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
@@ -532,8 +588,8 @@ where
                 aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
             >,
             SemanticTable = aarch64_vmsa::attrs::SemanticVmsa64Stage2TableAttrs,
-            RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, R, G>,
-            RawTable = aarch64_vmsa::regime::TableFieldsOf<F, R, G>,
+            RawLeaf = crate::LeafFieldsOf<F, R, G>,
+            RawTable = crate::TableFieldsOf<F, R, G>,
         >,
 {
     active_standard_leaf_case::<F, G, R>(
@@ -570,7 +626,11 @@ fn vmsa64_leaf(
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB, Stage2Regime>(
+    active_standard_leaf::<
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        Stage2Regime,
+    >(
         context,
         vmsa_test_harness::Granule::Size4KiB,
         vmsa_test_harness::TranslationFormat::Vmsa64,
@@ -600,8 +660,8 @@ fn vmsa64_permission_case(
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     active_standard_leaf_case::<
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
         Stage2Regime,
     >(
         context,
@@ -667,8 +727,8 @@ fn vmsa64_xnx_permission_case(
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     active_standard_leaf_case::<
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
         crate::Stage2XnxRegime,
     >(
         context,
@@ -723,7 +783,11 @@ fn lpa2_leaf(
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let controls = vmsa_test_harness::lpa2_stage2_controls_4k(bits, bits)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64Lpa2, aarch64_vmsa::address::Granule4KiB, Stage2Regime>(
+    active_standard_leaf::<
+        aarch64_vmsa::config::format::Vmsa64Lpa2,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        Stage2Regime,
+    >(
         context,
         vmsa_test_harness::Granule::Size4KiB,
         vmsa_test_harness::TranslationFormat::Vmsa64Lpa2,
@@ -854,7 +918,11 @@ fn vmsa64_16k_leaf(
         start,
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule16KiB, Stage2Regime>(
+    active_standard_leaf::<
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule16KiB,
+        Stage2Regime,
+    >(
         context,
         vmsa_test_harness::Granule::Size16KiB,
         vmsa_test_harness::TranslationFormat::Vmsa64,
@@ -884,7 +952,11 @@ fn vmsa64_64k_leaf(
         start,
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule64KiB, Stage2Regime>(
+    active_standard_leaf::<
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule64KiB,
+        Stage2Regime,
+    >(
         context,
         vmsa_test_harness::Granule::Size64KiB,
         vmsa_test_harness::TranslationFormat::Vmsa64,
@@ -914,7 +986,11 @@ fn lpa2_16k_leaf(
         start,
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64Lpa2, aarch64_vmsa::address::Granule16KiB, Stage2Regime>(
+    active_standard_leaf::<
+        aarch64_vmsa::config::format::Vmsa64Lpa2,
+        aarch64_vmsa::config::granule::Granule16KiB,
+        Stage2Regime,
+    >(
         context,
         vmsa_test_harness::Granule::Size16KiB,
         vmsa_test_harness::TranslationFormat::Vmsa64Lpa2,
@@ -944,7 +1020,11 @@ fn lpa2_64k_leaf(
         start,
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    active_standard_leaf::<aarch64_vmsa::descriptor::Vmsa64Lpa2, aarch64_vmsa::address::Granule64KiB, Stage2Regime>(
+    active_standard_leaf::<
+        aarch64_vmsa::config::format::Vmsa64Lpa2,
+        aarch64_vmsa::config::granule::Granule64KiB,
+        Stage2Regime,
+    >(
         context,
         vmsa_test_harness::Granule::Size64KiB,
         vmsa_test_harness::TranslationFormat::Vmsa64Lpa2,
@@ -1056,9 +1136,9 @@ fn d128_leaf<G>(
 where
     G: vmsa_test_harness::adapter::TestGranule,
     Stage2Regime: vmsa_test_harness::adapter::TestRegimeFor<G>,
-    aarch64_vmsa::descriptor::Vmsa128:
+    aarch64_vmsa::config::format::Vmsa128:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
-    <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+    <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
         aarch64_vmsa::translation::Stage2,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
@@ -1080,10 +1160,14 @@ where
         context.write_u64(page.virtual_address() as u64 + 8, VALUE),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let covered_size = aarch64_vmsa::table::TableGeometry::<
-        aarch64_vmsa::descriptor::Vmsa128,
+        aarch64_vmsa::config::format::Vmsa128,
         G,
     >::offset_at_level_raw(u64::MAX, leaf_level)
     .and_then(|mask| mask.checked_add(1))
@@ -1095,20 +1179,28 @@ where
     let output_base = target_pa & !(covered_size - 1);
     let output_offset = target_pa - output_base;
     if output_offset == 0 || output_base.checked_add(output_offset) != Some(target_pa) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let input_base = input_hint & !(covered_size - 1);
     let target_ipa = input_base
         .checked_add(target_pa - output_base)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if !active_geometry_matches::<aarch64_vmsa::descriptor::Vmsa128, G>(
+    if !active_geometry_matches::<aarch64_vmsa::config::format::Vmsa128, G>(
         granule,
         start_level,
         leaf_level,
         target_ipa,
         covered_size,
     ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let bits = AddressBits::new(52).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let stage1_controls = vmsa_test_harness::lpa2_el1_stage1_controls_4k(bits, bits)
@@ -1135,8 +1227,8 @@ where
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             LowerRegime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa64Lpa2,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64Lpa2,
         >(
             &mut stage1_root,
             aarch64_vmsa::address::Level::NEG1,
@@ -1150,42 +1242,61 @@ where
                 3,
                 MappingAttributes::READ_WRITE,
             )
-            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?;
     }
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             Stage2Regime,
             G,
-            aarch64_vmsa::descriptor::Vmsa128,
+            aarch64_vmsa::config::format::Vmsa128,
         >(&mut stage2_root, start_level, 52, 52)?;
         let leaf = LookupLevel::new(leaf_level.as_i8())
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         let outcome = mapper
             .map_stage2_leaf_exact(input_base, output_base, leaf, MappingAttributes::READ_WRITE)
-            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?;
         let expected_kind = if leaf_level == aarch64_vmsa::address::Level::L3 {
             vmsa_test_harness::WalkDescriptorKind::Page
         } else {
             vmsa_test_harness::WalkDescriptorKind::Block
         };
-        let expected_tables = usize::try_from(leaf_level.as_i8() - start_level.as_i8())
-            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        let expected_tables =
+            usize::try_from(leaf_level.as_i8() - start_level.as_i8()).map_err(|_| {
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+            })?;
         if outcome.level != leaf
             || outcome.kind != expected_kind
             || outcome.covered_size != covered_size
             || usize::from(outcome.tables_allocated) != expected_tables
         {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
         let walk = mapper.inspect_walk(target_ipa)?;
         if walk.steps().len() != expected_tables + 1 {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
         for (index, step) in walk.steps().iter().enumerate() {
             let step = step.ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             let level = aarch64_vmsa::address::Level::new(start_level.as_i8() + index as i8);
             let expected_index = aarch64_vmsa::table::TableGeometry::<
-                aarch64_vmsa::descriptor::Vmsa128,
+                aarch64_vmsa::config::format::Vmsa128,
                 G,
             >::index_at_level_raw(target_ipa, level)
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -1193,28 +1304,37 @@ where
                 || step.entry_index != expected_index
                 || step.raw.is_none()
             {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
             if index == expected_tables {
                 if step.kind != expected_kind
                     || step.next_table.is_some()
                     || step.output != Some(target_pa)
                 {
-                    return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                    return vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                    .into();
                 }
             } else if step.kind != vmsa_test_harness::WalkDescriptorKind::Table
                 || step.next_table.is_none()
                 || step.output.is_some()
             {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
         }
         offline_walk = walk;
         offline_semantic = mapper
-            .inspect_semantic_leaf::<_>(
-                target_ipa,
-                &semantic_config,
-            )?
+            .inspect_semantic_leaf::<_>(target_ipa, &semantic_config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         let recovery = MappingAttributes {
             writable: true,
@@ -1222,7 +1342,7 @@ where
             user_accessible: false,
         };
         let recovery_size = aarch64_vmsa::table::TableGeometry::<
-            aarch64_vmsa::descriptor::Vmsa128,
+            aarch64_vmsa::config::format::Vmsa128,
             G,
         >::offset_at_level_raw(
             u64::MAX, aarch64_vmsa::address::Level::L1
@@ -1277,21 +1397,27 @@ where
         context.install_combined_owned(stage1_root, stage1_setup, stage2_root, stage2_setup)?;
     let installed = combined
         .stage2_mut()?
-        .inspect_walk_for::<Stage2Regime, aarch64_vmsa::descriptor::Vmsa128, G>(target_ipa)?;
+        .inspect_walk_for::<Stage2Regime, aarch64_vmsa::config::format::Vmsa128, G>(target_ipa)?;
     if installed != offline_walk {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let installed_semantic = combined
         .stage2_mut()?
-        .inspect_semantic_for::<
-            Stage2Regime,
-            aarch64_vmsa::descriptor::Vmsa128,
-            G,
-            _,
-        >(target_ipa, &semantic_config)?
+        .inspect_semantic_for::<Stage2Regime, aarch64_vmsa::config::format::Vmsa128, G, _>(
+            target_ipa,
+            &semantic_config,
+        )?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if installed_semantic != offline_semantic {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let installed_leaf = installed
         .leaf()
@@ -1299,7 +1425,11 @@ where
     if installed_leaf.level != LookupLevel::new(leaf_level.as_i8()).expect("valid leaf level")
         || installed_leaf.output != Some(target_pa)
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     match observation {
         Observation::Access => {
@@ -1317,7 +1447,11 @@ where
                     expected: target_pa,
                     actual: physical_address,
                 }),
-                _ => vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+                _ => vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into(),
             }
         }
     }
@@ -1328,7 +1462,7 @@ fn d128_4k_leaf(
     leaf: aarch64_vmsa::address::Level,
     observation: Observation,
 ) -> TestResult {
-    d128_leaf::<aarch64_vmsa::address::Granule4KiB>(
+    d128_leaf::<aarch64_vmsa::config::granule::Granule4KiB>(
         context,
         vmsa_test_harness::Granule::Size4KiB,
         aarch64_vmsa::address::Level::NEG1,
@@ -1343,7 +1477,7 @@ fn d128_16k_leaf(
     leaf: aarch64_vmsa::address::Level,
     observation: Observation,
 ) -> TestResult {
-    d128_leaf::<aarch64_vmsa::address::Granule16KiB>(
+    d128_leaf::<aarch64_vmsa::config::granule::Granule16KiB>(
         context,
         vmsa_test_harness::Granule::Size16KiB,
         aarch64_vmsa::address::Level::L0,
@@ -1358,7 +1492,7 @@ fn d128_64k_leaf(
     leaf: aarch64_vmsa::address::Level,
     observation: Observation,
 ) -> TestResult {
-    d128_leaf::<aarch64_vmsa::address::Granule64KiB>(
+    d128_leaf::<aarch64_vmsa::config::granule::Granule64KiB>(
         context,
         vmsa_test_harness::Granule::Size64KiB,
         aarch64_vmsa::address::Level::L1,
@@ -1455,24 +1589,18 @@ macro_rules! alternate_leaf_pair {
         $input:expr,
         $hint:expr
     ) => {
-        pub(super) fn $access(
-            context: &mut TestContext<'_, CurrentEnvironment>,
-        ) -> TestResult {
+        pub(super) fn $access(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
             let input = vmsa_test_harness::AddressBits::new($input)
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             let output = vmsa_test_harness::AddressBits::new(48)
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             let start = vmsa_test_harness::LookupLevel::new($start.as_i8())
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-            let controls = vmsa_test_harness::vmsa64_stage2_controls(
-                $granule_value,
-                input,
-                output,
-                start,
-            )
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+            let controls =
+                vmsa_test_harness::vmsa64_stage2_controls($granule_value, input, output, start)
+                    .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             active_standard_leaf::<
-                aarch64_vmsa::descriptor::Vmsa64,
+                aarch64_vmsa::config::format::Vmsa64,
                 $granule,
                 crate::AlternateStage2Regime,
             >(
@@ -1489,24 +1617,18 @@ macro_rules! alternate_leaf_pair {
             )
         }
 
-        pub(super) fn $at(
-            context: &mut TestContext<'_, CurrentEnvironment>,
-        ) -> TestResult {
+        pub(super) fn $at(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
             let input = vmsa_test_harness::AddressBits::new($input)
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             let output = vmsa_test_harness::AddressBits::new(48)
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             let start = vmsa_test_harness::LookupLevel::new($start.as_i8())
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-            let controls = vmsa_test_harness::vmsa64_stage2_controls(
-                $granule_value,
-                input,
-                output,
-                start,
-            )
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+            let controls =
+                vmsa_test_harness::vmsa64_stage2_controls($granule_value, input, output, start)
+                    .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             active_standard_leaf::<
-                aarch64_vmsa::descriptor::Vmsa64,
+                aarch64_vmsa::config::format::Vmsa64,
                 $granule,
                 crate::AlternateStage2Regime,
             >(
@@ -1528,7 +1650,7 @@ macro_rules! alternate_leaf_pair {
 alternate_leaf_pair!(
     alternate_vmsa64_4k_l1,
     alternate_vmsa64_4k_l1_at,
-    aarch64_vmsa::address::Granule4KiB,
+    aarch64_vmsa::config::granule::Granule4KiB,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::L0,
     aarch64_vmsa::address::Level::L1,
@@ -1538,7 +1660,7 @@ alternate_leaf_pair!(
 alternate_leaf_pair!(
     alternate_vmsa64_4k_l2,
     alternate_vmsa64_4k_l2_at,
-    aarch64_vmsa::address::Granule4KiB,
+    aarch64_vmsa::config::granule::Granule4KiB,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::L0,
     aarch64_vmsa::address::Level::L2,
@@ -1548,7 +1670,7 @@ alternate_leaf_pair!(
 alternate_leaf_pair!(
     alternate_vmsa64_4k_l3,
     alternate_vmsa64_4k_l3_at,
-    aarch64_vmsa::address::Granule4KiB,
+    aarch64_vmsa::config::granule::Granule4KiB,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::L0,
     aarch64_vmsa::address::Level::L3,
@@ -1558,7 +1680,7 @@ alternate_leaf_pair!(
 alternate_leaf_pair!(
     alternate_vmsa64_16k_l2,
     alternate_vmsa64_16k_l2_at,
-    aarch64_vmsa::address::Granule16KiB,
+    aarch64_vmsa::config::granule::Granule16KiB,
     vmsa_test_harness::Granule::Size16KiB,
     aarch64_vmsa::address::Level::L1,
     aarch64_vmsa::address::Level::L2,
@@ -1568,7 +1690,7 @@ alternate_leaf_pair!(
 alternate_leaf_pair!(
     alternate_vmsa64_16k_l3,
     alternate_vmsa64_16k_l3_at,
-    aarch64_vmsa::address::Granule16KiB,
+    aarch64_vmsa::config::granule::Granule16KiB,
     vmsa_test_harness::Granule::Size16KiB,
     aarch64_vmsa::address::Level::L1,
     aarch64_vmsa::address::Level::L3,
@@ -1578,7 +1700,7 @@ alternate_leaf_pair!(
 alternate_leaf_pair!(
     alternate_vmsa64_64k_l2,
     alternate_vmsa64_64k_l2_at,
-    aarch64_vmsa::address::Granule64KiB,
+    aarch64_vmsa::config::granule::Granule64KiB,
     vmsa_test_harness::Granule::Size64KiB,
     aarch64_vmsa::address::Level::L1,
     aarch64_vmsa::address::Level::L2,
@@ -1588,7 +1710,7 @@ alternate_leaf_pair!(
 alternate_leaf_pair!(
     alternate_vmsa64_64k_l3,
     alternate_vmsa64_64k_l3_at,
-    aarch64_vmsa::address::Granule64KiB,
+    aarch64_vmsa::config::granule::Granule64KiB,
     vmsa_test_harness::Granule::Size64KiB,
     aarch64_vmsa::address::Level::L1,
     aarch64_vmsa::address::Level::L3,
@@ -1612,8 +1734,8 @@ fn alternate_vmsa64_permission_case(
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     active_standard_leaf_case::<
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
         crate::AlternateStage2Regime,
     >(
         context,
@@ -1679,8 +1801,8 @@ fn alternate_vmsa64_xnx_permission_case(
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     active_standard_leaf_case::<
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
         crate::AlternateStage2XnxRegime,
     >(
         context,

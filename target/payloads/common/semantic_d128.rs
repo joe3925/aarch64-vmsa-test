@@ -14,7 +14,11 @@ pub fn current_stage1_alternate_leaf_pas(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
     let Some(pas) = crate::alternate_current_pas() else {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     };
     current_stage1_case(context, pas, crate::current_table_pas(), false)
 }
@@ -23,7 +27,11 @@ pub fn current_stage1_alternate_table_pas(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
     let Some(pas) = crate::alternate_current_table_pas() else {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     };
     current_stage1_case(context, crate::current_pas(), pas, false)
 }
@@ -34,14 +42,16 @@ fn current_stage1_case(
     table_pas: CurrentTablePas,
     expect_access: bool,
 ) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
+    use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
         Cacheability, DataAccess, DirtyState, LiveVmsaConfig, MemoryAttributes,
         SemanticStage1LeafAttrs, SemanticVmsa128Stage1LeafControls,
         SemanticVmsa128Stage1TableAttrs, Shareability, SoftwareMetadata,
         Stage1EffectivePermissions, Stage1PermissionRegisterPair, Stage1PermissionRegisters,
-        Stage2MemoryMode, };
-    use aarch64_vmsa::descriptor::Vmsa128;
+        Stage2MemoryMode,
+    };
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
     use vmsa_test_harness::{
         AddressBits, Granule, LookupLevel, MemoryAttributeSlot, PhysicalAddress,
         Stage1MemoryControls, TranslationFormat, TranslationSetup, TranslationStage,
@@ -137,7 +147,11 @@ fn current_stage1_case(
             .inspect_semantic_leaf::<_>(ADDRESS, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if offline != leaf {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
         sandbox = context.prepare_d128_transition_runtime::<D128Regime>(
             &mut mapper,
@@ -160,8 +174,7 @@ fn current_stage1_case(
             controls: crate::current_d128_controls(bits)
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
             stage1_memory: Stage1MemoryControls::empty().with_raw_attribute(
-                MemoryAttributeSlot::new(0)
-                    .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+                MemoryAttributeSlot::new(0).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
                 0x44,
             ),
             regime: crate::current_regime_attributes(),
@@ -169,12 +182,14 @@ fn current_stage1_case(
         &sandbox,
     )?;
     let live = translation
-        .inspect_semantic_for::<D128Regime, Vmsa128, Granule4KiB, _>(
-            ADDRESS, &config,
-        )?
+        .inspect_semantic_for::<D128Regime, Vmsa128, Granule4KiB, _>(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if live != offline {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let result = if expect_access {
         vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)

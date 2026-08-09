@@ -3,7 +3,11 @@ use vmsa_test_harness::{TestContext, TestResult};
 
 fn result(failed: bool) -> TestResult {
     if failed {
-        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+        vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into()
     } else {
         TestResult::Pass
     }
@@ -57,12 +61,13 @@ fn memory() -> aarch64_vmsa::attrs::MemoryAttributes {
 }
 
 fn vmsa64_two_privilege(global: bool) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
+    use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
         AttributeCodec, DataAccess, SemanticStage1LeafAttrs, TwoPrivilegeLeafPermissions,
-        };
-    use aarch64_vmsa::descriptor::Vmsa64;
-    use aarch64_vmsa::regime::NonSecureEl1Stage1;
+    };
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
     let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
@@ -75,18 +80,20 @@ fn vmsa64_two_privilege(global: bool) -> TestResult {
         pas: (),
         controls: vmsa64_controls(global),
     };
-    let raw = <Vmsa64 as AttributeCodec<NonSecureEl1Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_leaf(&config, Level::L3, leaf);
+    let raw = <Vmsa64 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::encode_leaf(
+        &config,
+        Level::L3,
+        leaf,
+    );
     let decoded = raw.and_then(|raw| {
         if raw.alias_bit != !global {
             return Err(aarch64_vmsa::attrs::AttrError::ConflictingSemanticAttributes);
         }
-        <Vmsa64 as AttributeCodec<NonSecureEl1Stage1,
-            Granule4KiB,
-            _,
-        >>::decode_leaf(&config, Level::L3, raw)
+        <Vmsa64 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::decode_leaf(
+            &config,
+            Level::L3,
+            raw,
+        )
     });
     result(decoded != Ok(leaf))
 }
@@ -102,12 +109,14 @@ pub(super) fn vmsa64_non_global(_: &mut TestContext<'_, CurrentEnvironment>) -> 
 pub(super) fn vmsa64_single_non_global_conflict(
     _: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
+    use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
         AttrError, AttributeCodec, DataAccess, SemanticStage1LeafAttrs,
-        SinglePrivilegeLeafPermissions, };
-    use aarch64_vmsa::descriptor::Vmsa64;
-    use aarch64_vmsa::regime::NonSecureEl2Stage1;
+        SinglePrivilegeLeafPermissions,
+    };
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage1;
     let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
@@ -119,11 +128,11 @@ pub(super) fn vmsa64_single_non_global_conflict(
         controls: vmsa64_controls(false),
     };
     result(
-        <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-            Granule4KiB,
-            _,
-        >>::resolve_leaf(&config, Level::L3, leaf)
-            != Err(AttrError::ConflictingSemanticAttributes),
+        <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
+            &config,
+            Level::L3,
+            leaf,
+        ) != Err(AttrError::ConflictingSemanticAttributes),
     )
 }
 
@@ -138,12 +147,13 @@ fn root_pas_bits(pas: aarch64_vmsa::attrs::RootExtendedPa) -> (bool, bool) {
 }
 
 fn vmsa64_root_pas(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
+    use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
         AttributeCodec, DataAccess, SemanticStage1LeafAttrs, SinglePrivilegeLeafPermissions,
-        };
-    use aarch64_vmsa::descriptor::Vmsa64;
-    use aarch64_vmsa::regime::RootEl3Stage1;
+    };
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::RootEl3Stage1;
     let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonSecureExtension);
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
@@ -155,12 +165,11 @@ fn vmsa64_root_pas(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
         controls: vmsa64_controls(true),
     };
     let (ns, nse) = root_pas_bits(pas);
-    let raw =
-        <Vmsa64 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::resolve_leaf(
-            &config,
-            Level::L3,
-            leaf,
-        );
+    let raw = <Vmsa64 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::encode_leaf(
+        &config,
+        Level::L3,
+        leaf,
+    );
     let decoded = raw.and_then(|raw| {
         if raw.ns != ns || raw.alias_bit != nse {
             return Err(aarch64_vmsa::attrs::AttrError::InvalidOutputAddressSpace);
@@ -229,10 +238,11 @@ fn effective_permissions() -> aarch64_vmsa::attrs::Stage1EffectivePermissions {
 }
 
 fn d128_two_privilege(global: bool) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
-    use aarch64_vmsa::attrs::{AttributeCodec, SemanticStage1LeafAttrs, };
-    use aarch64_vmsa::descriptor::Vmsa128;
-    use aarch64_vmsa::regime::NonSecureEl1Stage1;
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::attrs::{AttributeCodec, SemanticStage1LeafAttrs};
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
     let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
@@ -240,18 +250,20 @@ fn d128_two_privilege(global: bool) -> TestResult {
         pas: (),
         controls: d128_controls(global),
     };
-    let raw = <Vmsa128 as AttributeCodec<NonSecureEl1Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_leaf(&config, Level::L3, leaf);
+    let raw = <Vmsa128 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::encode_leaf(
+        &config,
+        Level::L3,
+        leaf,
+    );
     let decoded = raw.and_then(|raw| {
         if raw.alias_bit != !global {
             return Err(aarch64_vmsa::attrs::AttrError::InvalidD128Alias);
         }
-        <Vmsa128 as AttributeCodec<NonSecureEl1Stage1,
-            Granule4KiB,
-            _,
-        >>::decode_leaf(&config, Level::L3, raw)
+        <Vmsa128 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::decode_leaf(
+            &config,
+            Level::L3,
+            raw,
+        )
     });
     result(decoded != Ok(leaf))
 }
@@ -267,11 +279,11 @@ pub(super) fn d128_non_global(_: &mut TestContext<'_, CurrentEnvironment>) -> Te
 pub(super) fn d128_wrong_non_secure_extension_mode(
     _: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
-    use aarch64_vmsa::attrs::{
-        AttrError, AttributeCodec, SemanticStage1LeafAttrs, };
-    use aarch64_vmsa::descriptor::Vmsa128;
-    use aarch64_vmsa::regime::NonSecureEl1Stage1;
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::attrs::{AttrError, AttributeCodec, SemanticStage1LeafAttrs};
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
     let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonSecureExtension);
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
@@ -280,19 +292,20 @@ pub(super) fn d128_wrong_non_secure_extension_mode(
         controls: d128_controls(true),
     };
     result(
-        <Vmsa128 as AttributeCodec<NonSecureEl1Stage1,
-            Granule4KiB,
-            _,
-        >>::resolve_leaf(&config, Level::L3, leaf)
-            != Err(AttrError::InvalidD128Alias),
+        <Vmsa128 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::encode_leaf(
+            &config,
+            Level::L3,
+            leaf,
+        ) != Err(AttrError::InvalidD128Alias),
     )
 }
 
 fn d128_root_pas(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
-    use aarch64_vmsa::attrs::{AttributeCodec, SemanticStage1LeafAttrs, };
-    use aarch64_vmsa::descriptor::Vmsa128;
-    use aarch64_vmsa::regime::RootEl3Stage1;
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::attrs::{AttributeCodec, SemanticStage1LeafAttrs};
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::RootEl3Stage1;
     let mut config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonSecureExtension);
     config.stage1_permissions = Some(aarch64_vmsa::attrs::Stage1PermissionRegisters {
         privileged: aarch64_vmsa::attrs::Stage1PermissionRegisterPair {
@@ -317,7 +330,7 @@ fn d128_root_pas(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
         controls: d128_controls(true),
     };
     let (ns, nse) = root_pas_bits(pas);
-    let raw = <Vmsa128 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::resolve_leaf(
+    let raw = <Vmsa128 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::encode_leaf(
         &config,
         Level::L3,
         leaf,
@@ -346,12 +359,13 @@ root_pas_cases!(
 pub(super) fn d128_root_wrong_non_global_mode(
     _: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
+    use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
         AttrError, AttributeCodec, DataAccess, SemanticStage1LeafAttrs, Stage1EffectivePermissions,
-        };
-    use aarch64_vmsa::descriptor::Vmsa128;
-    use aarch64_vmsa::regime::RootEl3Stage1;
+    };
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::RootEl3Stage1;
     let mut config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
     config.stage1_permissions = Some(aarch64_vmsa::attrs::Stage1PermissionRegisters {
         privileged: aarch64_vmsa::attrs::Stage1PermissionRegisterPair {
@@ -375,7 +389,7 @@ pub(super) fn d128_root_wrong_non_global_mode(
         controls: d128_controls(true),
     };
     result(
-        <Vmsa128 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::resolve_leaf(
+        <Vmsa128 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::encode_leaf(
             &config,
             Level::L3,
             leaf,
@@ -386,12 +400,13 @@ pub(super) fn d128_root_wrong_non_global_mode(
 pub(super) fn d128_root_non_global_conflict(
     _: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
+    use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
         AttrError, AttributeCodec, DataAccess, SemanticStage1LeafAttrs, Stage1EffectivePermissions,
-        };
-    use aarch64_vmsa::descriptor::Vmsa128;
-    use aarch64_vmsa::regime::RootEl3Stage1;
+    };
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::RootEl3Stage1;
     let mut config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonSecureExtension);
     config.stage1_permissions = Some(aarch64_vmsa::attrs::Stage1PermissionRegisters {
         privileged: aarch64_vmsa::attrs::Stage1PermissionRegisterPair {
@@ -415,7 +430,7 @@ pub(super) fn d128_root_non_global_conflict(
         controls: d128_controls(false),
     };
     result(
-        <Vmsa128 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::resolve_leaf(
+        <Vmsa128 as AttributeCodec<RootEl3Stage1, Granule4KiB, _>>::encode_leaf(
             &config,
             Level::L3,
             leaf,
@@ -430,12 +445,13 @@ enum Vmsa64LeafControl {
 }
 
 fn vmsa64_leaf_control(control: Vmsa64LeafControl) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
+    use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
         AttributeCodec, DataAccess, SemanticStage1LeafAttrs, SinglePrivilegeLeafPermissions,
-        };
-    use aarch64_vmsa::descriptor::Vmsa64;
-    use aarch64_vmsa::regime::NonSecureEl2Stage1;
+    };
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage1;
     let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
     let mut controls = vmsa64_controls(true);
     match control {
@@ -451,10 +467,11 @@ fn vmsa64_leaf_control(control: Vmsa64LeafControl) -> TestResult {
         pas: (),
         controls,
     };
-    let raw = <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_leaf(&config, Level::L3, leaf);
+    let raw = <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
+        &config,
+        Level::L3,
+        leaf,
+    );
     let decoded = raw.and_then(|raw| {
         let set = match control {
             Vmsa64LeafControl::Contiguous => raw.contiguous,
@@ -463,10 +480,11 @@ fn vmsa64_leaf_control(control: Vmsa64LeafControl) -> TestResult {
         if !set {
             return Err(aarch64_vmsa::attrs::AttrError::ConflictingSemanticAttributes);
         }
-        <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-            Granule4KiB,
-            _,
-        >>::decode_leaf(&config, Level::L3, raw)
+        <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
+            &config,
+            Level::L3,
+            raw,
+        )
     });
     result(decoded != Ok(leaf))
 }
@@ -488,10 +506,11 @@ enum D128LeafControl {
 }
 
 fn d128_leaf_control(control: D128LeafControl) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
-    use aarch64_vmsa::attrs::{AttributeCodec, SemanticStage1LeafAttrs, };
-    use aarch64_vmsa::descriptor::Vmsa128;
-    use aarch64_vmsa::regime::NonSecureEl1Stage1;
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::attrs::{AttributeCodec, SemanticStage1LeafAttrs};
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
     let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
     let mut controls = d128_controls(true);
     match control {
@@ -511,10 +530,9 @@ fn d128_leaf_control(control: D128LeafControl) -> TestResult {
     } else {
         Level::L3
     };
-    let raw = <Vmsa128 as AttributeCodec<NonSecureEl1Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_leaf(&config, level, leaf);
+    let raw = <Vmsa128 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::encode_leaf(
+        &config, level, leaf,
+    );
     let decoded = raw.and_then(|raw| {
         let set = match control {
             D128LeafControl::BbmNt => raw.bbm_nt,
@@ -525,10 +543,9 @@ fn d128_leaf_control(control: D128LeafControl) -> TestResult {
         if !set {
             return Err(aarch64_vmsa::attrs::AttrError::InvalidD128Configuration);
         }
-        <Vmsa128 as AttributeCodec<NonSecureEl1Stage1,
-            Granule4KiB,
-            _,
-        >>::decode_leaf(&config, level, raw)
+        <Vmsa128 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::decode_leaf(
+            &config, level, raw,
+        )
     });
     result(decoded != Ok(leaf))
 }
@@ -559,11 +576,12 @@ enum D128TableControl {
 }
 
 fn d128_table_control(control: D128TableControl) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-    use aarch64_vmsa::attrs::{
-        AttributeCodec, SemanticVmsa128Stage1TableAttrs, SoftwareMetadata, };
-    use aarch64_vmsa::descriptor::{DescriptorLayout, HasLayout, Vmsa128};
-    use aarch64_vmsa::regime::NonSecureEl1Stage1;
+    use aarch64_vmsa::address::{Level, PhysAddr};
+    use aarch64_vmsa::attrs::{AttributeCodec, SemanticVmsa128Stage1TableAttrs, SoftwareMetadata};
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
+    use aarch64_vmsa::descriptor::{DescriptorLayout, HasLayout};
     use aarch64_vmsa::table::{TableShape, TableTransition};
     use aarch64_vmsa::translation::Stage1;
     let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
@@ -575,10 +593,11 @@ fn d128_table_control(control: D128TableControl) -> TestResult {
         pas: (),
         software: SoftwareMetadata::new(0),
     };
-    let raw = <Vmsa128 as AttributeCodec<NonSecureEl1Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_table(&config, Level::L1, table);
+    let raw = <Vmsa128 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::encode_table(
+        &config,
+        Level::L1,
+        table,
+    );
     let decoded = raw.and_then(|raw| {
         let set = match control {
             D128TableControl::TableNt => raw.table_nt,
@@ -598,16 +617,17 @@ fn d128_table_control(control: D128TableControl) -> TestResult {
             )
             .map_err(|_| aarch64_vmsa::attrs::AttrError::InvalidD128Configuration)?;
             <Layout as DescriptorLayout<Stage1, Granule4KiB>>::table_descriptor(
-                PhysAddr(0x4000),
+                aarch64_vmsa::table::TableAddr::new(0x4000).expect("aligned table address"),
                 transition,
                 raw,
             )
             .map_err(|_| aarch64_vmsa::attrs::AttrError::InvalidD128Configuration)?;
         }
-        <Vmsa128 as AttributeCodec<NonSecureEl1Stage1,
-            Granule4KiB,
-            _,
-        >>::decode_table(&config, Level::L1, raw)
+        <Vmsa128 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::decode_table(
+            &config,
+            Level::L1,
+            raw,
+        )
     });
     result(decoded != Ok(table))
 }
@@ -647,13 +667,15 @@ enum D128Stage2LeafControl {
 }
 
 fn d128_stage2_leaf_control(control: D128Stage2LeafControl) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
+    use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
         AttributeCodec, DirtyState, SemanticStage2LeafAttrs, SemanticVmsa128Stage2LeafControls,
         Shareability, SoftwareMetadata, Stage2MemoryAttributes, Stage2Permission,
-        Stage2Permissions, };
-    use aarch64_vmsa::descriptor::Vmsa128;
-    use aarch64_vmsa::regime::NonSecureEl2Stage2;
+    };
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage2;
+    use aarch64_vmsa::config::stage2::Stage2Permissions;
     let config = d128_stage2_config();
     let mut controls = SemanticVmsa128Stage2LeafControls {
         bbm_nt: false,
@@ -688,7 +710,7 @@ fn d128_stage2_leaf_control(control: D128Stage2LeafControl) -> TestResult {
     let raw = <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
         Granule4KiB,
         _,
-    >>::resolve_leaf(&config, level, leaf);
+    >>::encode_leaf(&config, level, leaf);
     let decoded = raw.and_then(|raw| {
         let set = match control {
             D128Stage2LeafControl::ForceNoExecute => raw.force_no_execute,
@@ -731,12 +753,13 @@ enum D128Stage2TableControl {
 }
 
 fn d128_stage2_table_control(control: D128Stage2TableControl) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-    use aarch64_vmsa::attrs::{
-        AttributeCodec, SemanticVmsa128Stage2TableAttrs, SoftwareMetadata, Stage2Permissions,
-        };
-    use aarch64_vmsa::descriptor::{DescriptorLayout, HasLayout, Vmsa128};
-    use aarch64_vmsa::regime::NonSecureEl2Stage2;
+    use aarch64_vmsa::address::{Level, PhysAddr};
+    use aarch64_vmsa::attrs::{AttributeCodec, SemanticVmsa128Stage2TableAttrs, SoftwareMetadata};
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage2;
+    use aarch64_vmsa::config::stage2::Stage2Permissions;
+    use aarch64_vmsa::descriptor::{DescriptorLayout, HasLayout};
     use aarch64_vmsa::table::{TableShape, TableTransition};
     use aarch64_vmsa::translation::Stage2;
     let config = d128_stage2_config();
@@ -748,7 +771,7 @@ fn d128_stage2_table_control(control: D128Stage2TableControl) -> TestResult {
     let raw = <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
         Granule4KiB,
         _,
-    >>::resolve_table(&config, Level::L1, table);
+    >>::encode_table(&config, Level::L1, table);
     let decoded = raw.and_then(|raw| {
         let set = match control {
             D128Stage2TableControl::TableNt => raw.table_nt,
@@ -766,7 +789,7 @@ fn d128_stage2_table_control(control: D128Stage2TableControl) -> TestResult {
             )
             .map_err(|_| aarch64_vmsa::attrs::AttrError::InvalidD128Configuration)?;
             <Layout as DescriptorLayout<Stage2, Granule4KiB>>::table_descriptor(
-                PhysAddr(0x4000),
+                aarch64_vmsa::table::TableAddr::new(0x4000).expect("aligned table address"),
                 transition,
                 raw,
             )

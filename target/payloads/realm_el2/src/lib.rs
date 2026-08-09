@@ -1,21 +1,33 @@
 #![no_std]
+pub type StageOf<R> = <R as aarch64_vmsa::regime::TranslationRegime>::Stage;
+pub type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeLeafFields<F, R, G>;
+pub type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeTableFields<F, R, G>;
 #[path = "../../common/access.rs"]
 #[allow(dead_code)]
 mod access;
 #[path = "../../common/address_translation.rs"]
 #[allow(dead_code)]
 mod address_translation;
-#[path = "../../common/mod.rs"]
-mod common;
 #[path = "../../common/coherency.rs"]
 #[allow(dead_code)]
 mod coherency;
+#[path = "../../common/mod.rs"]
+mod common;
+#[path = "../../common/faults.rs"]
+#[allow(dead_code)]
+mod faults;
+#[path = "../../common/features.rs"]
+#[allow(dead_code)]
+mod features;
 #[path = "../../common/formats_live.rs"]
 #[allow(dead_code)]
 mod formats_live;
 #[path = "../../common/hardware_updates.rs"]
 #[allow(dead_code)]
 mod hardware_updates;
+#[path = "../../common/invalidation.rs"]
+#[allow(dead_code)]
+mod invalidation;
 #[path = "../../common/malformed_descriptors.rs"]
 #[allow(dead_code)]
 mod malformed_descriptors;
@@ -25,15 +37,6 @@ mod mapper_live;
 #[path = "../../common/mapper_plans.rs"]
 #[allow(dead_code)]
 mod mapper_plans;
-#[path = "../../common/faults.rs"]
-#[allow(dead_code)]
-mod faults;
-#[path = "../../common/features.rs"]
-#[allow(dead_code)]
-mod features;
-#[path = "../../common/invalidation.rs"]
-#[allow(dead_code)]
-mod invalidation;
 #[path = "../../common/pas.rs"]
 #[allow(dead_code)]
 mod pas;
@@ -53,20 +56,31 @@ mod stage2_leaf_matrix;
 use common::{BootContext, REGIME_REALM, define_environment, outcome_code};
 use vmsa_test_harness::adapter::{RunOptions, run_catalog_tests};
 use vmsa_test_harness::{LogicalTest, Requirements, SecurityEnvironment, TestContext, TestResult};
-define_environment!(RealmEl2Environment, aarch64_vmsa::regime::RealmEl2Stage1);
+define_environment!(
+    RealmEl2Environment,
+    aarch64_vmsa::config::regime::RealmEl2Stage1
+);
 pub type CurrentEnvironment = RealmEl2Environment;
-pub type CurrentRegime = aarch64_vmsa::regime::RealmEl2Stage1;
-pub type D128Regime = aarch64_vmsa::regime::RealmEl2HostStage1;
-pub const fn current_d128_asid() -> Option<vmsa_test_harness::Asid> { Some(vmsa_test_harness::Asid(0x31)) }
-pub const fn current_d128_controls(bits: vmsa_test_harness::AddressBits) -> Option<vmsa_test_harness::TranslationControls> { vmsa_test_harness::d128_el1_stage1_controls_4k(bits, bits) }
-pub type LowerRegime = aarch64_vmsa::regime::RealmEl1Stage1;
-pub type HostRegime = aarch64_vmsa::regime::RealmEl2HostStage1;
-pub type Stage2Regime = aarch64_vmsa::regime::RealmEl2Stage2;
-pub type Stage2XnxRegime =
-    aarch64_vmsa::regime::RealmEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>;
-pub type AlternateStage2Regime = aarch64_vmsa::regime::RealmEl2Stage2;
-pub type AlternateStage2XnxRegime =
-    aarch64_vmsa::regime::RealmEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>;
+pub type CurrentRegime = aarch64_vmsa::config::regime::RealmEl2Stage1;
+pub type D128Regime = aarch64_vmsa::config::regime::RealmEl2HostStage1;
+pub const fn current_d128_asid() -> Option<vmsa_test_harness::Asid> {
+    Some(vmsa_test_harness::Asid(0x31))
+}
+pub const fn current_d128_controls(
+    bits: vmsa_test_harness::AddressBits,
+) -> Option<vmsa_test_harness::TranslationControls> {
+    vmsa_test_harness::d128_el1_stage1_controls_4k(bits, bits)
+}
+pub type LowerRegime = aarch64_vmsa::config::regime::RealmEl1Stage1;
+pub type HostRegime = aarch64_vmsa::config::regime::RealmEl2HostStage1;
+pub type Stage2Regime = aarch64_vmsa::config::regime::RealmEl2Stage2;
+pub type Stage2XnxRegime = aarch64_vmsa::config::regime::RealmEl2Stage2<
+    aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+>;
+pub type AlternateStage2Regime = aarch64_vmsa::config::regime::RealmEl2Stage2;
+pub type AlternateStage2XnxRegime = aarch64_vmsa::config::regime::RealmEl2Stage2<
+    aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+>;
 pub type Stage2Pas = aarch64_vmsa::attrs::RealmOrNonSecurePa;
 pub const fn stage2_pas() -> Stage2Pas {
     Stage2Pas::Realm
@@ -123,10 +137,11 @@ fn security_state_membership(context: &mut TestContext<'_, CurrentEnvironment>) 
     )
 }
 fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    use aarch64_vmsa::attrs::{Stage2Permissions, Stage2XnxPermissions};
-    use aarch64_vmsa::regime::{
+    use aarch64_vmsa::config::regime::{
         RealmEl1Stage1, RealmEl2HostStage1, RealmEl2Stage1, RealmEl2Stage2,
     };
+    use aarch64_vmsa::config::stage2::Stage2Permissions;
+    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
     let current = aarch64_vmsa::arch::VmsaFeatures::current();
     features::regime_result(features::require_regimes!(&current;
         RealmEl2Stage1,
@@ -137,10 +152,11 @@ fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult 
     ))
 }
 fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    use aarch64_vmsa::attrs::{Stage2Permissions, Stage2XnxPermissions};
-    use aarch64_vmsa::regime::{
+    use aarch64_vmsa::config::regime::{
         RealmEl1Stage1, RealmEl2HostStage1, RealmEl2Stage1, RealmEl2Stage2,
     };
+    use aarch64_vmsa::config::stage2::Stage2Permissions;
+    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
     let current = &aarch64_vmsa::arch::VmsaFeatures::current();
     macro_rules! check {
         ($regime:ty) => {
@@ -185,10 +201,7 @@ fn multi_pe_visibility(context: &mut TestContext<'_, CurrentEnvironment>) -> Tes
     coherency::multi_pe_translation_visibility(context, vmsa_test_harness::RegimeAttributes::Realm)
 }
 fn live_break_before_make(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    mapper_live::live_break_before_make(
-        context,
-        vmsa_test_harness::RegimeAttributes::Realm,
-    )
+    mapper_live::live_break_before_make(context, vmsa_test_harness::RegimeAttributes::Realm)
 }
 fn translation_cycle(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     invalidation::stage1_translation_cycle(c, vmsa_test_harness::RegimeAttributes::Realm)

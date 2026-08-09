@@ -58,8 +58,8 @@ pub(super) fn semantic_codec(context: &mut TestContext<'_, CurrentEnvironment>) 
     )?;
     live.map_semantic_for::<
         CurrentRegime,
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
         _,
     >(
         &config,
@@ -73,23 +73,31 @@ pub(super) fn semantic_codec(context: &mut TestContext<'_, CurrentEnvironment>) 
     let live_mapping = live
         .inspect_for::<
             CurrentRegime,
-            aarch64_vmsa::descriptor::Vmsa64,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >(ADDRESS)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if live_mapping.output != page.phys_addr() {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let live_semantic = live
         .inspect_semantic_for::<
             CurrentRegime,
-            aarch64_vmsa::descriptor::Vmsa64,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64,
+            aarch64_vmsa::config::granule::Granule4KiB,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if live_semantic != semantic {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     live.restore()?;
     let observations =
@@ -138,7 +146,11 @@ pub(super) fn missing_memory_attribute(
     )) {
         TestResult::Pass
     } else {
-        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+        vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into()
     }
 }
 

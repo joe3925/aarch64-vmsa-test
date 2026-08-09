@@ -37,13 +37,21 @@ pub(super) fn combined_stage1_stage2(
             context.write_u64(data_page.virtual_address() as u64, DATA_VALUE),
             vmsa_test_harness::AccessResult::Completed { .. }
         ) {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
         if !matches!(
             context.write_u64(replacement_page.virtual_address() as u64, REPLACEMENT_VALUE),
             vmsa_test_harness::AccessResult::Completed { .. }
         ) {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
         let mut stage1_root = context.allocate_root()?;
         let mut stage2_root = context.allocate_root()?;
@@ -54,8 +62,8 @@ pub(super) fn combined_stage1_stage2(
         {
             let mut mapper = context.offline_mapper_for_format_with_geometry::<
                 LowerRegime,
-                aarch64_vmsa::address::Granule4KiB,
-                aarch64_vmsa::descriptor::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
             >(
                 &mut stage1_root,
                 aarch64_vmsa::address::Level::L1,
@@ -72,14 +80,18 @@ pub(super) fn combined_stage1_stage2(
                 .translate(VIRTUAL_ADDRESS)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if inspection.output != target_ipa {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
         }
         {
             let mut mapper = context.offline_mapper_for_format_with_geometry::<
                 Stage2Regime,
-                aarch64_vmsa::address::Granule4KiB,
-                aarch64_vmsa::descriptor::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
             >(
                 &mut stage2_root,
                 aarch64_vmsa::address::Level::L1,
@@ -153,7 +165,11 @@ pub(super) fn combined_stage1_stage2(
             ),
         ) != Err(vmsa_test_harness::HarnessError::InvalidState)
         {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
         combined.tlbi(
             vmsa_test_harness::TlbiScope::Local,
@@ -187,13 +203,17 @@ pub(super) fn combined_stage1_stage2(
             .stage1_mut()?
             .inspect_for::<
                 LowerRegime,
-                aarch64_vmsa::descriptor::Vmsa64,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >(VIRTUAL_ADDRESS)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?
             .output;
         if installed_stage1_output != target_ipa {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
         if !omit_target {
             let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
@@ -210,8 +230,8 @@ pub(super) fn combined_stage1_stage2(
                 .stage2_mut()?
                 .inspect_semantic_for::<
                     Stage2Regime,
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::format::Vmsa64,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                     _,
                 >(target_ipa, &semantic_config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -220,34 +240,68 @@ pub(super) fn combined_stage1_stage2(
                     != aarch64_vmsa::attrs::Shareability::InnerShareable
                 || !semantic.controls.access_flag
             {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
         }
         let query = combined.translate(VIRTUAL_ADDRESS, TranslationQueryAccess::Read);
         if omit_target {
             match query {
                 TranslationQueryResult::Fault { stage2: true, .. } => {}
-                _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+                _ => {
+                    return vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                    .into();
+                }
             }
             match combined.read_u64(VIRTUAL_ADDRESS) {
                 vmsa_test_harness::AccessResult::Fault(fault)
                     if fault.stage == vmsa_test_harness::FaultStage::Stage2 => {}
-                _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+                _ => {
+                    return vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                    .into();
+                }
             }
         } else {
             match query {
                 TranslationQueryResult::Success {
                     physical_address, ..
                 } if physical_address == data_page.phys_addr() => {}
-                _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+                _ => {
+                    return vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                    .into();
+                }
             }
             match combined.read_u64(VIRTUAL_ADDRESS) {
                 vmsa_test_harness::AccessResult::Completed { value } if value == DATA_VALUE => {}
-                _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+                _ => {
+                    return vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                    .into();
+                }
             }
             let original_pair = match combined.read_pair_u64(VIRTUAL_ADDRESS) {
                 vmsa_test_harness::AccessResult::CompletedPair { first, second } => (first, second),
-                _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+                _ => {
+                    return vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                    .into();
+                }
             };
             if !matches!(
                 combined.read_u8(VIRTUAL_ADDRESS),
@@ -281,17 +335,27 @@ pub(super) fn combined_stage1_stage2(
                 vmsa_test_harness::AccessResult::CompletedPair { first, second }
                     if first == original_pair.0 && second == original_pair.1
             ) {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
             match combined.execute(VIRTUAL_ADDRESS) {
                 vmsa_test_harness::AccessResult::Fault(fault)
                     if fault.access == vmsa_test_harness::AccessKind::Execute => {}
-                _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+                _ => {
+                    return vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                    .into();
+                }
             }
             combined.stage1_mut()?.protect_for::<
                 LowerRegime,
-                aarch64_vmsa::descriptor::Vmsa64,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >(
                 VIRTUAL_ADDRESS,
                 MappingAttributes {
@@ -303,12 +367,18 @@ pub(super) fn combined_stage1_stage2(
             match combined.write_u64(VIRTUAL_ADDRESS, DATA_VALUE + 3) {
                 vmsa_test_harness::AccessResult::Fault(fault)
                     if fault.stage == vmsa_test_harness::FaultStage::Stage1 => {}
-                _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+                _ => {
+                    return vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                    .into();
+                }
             }
             combined.stage1_mut()?.protect_for::<
                 LowerRegime,
-                aarch64_vmsa::descriptor::Vmsa64,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >(
                 VIRTUAL_ADDRESS,
                 MappingAttributes {
@@ -319,30 +389,40 @@ pub(super) fn combined_stage1_stage2(
             )?;
             combined.stage2_mut()?.protect_for::<
                 Stage2Regime,
-                aarch64_vmsa::descriptor::Vmsa64,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >(target_ipa, MappingAttributes::READ_ONLY)?;
             match combined.write_u64(VIRTUAL_ADDRESS, DATA_VALUE + 4) {
                 vmsa_test_harness::AccessResult::Fault(fault)
                     if fault.stage == vmsa_test_harness::FaultStage::Stage2 => {}
-                _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+                _ => {
+                    return vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                    .into();
+                }
             }
             combined.stage2_mut()?.protect_for::<
                 Stage2Regime,
-                aarch64_vmsa::descriptor::Vmsa64,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >(target_ipa, MappingAttributes::READ_WRITE)?;
             if !matches!(
                 combined.read_u64(VIRTUAL_ADDRESS),
                 vmsa_test_harness::AccessResult::Completed { value } if value == DATA_VALUE
             ) {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
 
             combined.stage1_mut()?.remap_for::<
                 LowerRegime,
-                aarch64_vmsa::descriptor::Vmsa64,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >(VIRTUAL_ADDRESS, replacement_ipa, MappingAttributes {
                 writable: true,
                 executable: false,
@@ -357,13 +437,17 @@ pub(super) fn combined_stage1_stage2(
             if !matches!(combined.read_u64(VIRTUAL_ADDRESS),
                 vmsa_test_harness::AccessResult::Completed { value } if value == REPLACEMENT_VALUE)
             {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
 
             combined.stage1_mut()?.unmap_for::<
                 LowerRegime,
-                aarch64_vmsa::descriptor::Vmsa64,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >(VIRTUAL_ADDRESS)?;
             combined.tlbi(
                 vmsa_test_harness::TlbiScope::InnerShareable,
@@ -383,8 +467,8 @@ pub(super) fn combined_stage1_stage2(
             }
             combined.stage1_mut()?.map_for::<
                 LowerRegime,
-                aarch64_vmsa::descriptor::Vmsa64,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >(VIRTUAL_ADDRESS, replacement_ipa, level3, MappingAttributes {
                 writable: true,
                 executable: false,
@@ -393,8 +477,8 @@ pub(super) fn combined_stage1_stage2(
 
             combined.stage2_mut()?.remap_for::<
                 Stage2Regime,
-                aarch64_vmsa::descriptor::Vmsa64,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >(replacement_ipa, data_page.phys_addr(), MappingAttributes::READ_WRITE)?;
             combined.tlbi(
                 vmsa_test_harness::TlbiScope::InnerShareable,
@@ -405,12 +489,16 @@ pub(super) fn combined_stage1_stage2(
             if !matches!(combined.read_u64(VIRTUAL_ADDRESS),
                 vmsa_test_harness::AccessResult::Completed { value } if value == DATA_VALUE)
             {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
             combined.stage2_mut()?.unmap_for::<
                 Stage2Regime,
-                aarch64_vmsa::descriptor::Vmsa64,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >(replacement_ipa)?;
             combined.tlbi(
                 vmsa_test_harness::TlbiScope::InnerShareable,
@@ -430,8 +518,8 @@ pub(super) fn combined_stage1_stage2(
             }
             combined.stage2_mut()?.map_for::<
                 Stage2Regime,
-                aarch64_vmsa::descriptor::Vmsa64,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::format::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >(replacement_ipa, replacement_page.phys_addr(), level3, MappingAttributes::READ_WRITE)?;
             combined.tlbi(
                 vmsa_test_harness::TlbiScope::InnerShareable,
@@ -442,7 +530,11 @@ pub(super) fn combined_stage1_stage2(
             if !matches!(combined.read_u64(VIRTUAL_ADDRESS),
                 vmsa_test_harness::AccessResult::Completed { value } if value == REPLACEMENT_VALUE)
             {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
         }
         combined.restore()?;

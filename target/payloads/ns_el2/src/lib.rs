@@ -1,5 +1,9 @@
 #![no_std]
 
+pub type StageOf<R> = <R as aarch64_vmsa::regime::TranslationRegime>::Stage;
+pub type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeLeafFields<F, R, G>;
+pub type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeTableFields<F, R, G>;
+
 #[path = "../../common/access.rs"]
 mod access;
 #[path = "../../common/address_translation.rs"]
@@ -67,22 +71,33 @@ use common::{BootContext, REGIME_NORMAL, define_environment, outcome_code};
 use vmsa_test_harness::adapter::{RunOptions, run_catalog_tests};
 use vmsa_test_harness::{LogicalTest, Requirements, SecurityEnvironment, TestContext, TestResult};
 
-define_environment!(NsEl2Environment, aarch64_vmsa::regime::NonSecureEl2Stage1);
+define_environment!(
+    NsEl2Environment,
+    aarch64_vmsa::config::regime::NonSecureEl2Stage1
+);
 pub type CurrentEnvironment = NsEl2Environment;
-pub type CurrentRegime = aarch64_vmsa::regime::NonSecureEl2Stage1;
-pub type D128Regime = aarch64_vmsa::regime::NonSecureEl2HostStage1;
-pub const fn current_d128_asid() -> Option<vmsa_test_harness::Asid> { Some(vmsa_test_harness::Asid(0x31)) }
-pub const fn current_d128_controls(bits: vmsa_test_harness::AddressBits) -> Option<vmsa_test_harness::TranslationControls> { vmsa_test_harness::d128_el1_stage1_controls_4k(bits, bits) }
-pub type Stage2Regime = aarch64_vmsa::regime::NonSecureEl2Stage2;
-pub type Stage2XnxRegime =
-    aarch64_vmsa::regime::NonSecureEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>;
-pub type AlternateStage2Regime = aarch64_vmsa::regime::NonSecureEl2Stage2;
-pub type AlternateStage2XnxRegime =
-    aarch64_vmsa::regime::NonSecureEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>;
+pub type CurrentRegime = aarch64_vmsa::config::regime::NonSecureEl2Stage1;
+pub type D128Regime = aarch64_vmsa::config::regime::NonSecureEl2HostStage1;
+pub const fn current_d128_asid() -> Option<vmsa_test_harness::Asid> {
+    Some(vmsa_test_harness::Asid(0x31))
+}
+pub const fn current_d128_controls(
+    bits: vmsa_test_harness::AddressBits,
+) -> Option<vmsa_test_harness::TranslationControls> {
+    vmsa_test_harness::d128_el1_stage1_controls_4k(bits, bits)
+}
+pub type Stage2Regime = aarch64_vmsa::config::regime::NonSecureEl2Stage2;
+pub type Stage2XnxRegime = aarch64_vmsa::config::regime::NonSecureEl2Stage2<
+    aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+>;
+pub type AlternateStage2Regime = aarch64_vmsa::config::regime::NonSecureEl2Stage2;
+pub type AlternateStage2XnxRegime = aarch64_vmsa::config::regime::NonSecureEl2Stage2<
+    aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+>;
 pub type Stage2Pas = ();
 pub const fn stage2_pas() -> Stage2Pas {}
-pub type LowerRegime = aarch64_vmsa::regime::NonSecureEl1Stage1;
-pub type HostRegime = aarch64_vmsa::regime::NonSecureEl2HostStage1;
+pub type LowerRegime = aarch64_vmsa::config::regime::NonSecureEl1Stage1;
+pub type HostRegime = aarch64_vmsa::config::regime::NonSecureEl2HostStage1;
 pub type LowerPas = ();
 pub type HostPas = ();
 pub type HostTablePas = ();
@@ -130,10 +145,11 @@ fn security_state_membership(context: &mut TestContext<'_, CurrentEnvironment>) 
     )
 }
 fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    use aarch64_vmsa::attrs::{Stage2Permissions, Stage2XnxPermissions};
-    use aarch64_vmsa::regime::{
+    use aarch64_vmsa::config::regime::{
         NonSecureEl1Stage1, NonSecureEl2HostStage1, NonSecureEl2Stage1, NonSecureEl2Stage2,
     };
+    use aarch64_vmsa::config::stage2::Stage2Permissions;
+    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
     let current = aarch64_vmsa::arch::VmsaFeatures::current();
     features::regime_result(features::require_regimes!(&current;
         NonSecureEl2Stage1,
@@ -144,10 +160,11 @@ fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult 
     ))
 }
 fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    use aarch64_vmsa::attrs::{Stage2Permissions, Stage2XnxPermissions};
-    use aarch64_vmsa::regime::{
+    use aarch64_vmsa::config::regime::{
         NonSecureEl1Stage1, NonSecureEl2HostStage1, NonSecureEl2Stage1, NonSecureEl2Stage2,
     };
+    use aarch64_vmsa::config::stage2::Stage2Permissions;
+    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
     let current = &aarch64_vmsa::arch::VmsaFeatures::current();
     features::regime_result(
         features::require_all_formats!(current; NonSecureEl2Stage1)
@@ -581,10 +598,7 @@ fn multi_pe_visibility(context: &mut TestContext<'_, CurrentEnvironment>) -> Tes
     coherency::multi_pe_translation_visibility(context, vmsa_test_harness::RegimeAttributes::Normal)
 }
 fn live_break_before_make(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    mapper_live::live_break_before_make(
-        context,
-        vmsa_test_harness::RegimeAttributes::Normal,
-    )
+    mapper_live::live_break_before_make(context, vmsa_test_harness::RegimeAttributes::Normal)
 }
 fn semantic_codec(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     attributes_live::semantic_codec(context)

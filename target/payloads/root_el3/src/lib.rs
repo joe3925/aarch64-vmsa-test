@@ -1,15 +1,18 @@
 #![no_std]
+pub type StageOf<R> = <R as aarch64_vmsa::regime::TranslationRegime>::Stage;
+pub type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeLeafFields<F, R, G>;
+pub type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeTableFields<F, R, G>;
 #[path = "../../common/access.rs"]
 #[allow(dead_code)]
 mod access;
 #[path = "../../common/address_translation.rs"]
 #[allow(dead_code)]
 mod address_translation;
-#[path = "../../common/mod.rs"]
-mod common;
 #[path = "../../common/coherency.rs"]
 #[allow(dead_code)]
 mod coherency;
+#[path = "../../common/mod.rs"]
+mod common;
 #[path = "../../common/faults.rs"]
 #[allow(dead_code)]
 mod faults;
@@ -34,10 +37,13 @@ mod semantic_root;
 use common::{BootContext, REGIME_ROOT, define_environment, outcome_code};
 use vmsa_test_harness::adapter::{RunOptions, run_catalog_tests};
 use vmsa_test_harness::{LogicalTest, Requirements, SecurityEnvironment, TestContext, TestResult};
-define_environment!(RootEl3Environment, aarch64_vmsa::regime::RootEl3Stage1);
+define_environment!(
+    RootEl3Environment,
+    aarch64_vmsa::config::regime::RootEl3Stage1
+);
 pub type CurrentEnvironment = RootEl3Environment;
-pub type CurrentRegime = aarch64_vmsa::regime::RootEl3Stage1;
-pub type LowerRegime = aarch64_vmsa::regime::RootEl3Stage1;
+pub type CurrentRegime = aarch64_vmsa::config::regime::RootEl3Stage1;
+pub type LowerRegime = aarch64_vmsa::config::regime::RootEl3Stage1;
 fn feature_snapshot_agreement(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     features::live_snapshot_agreement(context.capabilities())
 }
@@ -50,12 +56,14 @@ fn security_state_membership(context: &mut TestContext<'_, CurrentEnvironment>) 
 fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     let current = aarch64_vmsa::arch::VmsaFeatures::current();
     features::regime_result(
-        aarch64_vmsa::regime::validate_regime::<aarch64_vmsa::regime::RootEl3Stage1>(&current)
-            .is_ok(),
+        aarch64_vmsa::regime::validate_regime::<aarch64_vmsa::config::regime::RootEl3Stage1>(
+            &current,
+        )
+        .is_ok(),
     )
 }
 fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    use aarch64_vmsa::regime::RootEl3Stage1;
+    use aarch64_vmsa::config::regime::RootEl3Stage1;
     let current = &aarch64_vmsa::arch::VmsaFeatures::current();
     let supported = features::require_base_format!(current; RootEl3Stage1)
         && features::require_live_format_agreement!(current; RootEl3Stage1, stage2 = false);
@@ -83,10 +91,7 @@ fn multi_pe_visibility(context: &mut TestContext<'_, CurrentEnvironment>) -> Tes
     coherency::multi_pe_translation_visibility(context, vmsa_test_harness::RegimeAttributes::Root)
 }
 fn live_break_before_make(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    mapper_live::live_break_before_make(
-        context,
-        vmsa_test_harness::RegimeAttributes::Root,
-    )
+    mapper_live::live_break_before_make(context, vmsa_test_harness::RegimeAttributes::Root)
 }
 fn translation_cycle(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     invalidation::stage1_translation_cycle(c, vmsa_test_harness::RegimeAttributes::Root)

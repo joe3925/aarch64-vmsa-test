@@ -1,5 +1,22 @@
 use vmsa_test_harness::{HarnessError, TestResult};
 
+struct RejectTableAccess;
+
+unsafe impl<F, G> aarch64_vmsa::table::TableAccess<F, G> for RejectTableAccess
+where
+    F: aarch64_vmsa::descriptor::DescriptorFormat,
+    G: aarch64_vmsa::address::TranslationGranule,
+{
+    type Error = ();
+
+    fn table_at<'a>(
+        &'a self,
+        _: aarch64_vmsa::table::TableAccessLocation<'a, F, G>,
+    ) -> Result<aarch64_vmsa::table::TranslationTable<'a, F, G>, Self::Error> {
+        Err(())
+    }
+}
+
 fn failures_result(failures: u64) -> TestResult {
     if failures == 0 {
         TestResult::Pass
@@ -21,8 +38,8 @@ fn output_width_acceptance<F>(
 where
     F: aarch64_vmsa::descriptor::DescriptorFormat
         + aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<crate::CurrentRegime>,
-            aarch64_vmsa::address::Granule4KiB,
+            crate::StageOf<crate::CurrentRegime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
 {
     let root = context.allocate_root()?;
@@ -32,7 +49,7 @@ where
             context
                 .validate_offline_mapper_geometry::<
                     crate::CurrentRegime,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                     F,
                 >(&root, root_level, input_bits, width)
                 .is_err()
@@ -51,8 +68,8 @@ fn output_width_rejection<F>(
 where
     F: aarch64_vmsa::descriptor::DescriptorFormat
         + aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<crate::CurrentRegime>,
-            aarch64_vmsa::address::Granule4KiB,
+            crate::StageOf<crate::CurrentRegime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
 {
     let root = context.allocate_root()?;
@@ -61,7 +78,7 @@ where
         .filter(|&&width| {
             context.validate_offline_mapper_geometry::<
                 crate::CurrentRegime,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
                 F,
             >(&root, root_level, input_bits, width)
                 != Err(vmsa_test_harness::MapperConstructionError::InvalidConfiguredOutputAddressBits {
@@ -76,7 +93,7 @@ where
 pub fn vmsa64_output_width_acceptance(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    output_width_acceptance::<aarch64_vmsa::descriptor::Vmsa64>(
+    output_width_acceptance::<aarch64_vmsa::config::format::Vmsa64>(
         context,
         aarch64_vmsa::address::Level::NEG1,
         48,
@@ -87,7 +104,7 @@ pub fn vmsa64_output_width_acceptance(
 pub fn lpa2_output_width_acceptance(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    output_width_acceptance::<aarch64_vmsa::descriptor::Vmsa64Lpa2>(
+    output_width_acceptance::<aarch64_vmsa::config::format::Vmsa64Lpa2>(
         context,
         aarch64_vmsa::address::Level::NEG1,
         52,
@@ -98,7 +115,7 @@ pub fn lpa2_output_width_acceptance(
 pub fn d128_output_width_acceptance(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    output_width_acceptance::<aarch64_vmsa::descriptor::Vmsa128>(
+    output_width_acceptance::<aarch64_vmsa::config::format::Vmsa128>(
         context,
         aarch64_vmsa::address::Level::NEG2,
         56,
@@ -109,7 +126,7 @@ pub fn d128_output_width_acceptance(
 pub fn vmsa64_output_width_rejection(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    output_width_rejection::<aarch64_vmsa::descriptor::Vmsa64>(
+    output_width_rejection::<aarch64_vmsa::config::format::Vmsa64>(
         context,
         aarch64_vmsa::address::Level::NEG1,
         48,
@@ -121,7 +138,7 @@ pub fn vmsa64_output_width_rejection(
 pub fn lpa2_output_width_rejection(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    output_width_rejection::<aarch64_vmsa::descriptor::Vmsa64Lpa2>(
+    output_width_rejection::<aarch64_vmsa::config::format::Vmsa64Lpa2>(
         context,
         aarch64_vmsa::address::Level::NEG1,
         52,
@@ -133,7 +150,7 @@ pub fn lpa2_output_width_rejection(
 pub fn d128_output_width_rejection(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    output_width_rejection::<aarch64_vmsa::descriptor::Vmsa128>(
+    output_width_rejection::<aarch64_vmsa::config::format::Vmsa128>(
         context,
         aarch64_vmsa::address::Level::NEG2,
         56,
@@ -150,19 +167,19 @@ fn root_address_bit_boundaries<F>(
 where
     F: aarch64_vmsa::descriptor::DescriptorFormat
         + aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<crate::CurrentRegime>,
-            aarch64_vmsa::address::Granule4KiB,
+            crate::StageOf<crate::CurrentRegime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
 {
     use aarch64_vmsa::table::TableGeometry;
     let root = context.allocate_root()?;
     let max_addr_bits =
-        TableGeometry::<F, aarch64_vmsa::address::Granule4KiB>::level_shift(root_level)
-            + TableGeometry::<F, aarch64_vmsa::address::Granule4KiB>::index_bits();
+        TableGeometry::<F, aarch64_vmsa::config::granule::Granule4KiB>::level_shift(root_level)
+            + TableGeometry::<F, aarch64_vmsa::config::granule::Granule4KiB>::index_bits();
     let validate = |bits| {
         context.validate_offline_mapper_geometry::<
             crate::CurrentRegime,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::granule::Granule4KiB,
             F,
         >(&root, root_level, bits, output_bits)
     };
@@ -192,7 +209,7 @@ where
 pub fn vmsa64_root_address_bit_boundaries(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    root_address_bit_boundaries::<aarch64_vmsa::descriptor::Vmsa64>(
+    root_address_bit_boundaries::<aarch64_vmsa::config::format::Vmsa64>(
         context,
         aarch64_vmsa::address::Level::NEG1,
         48,
@@ -202,7 +219,7 @@ pub fn vmsa64_root_address_bit_boundaries(
 pub fn lpa2_root_address_bit_boundaries(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    root_address_bit_boundaries::<aarch64_vmsa::descriptor::Vmsa64Lpa2>(
+    root_address_bit_boundaries::<aarch64_vmsa::config::format::Vmsa64Lpa2>(
         context,
         aarch64_vmsa::address::Level::NEG1,
         52,
@@ -212,7 +229,7 @@ pub fn lpa2_root_address_bit_boundaries(
 pub fn d128_root_address_bit_boundaries(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    root_address_bit_boundaries::<aarch64_vmsa::descriptor::Vmsa128>(
+    root_address_bit_boundaries::<aarch64_vmsa::config::format::Vmsa128>(
         context,
         aarch64_vmsa::address::Level::NEG2,
         56,
@@ -227,8 +244,8 @@ fn valid_root_levels<F>(
 where
     F: aarch64_vmsa::descriptor::DescriptorFormat
         + aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<crate::CurrentRegime>,
-            aarch64_vmsa::address::Granule4KiB,
+            crate::StageOf<crate::CurrentRegime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
 {
     use aarch64_vmsa::table::TableGeometry;
@@ -236,12 +253,13 @@ where
     let mut level = lowest;
     let mut failures = 0;
     loop {
-        let input_bits = TableGeometry::<F, aarch64_vmsa::address::Granule4KiB>::level_shift(level)
-            + TableGeometry::<F, aarch64_vmsa::address::Granule4KiB>::index_bits();
+        let input_bits =
+            TableGeometry::<F, aarch64_vmsa::config::granule::Granule4KiB>::level_shift(level)
+                + TableGeometry::<F, aarch64_vmsa::config::granule::Granule4KiB>::index_bits();
         if context
             .validate_offline_mapper_geometry::<
                 crate::CurrentRegime,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
                 F,
             >(&root, level, input_bits, output_bits)
             .is_err()
@@ -264,8 +282,8 @@ fn invalid_root_levels<F>(
 where
     F: aarch64_vmsa::descriptor::DescriptorFormat
         + aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<crate::CurrentRegime>,
-            aarch64_vmsa::address::Granule4KiB,
+            crate::StageOf<crate::CurrentRegime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
 {
     let root = context.allocate_root()?;
@@ -276,7 +294,7 @@ where
         .filter(|&root_level| {
             context.validate_offline_mapper_geometry::<
                 crate::CurrentRegime,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
                 F,
             >(&root, root_level, 1, output_bits)
                 != Err(vmsa_test_harness::MapperConstructionError::InvalidRootLevel {
@@ -292,7 +310,7 @@ where
 pub fn vmsa64_valid_root_levels(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    valid_root_levels::<aarch64_vmsa::descriptor::Vmsa64>(
+    valid_root_levels::<aarch64_vmsa::config::format::Vmsa64>(
         context,
         aarch64_vmsa::address::Level::NEG1,
         48,
@@ -302,7 +320,7 @@ pub fn vmsa64_valid_root_levels(
 pub fn lpa2_valid_root_levels(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    valid_root_levels::<aarch64_vmsa::descriptor::Vmsa64Lpa2>(
+    valid_root_levels::<aarch64_vmsa::config::format::Vmsa64Lpa2>(
         context,
         aarch64_vmsa::address::Level::NEG1,
         52,
@@ -312,7 +330,7 @@ pub fn lpa2_valid_root_levels(
 pub fn d128_valid_root_levels(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    valid_root_levels::<aarch64_vmsa::descriptor::Vmsa128>(
+    valid_root_levels::<aarch64_vmsa::config::format::Vmsa128>(
         context,
         aarch64_vmsa::address::Level::NEG2,
         56,
@@ -322,7 +340,7 @@ pub fn d128_valid_root_levels(
 pub fn vmsa64_invalid_root_levels(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    invalid_root_levels::<aarch64_vmsa::descriptor::Vmsa64>(
+    invalid_root_levels::<aarch64_vmsa::config::format::Vmsa64>(
         context,
         aarch64_vmsa::address::Level::NEG1,
         48,
@@ -332,7 +350,7 @@ pub fn vmsa64_invalid_root_levels(
 pub fn lpa2_invalid_root_levels(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    invalid_root_levels::<aarch64_vmsa::descriptor::Vmsa64Lpa2>(
+    invalid_root_levels::<aarch64_vmsa::config::format::Vmsa64Lpa2>(
         context,
         aarch64_vmsa::address::Level::NEG1,
         52,
@@ -342,7 +360,7 @@ pub fn lpa2_invalid_root_levels(
 pub fn d128_invalid_root_levels(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    invalid_root_levels::<aarch64_vmsa::descriptor::Vmsa128>(
+    invalid_root_levels::<aarch64_vmsa::config::format::Vmsa128>(
         context,
         aarch64_vmsa::address::Level::NEG2,
         56,
@@ -354,8 +372,8 @@ pub fn maximum_root_address(
 ) -> TestResult {
     match context.validate_offline_mapper_geometry_at::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(
         0xffff_f000,
         aarch64_vmsa::address::Level::L0,
@@ -372,8 +390,8 @@ pub fn unaligned_root_address(
 ) -> TestResult {
     let actual = context.validate_offline_mapper_geometry_at::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(1, aarch64_vmsa::address::Level::L0, 32, 32);
     if actual
         != Err(vmsa_test_harness::MapperConstructionError::UnalignedRoot {
@@ -381,7 +399,11 @@ pub fn unaligned_root_address(
             align: 4096,
         })
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -391,8 +413,8 @@ pub fn root_address_out_of_range(
 ) -> TestResult {
     let actual = context.validate_offline_mapper_geometry_at::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(
         0x1_0000_0000,
         aarch64_vmsa::address::Level::L0,
@@ -407,19 +429,23 @@ pub fn root_address_out_of_range(
             },
         )
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
 
 pub fn value_boundaries() -> TestResult {
     use aarch64_vmsa::address::{
-        Granule4KiB, Granule16KiB, Granule64KiB, GranuleError, GranuleKind, Level, PhysAddr,
-        TranslationGranule, VirtAddr,
+        GranuleError, GranuleKind, Level, PhysAddr, TranslationGranule, VirtAddr,
     };
-    use aarch64_vmsa::descriptor::{Vmsa64, Vmsa128};
+    use aarch64_vmsa::config::format::{Vmsa64, Vmsa128};
+    use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
     use aarch64_vmsa::table::{
-        AccessError, RootTable, TableCursor, TableGeometry, TablePhysAddr, TableShape,
+        AccessError, RootTable, TableAddr, TableCursor, TableGeometry, TableShape,
         TableStrideCount, TableTransition, TableWalkPath,
     };
 
@@ -441,7 +467,11 @@ pub fn value_boundaries() -> TestResult {
             || kind.validate_page_alignment(size) != Ok(())
             || kind.validate_page_alignment(size + 1) != Err(GranuleError::AddressNotAligned)
         {
-            return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     if Granule4KiB::kind() != GranuleKind::Size4KiB
@@ -449,7 +479,11 @@ pub fn value_boundaries() -> TestResult {
         || Granule64KiB::kind() != GranuleKind::Size64KiB
         || Granule4KiB::align_up(u64::MAX).is_some()
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     if Level::NEG2.next() != Level::NEG1
@@ -465,7 +499,11 @@ pub fn value_boundaries() -> TestResult {
         || Level::NEG2.distance_from(Level::L0).is_some()
         || !Level::L1.is_between_inclusive(Level::L0, Level::L3)
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     if TableGeometry::<Vmsa64, Granule4KiB>::entries() != 512
@@ -481,7 +519,11 @@ pub fn value_boundaries() -> TestResult {
         || TableGeometry::<Vmsa64, Granule4KiB>::checked_level_shift(Level::new(4)).is_some()
         || TableGeometry::<Vmsa64, Granule4KiB>::checked_level_shift(Level::L3) != Some(12)
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     if TableStrideCount::new::<Vmsa64, Granule4KiB>(0)
@@ -490,42 +532,80 @@ pub fn value_boundaries() -> TestResult {
         || TableStrideCount::new::<Vmsa64, Granule4KiB>(5)
             != Err(AccessError::InvalidTableStrideCount { stride_count: 5 })
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     let root_shape = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0);
-    let child_shape = TableShape::<Vmsa64, Granule4KiB>::new(Level::L2, 2)
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let child_shape = TableShape::<Vmsa64, Granule4KiB>::new(Level::L2, 2).map_err(|_| {
+        HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+    })?;
     let transition =
-        TableTransition::new(root_shape, child_shape).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        TableTransition::new(root_shape, child_shape).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     if transition.parent_level() != Level::L0
         || transition.child_level() != Level::L2
         || transition.level_step() != 2
         || root_shape
             .alloc_layout()
-            .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?
+            .map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?
             .bytes()
             != 4096
-        || root_shape.validate_base(PhysAddr(0x1000)).is_err()
-        || root_shape.validate_base(PhysAddr(0x1001)).is_ok()
+        || root_shape
+            .validate_base(TableAddr::new(0x1000).expect("aligned table address"))
+            .is_err()
+        || TableAddr::<Granule4KiB>::new(0x1001).is_ok()
         || TableTransition::new(
             root_shape,
-            TableShape::<Vmsa64, Granule4KiB>::new(Level::L2, 1)
-                .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+            TableShape::<Vmsa64, Granule4KiB>::new(Level::L2, 1).map_err(|_| {
+                HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+            })?,
         )
         .is_ok()
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
-    let address = TablePhysAddr::<Granule4KiB>::new(PhysAddr(0x4000))
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    if TablePhysAddr::<Granule4KiB>::new(PhysAddr(0x4001)).is_ok() {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+    let address =
+        TableAddr::<Granule4KiB>::new(0x4000).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+    if TableAddr::<Granule4KiB>::new(0x4001).is_ok() {
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
-    let root =
-        RootTable::<Vmsa64, crate::CurrentRegime, Granule4KiB>::new(address, Level::L0, 48, 48);
-    let cursor = TableCursor::<Vmsa64, Granule4KiB>::root(address, Level::L0);
+    let root = RootTable::<Vmsa64, crate::CurrentRegime, Granule4KiB>::from_geometry(
+        aarch64_vmsa::table::RootTableGeometry::new_at_level(address, Level::L0, 48, 48)
+            .expect("valid root geometry"),
+    );
+    let walker = aarch64_vmsa::translation::Walker::new(root, &RejectTableAccess)
+        .expect("valid walker root");
+    let cursor = walker
+        .cursor(aarch64_vmsa::translation::WalkInputAddr::new(0))
+        .expect("valid walk cursor")
+        .table();
     let path = TableWalkPath::<Vmsa64, Granule4KiB>::root();
     if root.addr() != address
         || root.level() != Level::L0
@@ -537,33 +617,57 @@ pub fn value_boundaries() -> TestResult {
         || path.len() != 0
         || path.terminal_level(Level::L0) != Ok(Level::L0)
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     TestResult::Pass
 }
 
 pub fn path_boundaries() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-    use aarch64_vmsa::descriptor::Vmsa64;
+    use aarch64_vmsa::address::{Level, PhysAddr};
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::table::{
-        AccessError, NextTable, TableCursor, TablePhysAddr, TableShape, TableWalkPath,
+        AccessError, NextTable, TableAddr, TableCursor, TableShape, TableWalkPath,
     };
 
     type Path = TableWalkPath<Vmsa64, Granule4KiB>;
-    let root_addr = TablePhysAddr::new(PhysAddr(0x4000)).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    let level1_addr =
-        TablePhysAddr::new(PhysAddr(0x8000)).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    let level3_addr =
-        TablePhysAddr::new(PhysAddr(0x20_0000)).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let root_addr = TableAddr::new(0x4000).map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
+    let level1_addr = TableAddr::new(0x8000).map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
+    let level3_addr = TableAddr::new(0x20_0000).map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
     let l0 = TableShape::root(Level::L0);
-    let l1 = TableShape::new(Level::L1, 1).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    let l3 = TableShape::new(Level::L3, 2).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let l1 = TableShape::new(Level::L1, 1).map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
+    let l3 = TableShape::new(Level::L3, 2).map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
     let mut path = Path::root();
     path.push(Level::L0, l0, l1, 0x12)
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     path.push(Level::L0, l1, l3, 0x101)
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     let first = path.entry(Level::L0, 0).ok_or(HarnessError::InvalidState)?;
     let second = path.entry(Level::L0, 1).ok_or(HarnessError::InvalidState)?;
     if path.len() != 2
@@ -588,7 +692,11 @@ pub fn path_boundaries() -> TestResult {
             })
         || path.terminal_level(Level::L0) != Ok(Level::L3)
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     let mut out_of_range = Path::root();
@@ -598,7 +706,11 @@ pub fn path_boundaries() -> TestResult {
             entries: l0.entries(),
         })
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let mut wrong_terminal = path;
     if wrong_terminal.push(Level::L0, l0, l1, 0)
@@ -607,78 +719,101 @@ pub fn path_boundaries() -> TestResult {
             actual: Level::L3,
         })
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
-    let root_cursor = TableCursor::<Vmsa64, Granule4KiB>::root(root_addr, Level::L0);
+    let root_table =
+        aarch64_vmsa::table::RootTable::<Vmsa64, crate::CurrentRegime, Granule4KiB>::from_geometry(
+            aarch64_vmsa::table::RootTableGeometry::new_at_level(root_addr, Level::L0, 48, 48)
+                .expect("valid root geometry"),
+        );
+    let walker = aarch64_vmsa::translation::Walker::new(root_table, &RejectTableAccess)
+        .expect("valid walker root");
+    let root_cursor = walker
+        .cursor(aarch64_vmsa::translation::WalkInputAddr::new(0))
+        .expect("valid walk cursor")
+        .table();
     let level1 = root_cursor
         .next_table(
             0x12,
-            NextTable::new(level1_addr, Level::L1, 1).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+            NextTable::new(level1_addr, Level::L1, 1).map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?,
         )
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     let level3 = level1
         .next_table(
             0x101,
-            NextTable::new(level3_addr, Level::L3, 2).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+            NextTable::new(level3_addr, Level::L3, 2).map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?,
         )
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    let location = level3.location().map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     if level3.root_addr() != root_addr
         || level3.root_level() != Level::L0
         || level3.current() != level3_addr
         || level3.shape() != l3
         || level3.path() != path
-        || location.addr() != level3_addr
-        || location.level() != Level::L3
-        || location.shape() != l3
-        || location.path() != path
-        || TableCursor::new(root_addr, Level::L0, level1_addr, l1, Path::root())
-            != Err(AccessError::TablePathTerminalLevelMismatch {
-                expected: Level::L1,
-                actual: Level::L0,
-            })
+        || level3.entry_index(0).is_err()
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
 
 pub fn walk_cursor_boundaries() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-    use aarch64_vmsa::descriptor::{DescriptorFormat, Vmsa64};
-    use aarch64_vmsa::table::{NextTable, TablePhysAddr};
-    use aarch64_vmsa::translation::{WalkCursor, WalkCursorError, WalkInputAddr};
+    use aarch64_vmsa::address::{Level, PhysAddr};
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::descriptor::DescriptorFormat;
+    use aarch64_vmsa::table::{NextTable, RootTable, RootTableGeometry, TableAddr};
+    use aarch64_vmsa::translation::{WalkInputAddr, Walker};
 
-    let root = TablePhysAddr::new(PhysAddr(0x4000)).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let root = TableAddr::new(0x4000).map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
     let input = WalkInputAddr::new(0x1234_5678_9abc);
-    let below = WalkCursor::<Vmsa64, Granule4KiB>::new(input, root, Level::NEG2);
-    let above = WalkCursor::<Vmsa64, Granule4KiB>::new(input, root, Level::new(4));
+    let below = RootTableGeometry::<Vmsa64, Granule4KiB>::new_at_level(root, Level::NEG2, 48, 48);
+    let above = RootTableGeometry::<Vmsa64, Granule4KiB>::new_at_level(root, Level::new(4), 48, 48);
     if input.raw() != 0x1234_5678_9abc
-        || !matches!(
-            below,
-            Err(WalkCursorError::InvalidRootLevel {
-                root_level: Level::NEG2,
-                lowest_level,
-                final_level: Level::L3,
-            }) if lowest_level == <Vmsa64 as DescriptorFormat>::EXTENDED_LOWEST_ROOT_LEVEL
-        )
-        || !matches!(
-            above,
-            Err(WalkCursorError::InvalidRootLevel {
-                root_level,
-                lowest_level,
-                final_level: Level::L3,
-            }) if root_level == Level::new(4)
-                && lowest_level == <Vmsa64 as DescriptorFormat>::EXTENDED_LOWEST_ROOT_LEVEL
-        )
+        || below.is_ok()
+        || above.is_ok()
+        || <Vmsa64 as DescriptorFormat>::EXTENDED_LOWEST_ROOT_LEVEL != Level::NEG1
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
-    let cursor = WalkCursor::<Vmsa64, Granule4KiB>::new(input, root, Level::L0)
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let root_table = RootTable::<Vmsa64, crate::CurrentRegime, Granule4KiB>::from_geometry(
+        RootTableGeometry::new_at_level(root, Level::L0, 48, 48).expect("valid root geometry"),
+    );
+    let walker = Walker::new(root_table, &RejectTableAccess).expect("valid walker root");
+    let cursor = walker
+        .cursor(input)
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     let expected_index = ((input.raw() >> 39) & 0x1ff) as usize;
-    let location = cursor.location().map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
     if cursor.input() != input
         || cursor.root() != root
         || cursor.root_level() != Level::L0
@@ -686,16 +821,29 @@ pub fn walk_cursor_boundaries() -> TestResult {
         || cursor.level() != Level::L0
         || !cursor.path().is_root()
         || cursor.entry_index() != Ok(expected_index)
-        || location.addr() != root
-        || location.level() != Level::L0
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
-    let next_addr = TablePhysAddr::new(PhysAddr(0x8000)).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    let next = NextTable::new(next_addr, Level::L1, 1).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    let child = cursor
-        .next_table(expected_index, next)
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let next_addr = TableAddr::new(0x8000).map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
+    let next =
+        NextTable::new(next_addr, Level::L1, 1).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+    let child =
+        cursor
+            .next_table(expected_index, next)
+            .map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?;
     if child.root() != root
         || child.current() != next_addr
         || child.level() != Level::L1
@@ -703,7 +851,11 @@ pub fn walk_cursor_boundaries() -> TestResult {
         || child.path().index(0) != Some(expected_index)
         || child.table().current() != next_addr
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -747,12 +899,13 @@ where
             || shape.entries() != expected_entries.unwrap()
             || Some(layout.bytes()) != expected_bytes
             || layout.align() != layout.bytes()
-            || shape.validate_base(PhysAddr(layout.align())).is_err()
-            || shape.validate_base(PhysAddr(layout.align() + 1))
-                != Err(AccessError::UnalignedTableAddress {
-                    addr: PhysAddr(layout.align() + 1),
-                    align: layout.align(),
-                })
+            || shape
+                .validate_base(
+                    aarch64_vmsa::table::TableAddr::new(layout.align())
+                        .expect("aligned table address"),
+                )
+                .is_err()
+            || aarch64_vmsa::table::TableAddr::<G>::new(layout.align() + 1).is_ok()
         {
             failures += 1;
         }
@@ -844,30 +997,31 @@ where
 
 pub fn table_shape_transition_matrix() -> TestResult {
     let failures = table_shape_transition_failures::<
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >() + table_shape_transition_failures::<
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule16KiB,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule16KiB,
     >() + table_shape_transition_failures::<
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule64KiB,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule64KiB,
     >() + table_shape_transition_failures::<
-        aarch64_vmsa::descriptor::Vmsa128,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa128,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >() + table_shape_transition_failures::<
-        aarch64_vmsa::descriptor::Vmsa128,
-        aarch64_vmsa::address::Granule16KiB,
+        aarch64_vmsa::config::format::Vmsa128,
+        aarch64_vmsa::config::granule::Granule16KiB,
     >() + table_shape_transition_failures::<
-        aarch64_vmsa::descriptor::Vmsa128,
-        aarch64_vmsa::address::Granule64KiB,
+        aarch64_vmsa::config::format::Vmsa128,
+        aarch64_vmsa::config::granule::Granule64KiB,
     >();
     failures_result(failures)
 }
 
 pub fn path_capacity_errors() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
-    use aarch64_vmsa::descriptor::Vmsa64;
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::table::{AccessError, TableShape, TableWalkPath};
 
     type Path = TableWalkPath<Vmsa64, Granule4KiB>;
@@ -878,10 +1032,16 @@ pub fn path_capacity_errors() -> TestResult {
         path.push(
             root_level,
             TableShape::root(parent_level),
-            TableShape::new(parent_level.next(), 1).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+            TableShape::new(parent_level.next(), 1).map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?,
             depth as usize,
         )
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     }
     let parent_level = Level::new(root_level.as_i8() + 14);
     if path.len() != 14
@@ -891,58 +1051,81 @@ pub fn path_capacity_errors() -> TestResult {
         || path.push(
             root_level,
             TableShape::root(parent_level),
-            TableShape::new(parent_level.next(), 1).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+            TableShape::new(parent_level.next(), 1).map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?,
             14,
         ) != Err(AccessError::TablePathCapacityExceeded {
             len: 15,
             index_bits: 9,
         })
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     let mut excessive_step = Path::root();
     if excessive_step.push(
         Level::NEG2,
         TableShape::root(Level::NEG2),
-        TableShape::new(Level::L3, 1).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+        TableShape::new(Level::L3, 1).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?,
         0,
     ) != Err(AccessError::InvalidTableLevelStep { step: 5 })
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
 
 pub fn cursor_next_table_errors() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-    use aarch64_vmsa::descriptor::Vmsa64;
-    use aarch64_vmsa::table::{
-        AccessError, NextTable, TableAccessLocation, TableCursor, TablePhysAddr,
-    };
-    use aarch64_vmsa::translation::{WalkCursor, WalkInputAddr};
+    use aarch64_vmsa::address::{Level, PhysAddr};
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::table::{AccessError, NextTable, RootTable, RootTableGeometry, TableAddr};
+    use aarch64_vmsa::translation::{WalkInputAddr, Walker};
 
-    let root = TablePhysAddr::<Granule4KiB>::new(PhysAddr(0x4000))
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    let next_addr = TablePhysAddr::<Granule4KiB>::new(PhysAddr(0x8000))
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    let cursor = TableCursor::<Vmsa64, Granule4KiB>::root(root, Level::L0);
-    let root_location = TableAccessLocation::<Vmsa64, Granule4KiB>::root(root, Level::L0);
-    let next = NextTable::<Vmsa64, Granule4KiB>::new(next_addr, Level::L1, 1)
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    if root_location.cursor() != cursor
-        || root_location.addr() != root
-        || root_location.root_level() != Level::L0
-        || root_location.level() != Level::L0
-        || !root_location.path().is_root()
-        || cursor.next_table(512, next)
-            != Err(AccessError::TablePathIndexOutOfRange {
-                index: 512,
-                entries: 512,
-            })
+    let root = TableAddr::<Granule4KiB>::new(0x4000).map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
+    let next_addr =
+        TableAddr::<Granule4KiB>::new(0x8000).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+    let root_table = RootTable::<Vmsa64, crate::CurrentRegime, Granule4KiB>::from_geometry(
+        RootTableGeometry::new_at_level(root, Level::L0, 48, 48).expect("valid root geometry"),
+    );
+    let walker = Walker::new(root_table, &RejectTableAccess).expect("valid walker root");
+    let cursor = walker
+        .cursor(WalkInputAddr::new(0x1234_5000))
+        .expect("valid walk cursor")
+        .table();
+    let next = NextTable::<Vmsa64, Granule4KiB>::new(next_addr, Level::L1, 1).map_err(|_| {
+        HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+    })?;
+    if cursor.next_table(512, next)
+        != Err(AccessError::TablePathIndexOutOfRange {
+            index: 512,
+            entries: 512,
+        })
         || NextTable::<Vmsa64, Granule4KiB>::new(next_addr, Level::L2, 2)
             != Err(AccessError::UnalignedTableAddress {
-                addr: PhysAddr(0x8000),
+                addr: 0x8000,
                 align: 2 * 1024 * 1024,
             })
         || !matches!(
@@ -958,10 +1141,22 @@ pub fn cursor_next_table_errors() -> TestResult {
             }) if root_level == Level::new(4) && level == Level::new(4)
         )
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
-    let final_cursor = TableCursor::<Vmsa64, Granule4KiB>::root(root, Level::L3);
+    let final_root = RootTable::<Vmsa64, crate::CurrentRegime, Granule4KiB>::from_geometry(
+        RootTableGeometry::new_at_level(root, Level::L3, 12, 48)
+            .expect("valid final-level root geometry"),
+    );
+    let final_walker = Walker::new(final_root, &RejectTableAccess).expect("valid walker root");
+    let final_cursor = final_walker
+        .cursor(WalkInputAddr::new(0))
+        .expect("valid walk cursor")
+        .table();
     if final_cursor.next_table(0, next)
         != Err(AccessError::InvalidTableLevel {
             root_level: Level::L3,
@@ -969,13 +1164,19 @@ pub fn cursor_next_table_errors() -> TestResult {
             final_level: Level::L3,
         })
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
-    let walk =
-        WalkCursor::<Vmsa64, Granule4KiB>::new(WalkInputAddr::new(0x1234_5000), root, Level::L0)
-            .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let walk = walker
+        .cursor(WalkInputAddr::new(0x1234_5000))
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     if walk.table() != cursor
-        || walk.location().map(|location| location.cursor()) != Ok(cursor)
         || !matches!(
             walk.next_table(512, next),
             Err(AccessError::TablePathIndexOutOfRange {
@@ -984,7 +1185,11 @@ pub fn cursor_next_table_errors() -> TestResult {
             })
         )
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }

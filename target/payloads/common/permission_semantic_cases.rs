@@ -4,14 +4,15 @@ use vmsa_test_harness::{TestContext, TestResult};
 pub(super) fn stage1_semantic_mapper(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
-    use aarch64_vmsa::address::Granule4KiB;
     use aarch64_vmsa::attrs::{
         Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
         SoftwareMetadata, Stage2MemoryMode, TwoPrivilegeLeafPermissions,
-        TwoPrivilegeTablePermissionLimits, };
-    use aarch64_vmsa::descriptor::Vmsa64;
+        TwoPrivilegeTablePermissionLimits,
+    };
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
 
     const ADDRESS: u64 = 0x6800_0000;
     let memory = MemoryAttributes::Normal {
@@ -128,7 +129,11 @@ pub(super) fn stage1_semantic_mapper(
             .inspect_semantic_leaf::<_>(address, &direct_config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.permissions != permissions {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     if stage1.map_semantic_leaf::<_>(
@@ -161,7 +166,11 @@ pub(super) fn stage1_semantic_mapper(
     ) != Err(vmsa_test_harness::HarnessError::Attribute(
         vmsa_test_harness::AttributeError::UnencodablePermissions,
     )) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     TestResult::Pass
@@ -169,15 +178,16 @@ pub(super) fn stage1_semantic_mapper(
 pub(super) fn stage2_direct_semantic_mapper(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
-    use aarch64_vmsa::address::Granule4KiB;
     use aarch64_vmsa::attrs::{
         Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
         MemoryAttributes, SemanticStage2LeafAttrs, SemanticVmsa64Stage2LeafControls,
         SemanticVmsa64Stage2TableAttrs, Shareability, SoftwareMetadata, Stage2LeafPermissions,
-        Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permissions, Stage2XnxPermissions,
-        };
-    use aarch64_vmsa::descriptor::Vmsa64;
-    use aarch64_vmsa::regime::NonSecureEl2Stage2;
+        Stage2MemoryAttributes, Stage2MemoryMode,
+    };
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage2;
+    use aarch64_vmsa::config::stage2::{Stage2Permissions, Stage2XnxPermissions};
     const ADDRESS: u64 = 0x6800_0000;
     let memory = MemoryAttributes::Normal {
         inner: Cacheability::NonCacheable,
@@ -245,7 +255,11 @@ pub(super) fn stage2_direct_semantic_mapper(
                 .inspect_semantic_leaf::<_>(address, &direct_config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if decoded.permissions != permissions {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
             index += 1;
         }
@@ -281,7 +295,11 @@ pub(super) fn stage2_direct_semantic_mapper(
     ) != Err(vmsa_test_harness::HarnessError::Attribute(
         vmsa_test_harness::AttributeError::InvalidStage2ExecuteNever,
     )) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     TestResult::Pass
@@ -289,15 +307,16 @@ pub(super) fn stage2_direct_semantic_mapper(
 pub(super) fn stage2_fwb_semantic_mapper(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
-    use aarch64_vmsa::address::Granule4KiB;
     use aarch64_vmsa::attrs::{
         Cacheability, D128Stage1AliasKind, DataAccess, DeviceMemoryType, DirtyBitManagement,
         FwbStage2Memory, LiveVmsaConfig, MemoryAttributes, SemanticStage2LeafAttrs,
         SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, Shareability,
         SoftwareMetadata, Stage2LeafPermissions, Stage2MemoryAttributes, Stage2MemoryMode,
-        Stage2Permissions, };
-    use aarch64_vmsa::descriptor::Vmsa64;
-    use aarch64_vmsa::regime::NonSecureEl2Stage2;
+    };
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage2;
+    use aarch64_vmsa::config::stage2::Stage2Permissions;
     const ADDRESS: u64 = 0x6800_0000;
     let memory = MemoryAttributes::Normal {
         inner: Cacheability::NonCacheable,
@@ -380,7 +399,11 @@ pub(super) fn stage2_fwb_semantic_mapper(
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?
             != leaf
         {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     for (index, fwb_memory) in [
@@ -408,7 +431,11 @@ pub(super) fn stage2_fwb_semantic_mapper(
         ) != Err(vmsa_test_harness::HarnessError::Attribute(
             vmsa_test_harness::AttributeError::MtePermissionUnavailable,
         )) {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
         direct_stage2.map_semantic_leaf::<_>(
             &fwb_with_mte,
@@ -424,7 +451,11 @@ pub(super) fn stage2_fwb_semantic_mapper(
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?
             != leaf
         {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     let combined_leaf = SemanticStage2LeafAttrs {
@@ -444,7 +475,11 @@ pub(super) fn stage2_fwb_semantic_mapper(
     ) != Err(vmsa_test_harness::HarnessError::Attribute(
         vmsa_test_harness::AttributeError::WrongStage2MemoryMode,
     )) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let fwb_leaf = SemanticStage2LeafAttrs {
         memory: Stage2MemoryAttributes::Fwb(FwbStage2Memory::UseStage1),
@@ -463,7 +498,11 @@ pub(super) fn stage2_fwb_semantic_mapper(
     ) != Err(vmsa_test_harness::HarnessError::Attribute(
         vmsa_test_harness::AttributeError::WrongStage2MemoryMode,
     )) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     TestResult::Pass
@@ -471,15 +510,16 @@ pub(super) fn stage2_fwb_semantic_mapper(
 pub(super) fn d128_stage2_semantic_mapper(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
-    use aarch64_vmsa::address::Granule4KiB;
     use aarch64_vmsa::attrs::{
         Cacheability, D128Stage1AliasKind, DirtyState, LiveVmsaConfig, MemoryAttributes,
         MostlyReadOnly, SemanticStage2LeafAttrs, SemanticVmsa128Stage2LeafControls,
         SemanticVmsa128Stage2TableAttrs, Shareability, SoftwareMetadata, Stage2MemoryAttributes,
-        Stage2MemoryMode, Stage2Permission, Stage2PermissionRegisters, Stage2Permissions,
-        };
-    use aarch64_vmsa::descriptor::Vmsa128;
-    use aarch64_vmsa::regime::NonSecureEl2Stage2;
+        Stage2MemoryMode, Stage2Permission, Stage2PermissionRegisters,
+    };
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage2;
+    use aarch64_vmsa::config::stage2::Stage2Permissions;
     const ADDRESS: u64 = 0x6800_0000;
     let memory = MemoryAttributes::Normal {
         inner: Cacheability::NonCacheable,
@@ -587,7 +627,11 @@ pub(super) fn d128_stage2_semantic_mapper(
     ) != Err(vmsa_test_harness::HarnessError::Attribute(
         vmsa_test_harness::AttributeError::PermissionIndirectionUnavailable,
     )) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let missing_combination_config = LiveVmsaConfig {
         stage2_permissions: Some(Stage2PermissionRegisters {
@@ -607,7 +651,11 @@ pub(super) fn d128_stage2_semantic_mapper(
     ) != Err(vmsa_test_harness::HarnessError::Attribute(
         vmsa_test_harness::AttributeError::PermissionCombinationNotConfigured,
     )) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     for (index, permissions) in d128_permissions.into_iter().enumerate() {
         let address = ADDRESS + 0x20_0000 + index as u64 * 4096;
@@ -624,7 +672,11 @@ pub(super) fn d128_stage2_semantic_mapper(
             .inspect_semantic_leaf::<_>(address, &d128_config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.permissions != permissions {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     TestResult::Pass
@@ -632,14 +684,15 @@ pub(super) fn d128_stage2_semantic_mapper(
 pub(super) fn d128_stage1_effective_semantic_mapper(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
-    use aarch64_vmsa::address::Granule4KiB;
     use aarch64_vmsa::attrs::{
         Cacheability, D128Stage1AliasKind, DataAccess, DirtyState, LiveVmsaConfig,
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticVmsa128Stage1LeafControls,
         SemanticVmsa128Stage1TableAttrs, Shareability, SoftwareMetadata,
         Stage1EffectivePermissions, Stage1PermissionRegisterPair, Stage1PermissionRegisters,
-        Stage2MemoryMode, };
-    use aarch64_vmsa::descriptor::Vmsa128;
+        Stage2MemoryMode,
+    };
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
 
     const ADDRESS: u64 = 0x6800_0000;
     let memory = MemoryAttributes::Normal {
@@ -719,7 +772,11 @@ pub(super) fn d128_stage1_effective_semantic_mapper(
             .inspect_semantic_leaf::<_>(address, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if decoded.permissions != permissions {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     TestResult::Pass

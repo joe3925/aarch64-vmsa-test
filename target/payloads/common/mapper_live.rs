@@ -9,15 +9,16 @@ pub fn live_range_mapping<E: vmsa_test_harness::adapter::TranslationRegimeEnviro
     regime: RegimeAttributes,
 ) -> TestResult
 where
-    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-    aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule4KiB,
+    E::Regime:
+        vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+    aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<
-        aarch64_vmsa::descriptor::Vmsa64,
+    crate::LeafFieldsOf<
+        aarch64_vmsa::config::format::Vmsa64,
         E::Regime,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >: Copy,
 {
     const ADDRESS: u64 = 0x661f_f000;
@@ -50,7 +51,7 @@ where
     let injected_range =
         context.with_harness_failure(vmsa_test_harness::HarnessFailurePoint::Map, 0, || {
             translation
-                .map_range::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+                .map_range::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                     ADDRESS,
                     pages.phys_addr(),
                     PAGES * 4096,
@@ -62,11 +63,15 @@ where
         injected_range,
         Err(vmsa_test_harness::HarnessError::InjectedFailure)
     ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     for index in 0..PAGES {
         if translation
-            .inspect::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+            .inspect::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                 ADDRESS + index * 4096,
             )?
             .is_some()
@@ -75,7 +80,7 @@ where
         }
     }
     let outcome = translation
-        .map_range::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+        .map_range::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
             ADDRESS,
             pages.phys_addr(),
             PAGES * 4096,
@@ -87,24 +92,32 @@ where
         || outcome.bytes_mapped != PAGES * 4096
         || outcome.tables_allocated != expected_tables
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let final_mapping = translation
-        .inspect::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+        .inspect::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
             ADDRESS + (PAGES - 1) * 4096,
         )?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if final_mapping.output != pages.phys_addr() + (PAGES - 1) * 4096
         || final_mapping.level != LookupLevel::new(3).expect("level 3 is valid")
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let walk = translation
-        .inspect_walk::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+        .inspect_walk::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
             ADDRESS + (PAGES - 1) * 4096,
         )?;
     let first_walk = translation
-        .inspect_walk::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+        .inspect_walk::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
             ADDRESS,
         )?;
     let steps = walk.steps();
@@ -114,10 +127,18 @@ where
         .start_level
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?
         .get();
-    let expected_length = usize::try_from(4 - i16::from(effective_start))
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let expected_length = usize::try_from(4 - i16::from(effective_start)).map_err(|_| {
+        vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+    })?;
     if steps.len() != expected_length || first_steps.len() != expected_length {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let first_leaf_table = first_steps
         .get(expected_length - 2)
@@ -131,11 +152,19 @@ where
         || final_leaf_table.is_none()
         || first_leaf_table == final_leaf_table
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     for (index, expected_level) in (effective_start..3).enumerate() {
         let Some(step) = steps[index] else {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         };
         if step.level != LookupLevel::new(expected_level).expect("walk level is valid")
             || step.kind != vmsa_test_harness::WalkDescriptorKind::Table
@@ -143,11 +172,19 @@ where
             || step.next_table.is_none()
             || step.output.is_some()
         {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     let Some(leaf) = walk.leaf() else {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     };
     if leaf.level != LookupLevel::new(3).expect("level 3 is valid")
         || leaf.kind != vmsa_test_harness::WalkDescriptorKind::Page
@@ -155,7 +192,11 @@ where
         || leaf.next_table.is_some()
         || leaf.output != Some(pages.phys_addr() + (PAGES - 1) * 4096)
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     for index in 0..PAGES {
         let address = ADDRESS + index * 4096;
@@ -171,11 +212,15 @@ where
     }
     for index in 0..PAGES {
         let removed = translation
-            .unmap::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+            .unmap::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                 ADDRESS + index * 4096,
             )?;
         if removed.output != pages.phys_addr() + index * 4096 {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     for index in 0..PAGES {
@@ -192,7 +237,7 @@ where
 
 pub fn zero_range_outcome(context: &mut TestContext<'_, crate::CurrentEnvironment>) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     if mapper.map_range_exact(u64::MAX, u64::MAX, 0, 3, MappingAttributes::READ_WRITE)
         != Ok(vmsa_test_harness::MapRangeResult {
             mappings_created: 0,
@@ -200,7 +245,11 @@ pub fn zero_range_outcome(context: &mut TestContext<'_, crate::CurrentEnvironmen
             tables_allocated: 0,
         })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -209,7 +258,7 @@ pub fn single_range_outcome(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     if mapper.map_range_exact(0, 0, 4096, 3, MappingAttributes::READ_WRITE)
         != Ok(vmsa_test_harness::MapRangeResult {
             mappings_created: 1,
@@ -217,7 +266,11 @@ pub fn single_range_outcome(
             tables_allocated: 3,
         })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -226,7 +279,7 @@ pub fn invalid_range_length(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     if mapper.map_range_exact(0, 0, 4097, 3, MappingAttributes::READ_WRITE)
         != Err(
             vmsa_test_harness::MapperOperationError::LengthNotMappingMultiple {
@@ -235,7 +288,11 @@ pub fn invalid_range_length(
             },
         )
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -244,14 +301,18 @@ pub fn unaligned_range_input(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     if mapper.map_range_exact(1, 0, 4096, 3, MappingAttributes::READ_WRITE)
         != Err(vmsa_test_harness::MapperOperationError::UnalignedInput {
             address: 1,
             align: 4096,
         })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -260,14 +321,18 @@ pub fn unaligned_range_output(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     if mapper.map_range_exact(0, 1, 4096, 3, MappingAttributes::READ_WRITE)
         != Err(vmsa_test_harness::MapperOperationError::UnalignedOutput {
             address: 1,
             align: 4096,
         })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -276,7 +341,7 @@ pub fn input_range_end_out_of_range(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     if mapper.map_range_exact(0xffff_f000, 0, 8192, 3, MappingAttributes::READ_WRITE)
         != Err(
             vmsa_test_harness::MapperOperationError::InputAddressOutOfRange {
@@ -285,7 +350,11 @@ pub fn input_range_end_out_of_range(
             },
         )
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -294,11 +363,15 @@ pub fn input_range_arithmetic_overflow(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(&mut root, aarch64_vmsa::address::Level::NEG1, 57, 48)?;
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::NEG1, 57, 48)?;
     if mapper.map_range_exact(u64::MAX - 4095, 0, 8192, 3, MappingAttributes::READ_WRITE)
         != Err(vmsa_test_harness::MapperOperationError::AddressOverflow)
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -307,7 +380,7 @@ pub fn output_range_arithmetic_overflow(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 48)?;
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 48)?;
     if mapper.map_range_exact(0, u64::MAX - 4095, 8192, 3, MappingAttributes::READ_WRITE)
         != Err(
             vmsa_test_harness::MapperOperationError::OutputAddressOverflow {
@@ -316,7 +389,11 @@ pub fn output_range_arithmetic_overflow(
             },
         )
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -327,8 +404,8 @@ pub fn frame_provider_error(
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(
         &mut root,
         aarch64_vmsa::address::Level::L0,
@@ -344,13 +421,24 @@ pub fn frame_provider_error(
         ))
         || mapper.translate(0)?.is_some()
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     mapper
         .map_attributes_leaf_exact(0, 0, 3, MappingAttributes::READ_WRITE)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     if mapper.translate(0)?.is_none() {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -361,7 +449,11 @@ macro_rules! provider_probe_case {
             if context.$method() {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into()
             }
         }
     };
@@ -387,20 +479,21 @@ pub fn live_break_before_make<E>(
 ) -> TestResult
 where
     E: vmsa_test_harness::adapter::TranslationRegimeEnvironment,
-    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-    aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule4KiB,
+    E::Regime:
+        vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+    aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<
-        aarch64_vmsa::descriptor::Vmsa64,
+    crate::LeafFieldsOf<
+        aarch64_vmsa::config::format::Vmsa64,
         E::Regime,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >: Copy,
-    aarch64_vmsa::regime::TableFieldsOf<
-        aarch64_vmsa::descriptor::Vmsa64,
+    crate::TableFieldsOf<
+        aarch64_vmsa::config::format::Vmsa64,
         E::Regime,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >: Copy,
 {
     use vmsa_test_harness::{
@@ -420,7 +513,11 @@ where
         context.write_u64(new_page.virtual_address() as u64, REPLACEMENT),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let root = context.allocate_root()?;
     let root_address = PhysicalAddress::new(root.phys_addr());
@@ -444,22 +541,20 @@ where
             regime,
         },
     )?;
-    translation.map::<
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule4KiB,
-    >(
-        ADDRESS,
-        old_page.phys_addr(),
-        LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            old_page.phys_addr(),
+            LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            MappingAttributes::READ_WRITE,
+        )?;
     let first = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), ORIGINAL);
     if !matches!(first, TestResult::Pass) {
         return first;
     }
     let replaced = translation.break_before_make::<
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >(
         ADDRESS,
         Some(new_page.phys_addr()),
@@ -468,7 +563,11 @@ where
     if replaced.output != new_page.phys_addr()
         || replaced.level != LookupLevel::new(3).expect("level 3 is valid")
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let result = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), REPLACEMENT);
     translation.restore()?;
@@ -481,8 +580,8 @@ pub fn break_before_make_ordering(
     let mut root = context.allocate_root()?;
     let mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(
         &mut root,
         aarch64_vmsa::address::Level::L0,
@@ -492,7 +591,11 @@ pub fn break_before_make_ordering(
     if mapper.verify_break_before_make_ordering() {
         TestResult::Pass
     } else {
-        vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+        vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into()
     }
 }
 
@@ -506,8 +609,8 @@ pub fn range_partial_prefix_postcondition(
     let baseline_allocations = context.arena_allocation_count();
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(
         &mut root,
         aarch64_vmsa::address::Level::L0,
@@ -532,7 +635,11 @@ pub fn range_partial_prefix_postcondition(
         || mapper.translate(START + 2 * PAGE)?.is_some()
         || context.arena_allocation_count() != baseline_allocations + 3
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let completed = mapper
         .map_range_exact(
@@ -542,23 +649,39 @@ pub fn range_partial_prefix_postcondition(
             3,
             MappingAttributes::READ_WRITE,
         )
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     if completed.mappings_created != 2
         || completed.bytes_mapped != 2 * PAGE
         || completed.tables_allocated != 1
         || context.arena_allocation_count() != baseline_allocations + 4
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
-    let third = mapper
-        .unmap_reclaim_exact(START + 2 * PAGE)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    let second = mapper
-        .unmap_reclaim_exact(START + PAGE)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    let first = mapper
-        .unmap_reclaim_exact(START)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let third = mapper.unmap_reclaim_exact(START + 2 * PAGE).map_err(|_| {
+        vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+    })?;
+    let second = mapper.unmap_reclaim_exact(START + PAGE).map_err(|_| {
+        vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+    })?;
+    let first = mapper.unmap_reclaim_exact(START).map_err(|_| {
+        vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+    })?;
     if third.tables_freed != 0
         || third.root_now_empty
         || second.tables_freed != 1
@@ -567,7 +690,11 @@ pub fn range_partial_prefix_postcondition(
         || !first.root_now_empty
         || context.arena_allocation_count() != baseline_allocations
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -576,45 +703,58 @@ pub fn mapper_lpa2<E: vmsa_test_harness::adapter::TranslationRegimeEnvironment>(
     context: &mut TestContext<'_, E>,
 ) -> TestResult
 where
-    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-    aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule4KiB,
+    E::Regime:
+        vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+    aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2: aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa64Lpa2: aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
-    <aarch64_vmsa::descriptor::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
-        aarch64_vmsa::regime::StageOf<E::Regime>,
-        aarch64_vmsa::address::Granule4KiB,
+    <aarch64_vmsa::config::format::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
+        crate::StageOf<E::Regime>,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule4KiB,
-            LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                aarch64_vmsa::descriptor::Vmsa64,
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            LeafFields = crate::LeafFieldsOf<
+                aarch64_vmsa::config::format::Vmsa64,
                 E::Regime,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
-            TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                aarch64_vmsa::descriptor::Vmsa64,
+            TableFields = crate::TableFieldsOf<
+                aarch64_vmsa::config::format::Vmsa64,
                 E::Regime,
-                aarch64_vmsa::address::Granule4KiB,
+                aarch64_vmsa::config::granule::Granule4KiB,
             >,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<
-        aarch64_vmsa::descriptor::Vmsa64,
+    crate::LeafFieldsOf<
+        aarch64_vmsa::config::format::Vmsa64,
         E::Regime,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >: Copy,
 {
     let page = context.allocate_page()?;
     let mut root = context.allocate_root()?;
     let Some(start_level) = LookupLevel::new(-1) else {
-        return TestResult::Fail(vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into());
+        return TestResult::Fail(
+            vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into(),
+        );
     };
     let Some(address_bits) = AddressBits::new(52) else {
-        return TestResult::Fail(vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into());
+        return TestResult::Fail(
+            vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into(),
+        );
     };
     let mut mapper =
         context.offline_mapper_lpa2_4k(&mut root, start_level, address_bits, address_bits)?;
@@ -630,16 +770,16 @@ pub fn mapper_d128<E: vmsa_test_harness::adapter::TranslationRegimeEnvironment>(
     context: &mut TestContext<'_, E>,
 ) -> TestResult
 where
-    aarch64_vmsa::descriptor::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule4KiB,
+    aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
-    <aarch64_vmsa::descriptor::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
-        aarch64_vmsa::regime::StageOf<E::Regime>,
-        aarch64_vmsa::address::Granule4KiB,
+    <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
+        crate::StageOf<E::Regime>,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule4KiB,
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
             LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
             TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
         >,
@@ -647,10 +787,22 @@ where
     let page = context.allocate_page()?;
     let mut root = context.allocate_root()?;
     let Some(start_level) = LookupLevel::new(-2) else {
-        return TestResult::Fail(vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into());
+        return TestResult::Fail(
+            vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into(),
+        );
     };
     let Some(address_bits) = AddressBits::new(52) else {
-        return TestResult::Fail(vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into());
+        return TestResult::Fail(
+            vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into(),
+        );
     };
     let mut mapper =
         context.offline_mapper_d128_4k(&mut root, start_level, address_bits, address_bits)?;
@@ -662,15 +814,16 @@ pub fn mapper_16k<E: vmsa_test_harness::adapter::TranslationRegimeEnvironment>(
     context: &mut TestContext<'_, E>,
 ) -> TestResult
 where
-    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule16KiB>,
-    aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule16KiB,
+    E::Regime:
+        vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule16KiB>,
+    aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule16KiB,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<
-        aarch64_vmsa::descriptor::Vmsa64,
+    crate::LeafFieldsOf<
+        aarch64_vmsa::config::format::Vmsa64,
         E::Regime,
-        aarch64_vmsa::address::Granule16KiB,
+        aarch64_vmsa::config::granule::Granule16KiB,
     >: Copy,
 {
     let mut root = context.allocate_root_16k()?;
@@ -692,7 +845,11 @@ where
         || leaf.level != LookupLevel::new(3).expect("level 3 is valid")
         || leaf.output != Some(output.phys_addr())
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -701,15 +858,16 @@ pub fn mapper_64k<E: vmsa_test_harness::adapter::TranslationRegimeEnvironment>(
     context: &mut TestContext<'_, E>,
 ) -> TestResult
 where
-    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule64KiB>,
-    aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule64KiB,
+    E::Regime:
+        vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule64KiB>,
+    aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule64KiB,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<
-        aarch64_vmsa::descriptor::Vmsa64,
+    crate::LeafFieldsOf<
+        aarch64_vmsa::config::format::Vmsa64,
         E::Regime,
-        aarch64_vmsa::address::Granule64KiB,
+        aarch64_vmsa::config::granule::Granule64KiB,
     >: Copy,
 {
     let mut root = context.allocate_root_64k()?;
@@ -731,7 +889,11 @@ where
         || leaf.level != LookupLevel::new(3).expect("level 3 is valid")
         || leaf.output != Some(output.phys_addr())
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -740,8 +902,8 @@ pub fn exact_block_outcome(context: &mut TestContext<'_, crate::CurrentEnvironme
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     let outcome = mapper.map_attributes_leaf_exact(0, 0, 2, MappingAttributes::READ_WRITE);
     let translated = mapper.translate(0x1234)?;
@@ -758,7 +920,11 @@ pub fn exact_block_outcome(context: &mut TestContext<'_, crate::CurrentEnvironme
                 level: LookupLevel::new(2).expect("level 2 is valid"),
             })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -767,8 +933,8 @@ pub fn exact_page_outcome(context: &mut TestContext<'_, crate::CurrentEnvironmen
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     let outcome = mapper.map_attributes_leaf_exact(0, 0, 3, MappingAttributes::READ_WRITE);
     if outcome
@@ -779,7 +945,11 @@ pub fn exact_page_outcome(context: &mut TestContext<'_, crate::CurrentEnvironmen
             covered_size: 4096,
         })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -788,12 +958,15 @@ pub fn block_page_boundary(context: &mut TestContext<'_, crate::CurrentEnvironme
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     let block = mapper
         .map_attributes_leaf_exact(0, 0, 2, MappingAttributes::READ_WRITE)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     let page = mapper
         .map_attributes_leaf_exact(
             2 * 1024 * 1024,
@@ -801,7 +974,10 @@ pub fn block_page_boundary(context: &mut TestContext<'_, crate::CurrentEnvironme
             3,
             MappingAttributes::READ_WRITE,
         )
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     if block.kind != vmsa_test_harness::WalkDescriptorKind::Block
         || block.covered_size != 2 * 1024 * 1024
         || page.kind != vmsa_test_harness::WalkDescriptorKind::Page
@@ -816,7 +992,11 @@ pub fn block_page_boundary(context: &mut TestContext<'_, crate::CurrentEnvironme
             .map(|mapping| mapping.output)
             != Some(4 * 1024 * 1024)
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -827,17 +1007,23 @@ pub fn terminal_table_growth_boundary(
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     const LAST_IN_TABLE: u64 = 2 * 1024 * 1024 - 4096;
     const FIRST_NEXT_TABLE: u64 = 2 * 1024 * 1024;
     let last = mapper
         .map_attributes_leaf_exact(LAST_IN_TABLE, 0x4000, 3, MappingAttributes::READ_WRITE)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     let next = mapper
         .map_attributes_leaf_exact(FIRST_NEXT_TABLE, 0x8000, 3, MappingAttributes::READ_WRITE)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     if last.tables_allocated != 3
         || next.tables_allocated != 1
         || mapper
@@ -849,7 +1035,11 @@ pub fn terminal_table_growth_boundary(
             .map(|mapping| mapping.output)
             != Some(0x8000)
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -858,12 +1048,16 @@ pub fn maximum_input_page(context: &mut TestContext<'_, crate::CurrentEnvironmen
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     match mapper.map_attributes_leaf_exact(0xffff_f000, 0, 3, MappingAttributes::READ_WRITE) {
         Ok(_) => TestResult::Pass,
-        Err(_) => vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+        Err(_) => vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into(),
     }
 }
 
@@ -871,8 +1065,8 @@ pub fn one_past_input_page(context: &mut TestContext<'_, crate::CurrentEnvironme
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     let actual =
         mapper.map_attributes_leaf_exact(0x1_0000_0000, 0, 3, MappingAttributes::READ_WRITE);
@@ -884,7 +1078,11 @@ pub fn one_past_input_page(context: &mut TestContext<'_, crate::CurrentEnvironme
             },
         )
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -893,12 +1091,16 @@ pub fn maximum_output_page(context: &mut TestContext<'_, crate::CurrentEnvironme
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     match mapper.map_attributes_leaf_exact(0, 0xffff_f000, 3, MappingAttributes::READ_WRITE) {
         Ok(_) => TestResult::Pass,
-        Err(_) => vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+        Err(_) => vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into(),
     }
 }
 
@@ -908,8 +1110,8 @@ pub fn one_past_output_page(
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     let actual =
         mapper.map_attributes_leaf_exact(0, 0x1_0000_0000, 3, MappingAttributes::READ_WRITE);
@@ -921,7 +1123,11 @@ pub fn one_past_output_page(
             },
         )
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -932,8 +1138,8 @@ pub fn unaligned_leaf_input(
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     if mapper.map_attributes_leaf_exact(1, 0, 3, MappingAttributes::READ_WRITE)
         != Err(vmsa_test_harness::MapperOperationError::UnalignedInput {
@@ -941,7 +1147,11 @@ pub fn unaligned_leaf_input(
             align: 4096,
         })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -952,8 +1162,8 @@ pub fn unaligned_leaf_output(
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     if mapper.map_attributes_leaf_exact(0, 1, 3, MappingAttributes::READ_WRITE)
         != Err(vmsa_test_harness::MapperOperationError::UnalignedOutput {
@@ -961,7 +1171,11 @@ pub fn unaligned_leaf_output(
             align: 4096,
         })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -973,8 +1187,8 @@ fn invalid_leaf_level(
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     if mapper.map_attributes_leaf_exact(0, 0, level, MappingAttributes::READ_WRITE)
         != Err(vmsa_test_harness::MapperOperationError::InvalidLeafLevel {
@@ -983,7 +1197,11 @@ fn invalid_leaf_level(
             final_level: 3,
         })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -1004,12 +1222,15 @@ pub fn already_mapped_leaf(context: &mut TestContext<'_, crate::CurrentEnvironme
     let mut root = context.allocate_root()?;
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
         crate::CurrentRegime,
-        aarch64_vmsa::address::Granule4KiB,
-        aarch64_vmsa::descriptor::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
     mapper
         .map_attributes_leaf_exact(0, 0, 3, MappingAttributes::READ_WRITE)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     if mapper.map_attributes_leaf_exact(0, 0x1000, 3, MappingAttributes::READ_WRITE)
         != Err(vmsa_test_harness::MapperOperationError::AlreadyMapped {
             input: 0,
@@ -1017,7 +1238,11 @@ pub fn already_mapped_leaf(context: &mut TestContext<'_, crate::CurrentEnvironme
             entry_index: 0,
         })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -1026,12 +1251,15 @@ pub fn already_mapped_table(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(
         &mut root, aarch64_vmsa::address::Level::L0, 32, 32,
     )?;
     mapper
         .map_attributes_leaf_exact(0, 0, 3, MappingAttributes::READ_WRITE)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     if mapper.map_attributes_leaf_exact(0, 0, 2, MappingAttributes::READ_WRITE)
         != Err(vmsa_test_harness::MapperOperationError::AlreadyMapped {
             input: 0,
@@ -1039,7 +1267,11 @@ pub fn already_mapped_table(
             entry_index: 0,
         })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -1048,48 +1280,63 @@ pub fn not_mapped_translate(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(
+    let mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(
         &mut root, aarch64_vmsa::address::Level::L0, 32, 32,
     )?;
     if mapper.translate(0)?.is_some() {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
 
 pub fn not_mapped_unmap(context: &mut TestContext<'_, crate::CurrentEnvironment>) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(
         &mut root, aarch64_vmsa::address::Level::L0, 32, 32,
     )?;
     if mapper.unmap_exact(0) != Err(vmsa_test_harness::MapperOperationError::NotMapped { input: 0 })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
 
 pub fn not_mapped_reclaim(context: &mut TestContext<'_, crate::CurrentEnvironment>) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(
         &mut root, aarch64_vmsa::address::Level::L0, 32, 32,
     )?;
     if mapper.unmap_reclaim_exact(0)
         != Err(vmsa_test_harness::MapperOperationError::NotMapped { input: 0 })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
 
 pub fn non_leaf_base_unmap(context: &mut TestContext<'_, crate::CurrentEnvironment>) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(
         &mut root, aarch64_vmsa::address::Level::L0, 32, 32,
     )?;
     mapper
         .map_attributes_leaf_exact(0, 0, 2, MappingAttributes::READ_WRITE)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     if mapper.unmap_exact(0x1000)
         != Err(vmsa_test_harness::MapperOperationError::InputNotLeafBase {
             input: 0x1000,
@@ -1098,7 +1345,11 @@ pub fn non_leaf_base_unmap(context: &mut TestContext<'_, crate::CurrentEnvironme
             level: 2,
         })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -1107,18 +1358,27 @@ pub fn reclaim_sibling_lifecycle(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
     let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::address::Granule4KiB, aarch64_vmsa::descriptor::Vmsa64>(
+    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(
         &mut root, aarch64_vmsa::address::Level::L0, 32, 32,
     )?;
     mapper
         .map_attributes_leaf_exact(0, 0x2000, 3, MappingAttributes::READ_WRITE)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     mapper
         .map_attributes_leaf_exact(0x1000, 0x3000, 3, MappingAttributes::READ_WRITE)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    let first = mapper
-        .unmap_reclaim_exact(0)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+    let first = mapper.unmap_reclaim_exact(0).map_err(|_| {
+        vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+    })?;
     if first
         != (vmsa_test_harness::UnmapResult {
             mapping: vmsa_test_harness::MappingInspection {
@@ -1134,24 +1394,42 @@ pub fn reclaim_sibling_lifecycle(
                 level: LookupLevel::new(3).expect("level 3 is valid"),
             })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
-    let last = mapper
-        .unmap_reclaim_exact(0x1000)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let last = mapper.unmap_reclaim_exact(0x1000).map_err(|_| {
+        vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+    })?;
     if last.tables_freed != 3 || !last.root_now_empty || mapper.translate(0x1000)?.is_some() {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     mapper
         .map_attributes_leaf_exact(0, 0x4000, 3, MappingAttributes::READ_WRITE)
-        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     if mapper.translate(0)?
         != Some(vmsa_test_harness::MappingInspection {
             output: 0x4000,
             level: LookupLevel::new(3).expect("level 3 is valid"),
         })
     {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -1161,15 +1439,16 @@ pub fn live_reclaim_outcome<E: vmsa_test_harness::adapter::TranslationRegimeEnvi
     regime: RegimeAttributes,
 ) -> TestResult
 where
-    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-    aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule4KiB,
+    E::Regime:
+        vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+    aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<
-        aarch64_vmsa::descriptor::Vmsa64,
+    crate::LeafFieldsOf<
+        aarch64_vmsa::config::format::Vmsa64,
         E::Regime,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >: Copy,
 {
     const ADDRESS: u64 = 0x6620_0000;
@@ -1198,19 +1477,20 @@ where
             regime,
         },
     )?;
-    translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        page.phys_addr(),
-        LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            page.phys_addr(),
+            LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            MappingAttributes::READ_WRITE,
+        )?;
     let written =
         vmsa_test_harness::expect_completed(context.write_u64(ADDRESS, 0x5245_434c_4149_4d45));
     if !matches!(written, TestResult::Pass) {
         return written;
     }
     let outcome = translation
-        .unmap_reclaim::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+        .unmap_reclaim::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
             ADDRESS,
         )?;
     if outcome.mapping.output != page.phys_addr() {
@@ -1249,15 +1529,16 @@ pub fn live_reclaim_post_fault<E: vmsa_test_harness::adapter::TranslationRegimeE
     regime: RegimeAttributes,
 ) -> TestResult
 where
-    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::address::Granule4KiB>,
-    aarch64_vmsa::descriptor::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
-            aarch64_vmsa::regime::StageOf<E::Regime>,
-            aarch64_vmsa::address::Granule4KiB,
+    E::Regime:
+        vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+    aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<E::Regime>,
+            aarch64_vmsa::config::granule::Granule4KiB,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<
-        aarch64_vmsa::descriptor::Vmsa64,
+    crate::LeafFieldsOf<
+        aarch64_vmsa::config::format::Vmsa64,
         E::Regime,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >: Copy,
 {
     const ADDRESS: u64 = 0x6620_0000;
@@ -1286,14 +1567,15 @@ where
             regime,
         },
     )?;
-    translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        page.phys_addr(),
-        LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        MappingAttributes::READ_WRITE,
-    )?;
     translation
-        .unmap_reclaim::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            page.phys_addr(),
+            LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            MappingAttributes::READ_WRITE,
+        )?;
+    translation
+        .unmap_reclaim::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
             ADDRESS,
         )?;
     expect_fault(

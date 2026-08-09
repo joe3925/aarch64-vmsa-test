@@ -18,7 +18,11 @@ pub fn address_translation<E: vmsa_test_harness::adapter::Environment>(
             return vmsa_test_harness::HarnessError::Environment.into();
         }
         vmsa_test_harness::TranslationQueryResult::Unsupported => {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     match context.translate_current_stage1(
@@ -30,7 +34,11 @@ pub fn address_translation<E: vmsa_test_harness::adapter::Environment>(
             vmsa_test_harness::HarnessError::Memory.into()
         }
         vmsa_test_harness::TranslationQueryResult::Unsupported => {
-            vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+            vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into()
         }
     }
 }
@@ -109,7 +117,11 @@ pub fn lower_address_translation<E: vmsa_test_harness::adapter::Environment>(
                 return vmsa_test_harness::HarnessError::Environment.into();
             }
             vmsa_test_harness::TranslationQueryResult::Unsupported => {
-                return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
         }
         execution.finish()?;
@@ -119,7 +131,13 @@ pub fn lower_address_translation<E: vmsa_test_harness::adapter::Environment>(
         vmsa_test_harness::TranslationQueryResult::Success {
             physical_address, ..
         } if physical_address == address => {}
-        _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+        _ => {
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
+        }
     }
     host_el0.finish()?;
     let mut execution = context.execution(vmsa_test_harness::ExecutionContext::El1)?;
@@ -133,7 +151,11 @@ pub fn lower_address_translation<E: vmsa_test_harness::adapter::Environment>(
             vmsa_test_harness::HarnessError::Memory.into()
         }
         vmsa_test_harness::TranslationQueryResult::Unsupported => {
-            vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+            vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into()
         }
     };
     execution.finish()?;

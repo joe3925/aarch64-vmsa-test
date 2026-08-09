@@ -2,14 +2,16 @@ use crate::{CurrentEnvironment, CurrentRegime};
 use vmsa_test_harness::{TestContext, TestResult};
 
 pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
+    use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
         Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
         MemoryAttributes, RootExtendedPa, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
         SinglePrivilegeLeafPermissions, SinglePrivilegeTablePermissionLimits, SoftwareMetadata,
-        Stage2MemoryMode, };
-    use aarch64_vmsa::descriptor::Vmsa64Lpa2;
+        Stage2MemoryMode,
+    };
+    use aarch64_vmsa::config::format::Vmsa64Lpa2;
+    use aarch64_vmsa::config::granule::Granule4KiB;
     use vmsa_test_harness::{
         AddressBits, Granule, LookupLevel, MemoryAttributeSlot, PhysicalAddress,
         Stage1MemoryControls, TranslationFormat, TranslationSetup, TranslationStage,
@@ -22,7 +24,11 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         context.write_u64(page.virtual_address() as u64, VALUE),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let config = LiveVmsaConfig {
         mair: 0x44,
@@ -88,7 +94,11 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
             .inspect_semantic_leaf::<_>(ADDRESS, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if offline != leaf {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
         sandbox = context.prepare_transition_runtime(
             &mut mapper,
@@ -120,12 +130,14 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         &sandbox,
     )?;
     let live = translation
-        .inspect_semantic_for::<CurrentRegime, Vmsa64Lpa2, Granule4KiB, _>(
-            ADDRESS, &config,
-        )?
+        .inspect_semantic_for::<CurrentRegime, Vmsa64Lpa2, Granule4KiB, _>(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if live != offline {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)
 }

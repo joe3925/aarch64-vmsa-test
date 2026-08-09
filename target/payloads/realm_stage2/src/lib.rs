@@ -1,5 +1,9 @@
 #![no_std]
 
+pub type StageOf<R> = <R as aarch64_vmsa::regime::TranslationRegime>::Stage;
+pub type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeLeafFields<F, R, G>;
+pub type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeTableFields<F, R, G>;
+
 use core::sync::atomic::{AtomicU64, Ordering};
 
 #[path = "../../common/mod.rs"]
@@ -24,7 +28,7 @@ use vmsa_test_harness::{LogicalTest, Requirements, SecurityEnvironment, TestCont
 
 define_environment!(
     RealmStage2Environment,
-    aarch64_vmsa::regime::RealmEl1Stage1,
+    aarch64_vmsa::config::regime::RealmEl1Stage1,
     Disable,
     Smc
 );
@@ -48,11 +52,17 @@ unsafe extern "C" {
 }
 
 pub type CurrentEnvironment = RealmStage2Environment;
-pub type CurrentRegime = aarch64_vmsa::regime::RealmEl1Stage1;
-pub type D128Regime = aarch64_vmsa::regime::RealmEl1Stage1;
-pub const fn current_d128_asid() -> Option<vmsa_test_harness::Asid> { Some(vmsa_test_harness::Asid(0x31)) }
-pub const fn current_d128_controls(bits: vmsa_test_harness::AddressBits) -> Option<vmsa_test_harness::TranslationControls> { vmsa_test_harness::d128_el1_stage1_controls_4k(bits, bits) }
-pub type LowerRegime = aarch64_vmsa::regime::RealmEl1Stage1;
+pub type CurrentRegime = aarch64_vmsa::config::regime::RealmEl1Stage1;
+pub type D128Regime = aarch64_vmsa::config::regime::RealmEl1Stage1;
+pub const fn current_d128_asid() -> Option<vmsa_test_harness::Asid> {
+    Some(vmsa_test_harness::Asid(0x31))
+}
+pub const fn current_d128_controls(
+    bits: vmsa_test_harness::AddressBits,
+) -> Option<vmsa_test_harness::TranslationControls> {
+    vmsa_test_harness::d128_el1_stage1_controls_4k(bits, bits)
+}
+pub type LowerRegime = aarch64_vmsa::config::regime::RealmEl1Stage1;
 
 fn feature_snapshot_agreement(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     features::live_snapshot_agreement(context.capabilities())
@@ -64,8 +74,9 @@ fn security_state_membership(context: &mut TestContext<'_, CurrentEnvironment>) 
     )
 }
 fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    use aarch64_vmsa::attrs::{Stage2Permissions, Stage2XnxPermissions};
-    use aarch64_vmsa::regime::{RealmEl1Stage1, RealmEl2Stage2};
+    use aarch64_vmsa::config::regime::{RealmEl1Stage1, RealmEl2Stage2};
+    use aarch64_vmsa::config::stage2::Stage2Permissions;
+    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
     let current = aarch64_vmsa::arch::VmsaFeatures::current();
     features::regime_result(features::require_regimes!(&current;
         RealmEl1Stage1,
@@ -74,8 +85,9 @@ fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult 
     ))
 }
 fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    use aarch64_vmsa::attrs::{Stage2Permissions, Stage2XnxPermissions};
-    use aarch64_vmsa::regime::{RealmEl1Stage1, RealmEl2Stage2};
+    use aarch64_vmsa::config::regime::{RealmEl1Stage1, RealmEl2Stage2};
+    use aarch64_vmsa::config::stage2::Stage2Permissions;
+    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
     let current = &aarch64_vmsa::arch::VmsaFeatures::current();
     macro_rules! check {
         ($regime:ty) => {
@@ -136,13 +148,14 @@ fn take_external_fault() -> Option<vmsa_test_architecture::exception::RawFault> 
 pub extern "C" fn vmsa_test_realm_stage2_plan() -> u64 {
     use aarch64_vmsa::attrs::{
         D128Stage1AliasKind, DataAccess, LiveVmsaConfig, RealmOrNonSecurePa, Shareability,
-        Stage2MemoryMode, };
+        Stage2MemoryMode,
+    };
     use aarch64_vmsa::mapper::decode_semantic_leaf;
     use vmsa_test_harness::MappingAttributes;
     use vmsa_test_harness::adapter::TestRegimeFor;
 
-    let Ok(raw) = <aarch64_vmsa::regime::RealmEl2Stage2 as TestRegimeFor<
-        aarch64_vmsa::address::Granule4KiB,
+    let Ok(raw) = <aarch64_vmsa::config::regime::RealmEl2Stage2 as TestRegimeFor<
+        aarch64_vmsa::config::granule::Granule4KiB,
     >>::raw_leaf(MappingAttributes::READ_WRITE) else {
         return 0;
     };
@@ -158,9 +171,9 @@ pub extern "C" fn vmsa_test_realm_stage2_plan() -> u64 {
         output_pas: RealmOrNonSecurePa::Realm,
     };
     let Ok(semantic) = decode_semantic_leaf::<
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::regime::RealmEl2Stage2,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::regime::RealmEl2Stage2,
+        aarch64_vmsa::config::granule::Granule4KiB,
         _,
     >(&config, aarch64_vmsa::address::Level::L3, raw) else {
         return checks;
@@ -354,12 +367,14 @@ fn pas_semantics(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResul
 fn fixed_realm_ipa_stage1_semantic_access(
     context: &mut TestContext<'_, CurrentEnvironment>,
 ) -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level};
+    use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
         AttributeCodec, Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement,
         LiveVmsaConfig, MemoryAttributes, SemanticStage1LeafAttrs,
         SemanticVmsa64Stage1LeafControls, Shareability, SoftwareMetadata, Stage2MemoryMode,
-        TwoPrivilegeLeafPermissions, };
+        TwoPrivilegeLeafPermissions,
+    };
+    use aarch64_vmsa::config::granule::Granule4KiB;
     let config = LiveVmsaConfig {
         mair: 0x44,
         mair2: None,
@@ -392,12 +407,14 @@ fn fixed_realm_ipa_stage1_semantic_access(
             software: SoftwareMetadata::new(0),
         },
     };
-    let decoded = <aarch64_vmsa::descriptor::Vmsa64 as AttributeCodec<aarch64_vmsa::regime::RealmEl1Stage1,
+    let decoded = <aarch64_vmsa::config::format::Vmsa64 as AttributeCodec<
+        aarch64_vmsa::config::regime::RealmEl1Stage1,
         Granule4KiB,
         _,
-    >>::resolve_leaf(&config, Level::L3, leaf)
+    >>::encode_leaf(&config, Level::L3, leaf)
     .and_then(|raw| {
-        <aarch64_vmsa::descriptor::Vmsa64 as AttributeCodec<aarch64_vmsa::regime::RealmEl1Stage1,
+        <aarch64_vmsa::config::format::Vmsa64 as AttributeCodec<
+            aarch64_vmsa::config::regime::RealmEl1Stage1,
             Granule4KiB,
             _,
         >>::decode_leaf(&config, Level::L3, raw)

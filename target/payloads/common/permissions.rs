@@ -1,15 +1,17 @@
-use aarch64_vmsa::address::{Granule4KiB, Level};
+use aarch64_vmsa::address::Level;
 use aarch64_vmsa::attrs::{
     AttrError, AttributeCodec, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
     MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs, SemanticStage2LeafAttrs,
     SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls,
     SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, Shareability,
     SinglePrivilegeLeafPermissions, SinglePrivilegeTablePermissionLimits, SoftwareMetadata,
-    Stage2LeafPermissions, Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permissions,
-    Stage2XnxPermissions, TwoPrivilegeLeafPermissions, TwoPrivilegeTablePermissionLimits,
-    };
-use aarch64_vmsa::descriptor::Vmsa64;
-use aarch64_vmsa::regime::{NonSecureEl1Stage1, NonSecureEl2Stage1, NonSecureEl2Stage2};
+    Stage2LeafPermissions, Stage2MemoryAttributes, Stage2MemoryMode, TwoPrivilegeLeafPermissions,
+    TwoPrivilegeTablePermissionLimits,
+};
+use aarch64_vmsa::config::format::Vmsa64;
+use aarch64_vmsa::config::granule::Granule4KiB;
+use aarch64_vmsa::config::regime::{NonSecureEl1Stage1, NonSecureEl2Stage1, NonSecureEl2Stage2};
+use aarch64_vmsa::config::stage2::{Stage2Permissions, Stage2XnxPermissions};
 use vmsa_test_harness::TestResult;
 
 pub fn stage1_single_matrix() -> TestResult {
@@ -21,25 +23,25 @@ pub fn stage1_single_matrix() -> TestResult {
         for execute in [false, true] {
             let permissions = SinglePrivilegeLeafPermissions { data, execute };
             let leaf = single_leaf(permissions);
-            let result = <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-                Granule4KiB,
-                _,
-            >>::resolve_leaf(&config, Level::L3, leaf)
-            .and_then(|raw| {
-                <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-                    Granule4KiB,
-                    _,
-                >>::decode_leaf(&config, Level::L3, raw)
-            });
+            let result =
+                <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
+                    &config,
+                    Level::L3,
+                    leaf,
+                )
+                .and_then(|raw| {
+                    <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
+                        &config,
+                        Level::L3,
+                        raw,
+                    )
+                });
             if result != Ok(leaf) {
                 failures += 1;
             }
         }
     }
-    if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_leaf(
+    if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
         &config,
         Level::L3,
         single_leaf(SinglePrivilegeLeafPermissions {
@@ -54,31 +56,36 @@ pub fn stage1_single_matrix() -> TestResult {
         data: DataAccess::ReadWrite,
         execute: true,
     });
-    match <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_leaf(&config, Level::L3, valid_leaf)
-    {
+    match <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
+        &config,
+        Level::L3,
+        valid_leaf,
+    ) {
         Ok(raw) => {
             for bits in [0, 2] {
                 let mut invalid = raw;
-                invalid.ap = LeafAp::from_bits(bits).map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-                if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-                    Granule4KiB,
-                    _,
-                >>::decode_leaf(&config, Level::L3, invalid)
-                    != Err(AttrError::InvalidLeafAp(bits))
+                invalid.ap = LeafAp::from_bits(bits).map_err(|_| {
+                    vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                })?;
+                if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
+                    &config,
+                    Level::L3,
+                    invalid,
+                ) != Err(AttrError::InvalidLeafAp(bits))
                 {
                     failures += 1;
                 }
             }
             let mut invalid = raw;
             invalid.privileged_execute_never = true;
-            if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-                Granule4KiB,
-                _,
-            >>::decode_leaf(&config, Level::L3, invalid)
-                != Err(AttrError::UnencodablePermissions)
+            if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
+                &config,
+                Level::L3,
+                invalid,
+            ) != Err(AttrError::UnencodablePermissions)
             {
                 failures += 1;
             }
@@ -96,16 +103,19 @@ pub fn stage1_single_matrix() -> TestResult {
                 pas: (),
                 controls: SemanticVmsa64Stage1TableControls::default(),
             };
-            let result = <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-                Granule4KiB,
-                _,
-            >>::resolve_table(&config, Level::L1, table)
-            .and_then(|raw| {
-                <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-                    Granule4KiB,
-                    _,
-                >>::decode_table(&config, Level::L1, raw)
-            });
+            let result =
+                <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_table(
+                    &config,
+                    Level::L1,
+                    table,
+                )
+                .and_then(|raw| {
+                    <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_table(
+                        &config,
+                        Level::L1,
+                        raw,
+                    )
+                });
             if result != Ok(table) {
                 failures += 1;
             }
@@ -119,11 +129,11 @@ pub fn stage1_single_matrix() -> TestResult {
         pas: (),
         controls: SemanticVmsa64Stage1TableControls::default(),
     };
-    if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_table(&config, Level::L1, invalid_table)
-        != Err(AttrError::UnencodablePermissions)
+    if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_table(
+        &config,
+        Level::L1,
+        invalid_table,
+    ) != Err(AttrError::UnencodablePermissions)
     {
         failures += 1;
     }
@@ -135,32 +145,36 @@ pub fn stage1_single_matrix() -> TestResult {
         pas: (),
         controls: SemanticVmsa64Stage1TableControls::default(),
     };
-    match <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_table(&config, Level::L1, valid_table)
-    {
+    match <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_table(
+        &config,
+        Level::L1,
+        valid_table,
+    ) {
         Ok(raw) => {
             for bits in [1, 3] {
                 let mut invalid = raw;
-                invalid.ap_table = TableAp::from_bits(bits)
-                    .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-                if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-                    Granule4KiB,
-                    _,
-                >>::decode_table(&config, Level::L1, invalid)
-                    != Err(AttrError::InvalidTableAp(bits))
+                invalid.ap_table = TableAp::from_bits(bits).map_err(|_| {
+                    vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                })?;
+                if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_table(
+                    &config,
+                    Level::L1,
+                    invalid,
+                ) != Err(AttrError::InvalidTableAp(bits))
                 {
                     failures += 1;
                 }
             }
             let mut invalid = raw;
             invalid.privileged_execute_never_limit = true;
-            if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-                Granule4KiB,
-                _,
-            >>::decode_table(&config, Level::L1, invalid)
-                != Err(AttrError::UnencodablePermissions)
+            if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_table(
+                &config,
+                Level::L1,
+                invalid,
+            ) != Err(AttrError::UnencodablePermissions)
             {
                 failures += 1;
             }
@@ -189,16 +203,19 @@ pub fn stage1_two_privilege_matrix() -> TestResult {
                     unprivileged_execute,
                 };
                 let leaf = two_privilege_leaf(permissions);
-                let round_trip = <Vmsa64 as AttributeCodec<NonSecureEl1Stage1,
-                    Granule4KiB,
-                    _,
-                >>::resolve_leaf(&config, Level::L3, leaf)
-                .and_then(|raw| {
-                    <Vmsa64 as AttributeCodec<NonSecureEl1Stage1,
-                        Granule4KiB,
-                        _,
-                    >>::decode_leaf(&config, Level::L3, raw)
-                });
+                let round_trip =
+                    <Vmsa64 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::encode_leaf(
+                        &config,
+                        Level::L3,
+                        leaf,
+                    )
+                    .and_then(|raw| {
+                        <Vmsa64 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::decode_leaf(
+                            &config,
+                            Level::L3,
+                            raw,
+                        )
+                    });
                 if round_trip != Ok(leaf) {
                     failures += 1;
                 }
@@ -224,11 +241,11 @@ pub fn stage1_two_privilege_matrix() -> TestResult {
                 privileged_execute: false,
                 unprivileged_execute: false,
             });
-            if <Vmsa64 as AttributeCodec<NonSecureEl1Stage1,
-                Granule4KiB,
-                _,
-            >>::resolve_leaf(&config, Level::L3, invalid)
-                != Err(AttrError::UnencodablePermissions)
+            if <Vmsa64 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::encode_leaf(
+                &config,
+                Level::L3,
+                invalid,
+            ) != Err(AttrError::UnencodablePermissions)
             {
                 failures += 1;
             }
@@ -250,7 +267,7 @@ pub fn stage1_two_privilege_matrix() -> TestResult {
                 let round_trip = <Vmsa64 as AttributeCodec<NonSecureEl1Stage1,
                     Granule4KiB,
                     _,
-                >>::resolve_table(&config, Level::L1, table)
+                >>::encode_table(&config, Level::L1, table)
                 .and_then(|raw| {
                     <Vmsa64 as AttributeCodec<NonSecureEl1Stage1,
                         Granule4KiB,
@@ -286,11 +303,11 @@ pub fn stage1_two_privilege_matrix() -> TestResult {
                 pas: (),
                 controls: SemanticVmsa64Stage1TableControls::default(),
             };
-            if <Vmsa64 as AttributeCodec<NonSecureEl1Stage1,
-                Granule4KiB,
-                _,
-            >>::resolve_table(&config, Level::L1, invalid)
-                != Err(AttrError::UnencodablePermissions)
+            if <Vmsa64 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::encode_table(
+                &config,
+                Level::L1,
+                invalid,
+            ) != Err(AttrError::UnencodablePermissions)
             {
                 failures += 1;
             }
@@ -357,8 +374,12 @@ pub fn stage2_direct_matrix() -> TestResult {
     match stage2_resolve_direct(&config, valid) {
         Ok(raw) => {
             let mut invalid_access = raw;
-            invalid_access.access = Stage2Ap::from_bits(2)
-                .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+            invalid_access.access = Stage2Ap::from_bits(2).map_err(|_| {
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+            })?;
             if <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
                 Granule4KiB,
                 _,
@@ -369,9 +390,15 @@ pub fn stage2_direct_matrix() -> TestResult {
             }
             for bits in [1, 3] {
                 let mut invalid_execute = raw;
-                invalid_execute.execute_never = Stage2ExecuteNever::from_bits(bits)
-                    .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-                if <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
+                invalid_execute.execute_never =
+                    Stage2ExecuteNever::from_bits(bits).map_err(|_| {
+                        vmsa_test_harness::HarnessError::CrateBehavior {
+                            expected: 1,
+                            actual: 0,
+                        }
+                    })?;
+                if <Vmsa64 as AttributeCodec<
+                    NonSecureEl2Stage2<Stage2Permissions>,
                     Granule4KiB,
                     _,
                 >>::decode_leaf(&config, Level::L3, invalid_execute)
@@ -389,7 +416,7 @@ pub fn stage2_direct_matrix() -> TestResult {
             <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2XnxPermissions>,
                 Granule4KiB,
                 _,
-            >>::resolve_table(&config, Level::L1, table)
+            >>::encode_table(&config, Level::L1, table)
             .and_then(|raw| {
                 <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2XnxPermissions>,
                     Granule4KiB,
@@ -400,7 +427,7 @@ pub fn stage2_direct_matrix() -> TestResult {
             <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
                 Granule4KiB,
                 _,
-            >>::resolve_table(&config, Level::L1, table)
+            >>::encode_table(&config, Level::L1, table)
             .and_then(|raw| {
                 <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
                     Granule4KiB,
@@ -420,7 +447,7 @@ pub fn d128_stage2_base_matrix() -> TestResult {
         DirtyState, MostlyReadOnly, SemanticVmsa128Stage2LeafControls, Stage2Permission,
         Stage2PermissionRegisters,
     };
-    use aarch64_vmsa::descriptor::Vmsa128;
+    use aarch64_vmsa::config::format::Vmsa128;
     use aarch64_vmsa::low_level::raw::{FourBit, PermissionIndices};
 
     let mut config = config();
@@ -487,20 +514,26 @@ pub fn d128_stage2_base_matrix() -> TestResult {
         controls,
     };
     let mut failures = 0;
-    let base_raw = <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
+    let base_raw = <Vmsa128 as AttributeCodec<
+        NonSecureEl2Stage2<Stage2Permissions>,
         Granule4KiB,
         _,
-    >>::resolve_leaf(&config, Level::L3, leaf(Stage2Permission::NoAccess));
+    >>::encode_leaf(&config, Level::L3, leaf(Stage2Permission::NoAccess));
     match base_raw {
         Ok(raw) => {
             for (index, expected_permission) in expected.into_iter().enumerate() {
                 let mut indexed = raw;
                 indexed.permissions = PermissionIndices {
-                    pi: FourBit::new(index as u8)
-                        .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+                    pi: FourBit::new(index as u8).map_err(|_| {
+                        vmsa_test_harness::HarnessError::CrateBehavior {
+                            expected: 1,
+                            actual: 0,
+                        }
+                    })?,
                     po: FourBit::ZERO,
                 };
-                let decoded = <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
+                let decoded = <Vmsa128 as AttributeCodec<
+                    NonSecureEl2Stage2<Stage2Permissions>,
                     Granule4KiB,
                     _,
                 >>::decode_leaf(&config, Level::L3, indexed);
@@ -528,10 +561,11 @@ pub fn d128_stage2_base_matrix() -> TestResult {
         expected[15],
     ] {
         let semantic = leaf(permission);
-        let round_trip = <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
+        let round_trip = <Vmsa128 as AttributeCodec<
+            NonSecureEl2Stage2<Stage2Permissions>,
             Granule4KiB,
             _,
-        >>::resolve_leaf(&config, Level::L3, semantic)
+        >>::encode_leaf(&config, Level::L3, semantic)
         .and_then(|raw| {
             <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
                 Granule4KiB,
@@ -547,7 +581,7 @@ pub fn d128_stage2_base_matrix() -> TestResult {
     if <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
         Granule4KiB,
         _,
-    >>::resolve_leaf(&unavailable, Level::L3, leaf(Stage2Permission::NoAccess))
+    >>::encode_leaf(&unavailable, Level::L3, leaf(Stage2Permission::NoAccess))
         != Err(AttrError::PermissionIndirectionUnavailable)
     {
         failures += 1;
@@ -559,7 +593,7 @@ pub fn d128_stage2_base_matrix() -> TestResult {
     if <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
         Granule4KiB,
         _,
-    >>::resolve_leaf(&config, Level::L3, leaf(Stage2Permission::WriteOnly))
+    >>::encode_leaf(&config, Level::L3, leaf(Stage2Permission::WriteOnly))
         != Err(AttrError::PermissionCombinationNotConfigured)
     {
         failures += 1;
@@ -571,7 +605,7 @@ pub fn d128_stage2_overlay_matrix() -> TestResult {
     use aarch64_vmsa::attrs::{
         DirtyState, SemanticVmsa128Stage2LeafControls, Stage2Permission, Stage2PermissionRegisters,
     };
-    use aarch64_vmsa::descriptor::Vmsa128;
+    use aarch64_vmsa::config::format::Vmsa128;
     use aarch64_vmsa::low_level::raw::{FourBit, PermissionIndices};
 
     const IDENTITY_REGISTER: u64 = 0xfedc_ba98_7654_3210;
@@ -638,22 +672,32 @@ pub fn d128_stage2_overlay_matrix() -> TestResult {
         },
     };
     let mut failures = 0;
-    let template = <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
+    let template = <Vmsa128 as AttributeCodec<
+        NonSecureEl2Stage2<Stage2Permissions>,
         Granule4KiB,
         _,
-    >>::resolve_leaf(&config, Level::L3, leaf(Stage2Permission::NoAccess));
+    >>::encode_leaf(&config, Level::L3, leaf(Stage2Permission::NoAccess));
     match template {
         Ok(template) => {
             for pi in 0..16 {
                 for po in 0..16 {
                     let mut raw = template;
                     raw.permissions = PermissionIndices {
-                        pi: FourBit::new(pi)
-                            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
-                        po: FourBit::new(po)
-                            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+                        pi: FourBit::new(pi).map_err(|_| {
+                            vmsa_test_harness::HarnessError::CrateBehavior {
+                                expected: 1,
+                                actual: 0,
+                            }
+                        })?,
+                        po: FourBit::new(po).map_err(|_| {
+                            vmsa_test_harness::HarnessError::CrateBehavior {
+                                expected: 1,
+                                actual: 0,
+                            }
+                        })?,
                     };
-                    let decoded = <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
+                    let decoded = <Vmsa128 as AttributeCodec<
+                        NonSecureEl2Stage2<Stage2Permissions>,
                         Granule4KiB,
                         _,
                     >>::decode_leaf(&config, Level::L3, raw);
@@ -672,22 +716,32 @@ pub fn d128_stage2_overlay_matrix() -> TestResult {
         s2pir_el2: IDENTITY_REGISTER,
         s2por_el1: None,
     });
-    let template = <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
+    let template = <Vmsa128 as AttributeCodec<
+        NonSecureEl2Stage2<Stage2Permissions>,
         Granule4KiB,
         _,
-    >>::resolve_leaf(&config, Level::L3, leaf(Stage2Permission::NoAccess));
+    >>::encode_leaf(&config, Level::L3, leaf(Stage2Permission::NoAccess));
     match template {
         Ok(template) => {
             for pi in 0..16 {
                 for po in 0..16 {
                     let mut raw = template;
                     raw.permissions = PermissionIndices {
-                        pi: FourBit::new(pi)
-                            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
-                        po: FourBit::new(po)
-                            .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+                        pi: FourBit::new(pi).map_err(|_| {
+                            vmsa_test_harness::HarnessError::CrateBehavior {
+                                expected: 1,
+                                actual: 0,
+                            }
+                        })?,
+                        po: FourBit::new(po).map_err(|_| {
+                            vmsa_test_harness::HarnessError::CrateBehavior {
+                                expected: 1,
+                                actual: 0,
+                            }
+                        })?,
                     };
-                    let decoded = <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
+                    let decoded = <Vmsa128 as AttributeCodec<
+                        NonSecureEl2Stage2<Stage2Permissions>,
                         Granule4KiB,
                         _,
                     >>::decode_leaf(&config, Level::L3, raw);
@@ -838,10 +892,10 @@ fn d128_stage1_resolve(
     config: &LiveVmsaConfig,
     permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions,
 ) -> Result<aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs, AttrError> {
-    <aarch64_vmsa::descriptor::Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
+    <aarch64_vmsa::config::format::Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
         Granule4KiB,
         _,
-    >>::resolve_leaf(config, Level::L3, d128_stage1_leaf(permissions))
+    >>::encode_leaf(config, Level::L3, d128_stage1_leaf(permissions))
 }
 
 pub fn d128_stage1_indirection_unavailable() -> TestResult {
@@ -893,7 +947,7 @@ pub fn d128_stage1_duplicate_selection() -> TestResult {
 
 pub fn d128_stage1_conflicting_permissions() -> TestResult {
     use aarch64_vmsa::attrs::{Stage1PermissionRegisterPair, Stage1PermissionRegisters};
-    use aarch64_vmsa::descriptor::Vmsa128;
+    use aarch64_vmsa::config::format::Vmsa128;
     let no_access = aarch64_vmsa::attrs::Stage1EffectivePermissions {
         privileged_data: DataAccess::None,
         unprivileged_data: DataAccess::None,
@@ -925,10 +979,11 @@ pub fn d128_stage1_conflicting_permissions() -> TestResult {
         gcs_implemented: false,
     });
     let decoded = template.and_then(|raw| {
-        <Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
-            Granule4KiB,
-            _,
-        >>::decode_leaf(&conflicting, Level::L3, raw)
+        <Vmsa128 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
+            &conflicting,
+            Level::L3,
+            raw,
+        )
     });
     result((decoded != Err(AttrError::UnencodablePermissions)) as u64)
 }
@@ -962,10 +1017,11 @@ fn d128_stage2_resolve(
     config: &LiveVmsaConfig,
     permissions: aarch64_vmsa::attrs::Stage2Permission,
 ) -> Result<aarch64_vmsa::low_level::raw::RawVmsa128Stage2LeafAttrs, AttrError> {
-    <aarch64_vmsa::descriptor::Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
+    <aarch64_vmsa::config::format::Vmsa128 as AttributeCodec<
+        NonSecureEl2Stage2<Stage2Permissions>,
         Granule4KiB,
         _,
-    >>::resolve_leaf(config, Level::L3, d128_stage2_leaf(permissions))
+    >>::encode_leaf(config, Level::L3, d128_stage2_leaf(permissions))
 }
 
 pub fn d128_stage2_indirection_unavailable() -> TestResult {
@@ -1012,7 +1068,7 @@ pub fn d128_stage2_duplicate_selection() -> TestResult {
 
 pub fn invalid_fixed_output_address_space() -> TestResult {
     use aarch64_vmsa::attrs::{Stage2Permission, Stage2PermissionRegisters};
-    use aarch64_vmsa::descriptor::Vmsa128;
+    use aarch64_vmsa::config::format::Vmsa128;
     let mut config = config();
     config.stage2_permissions = Some(Stage2PermissionRegisters {
         s2pir_el2: 0,
@@ -1033,7 +1089,7 @@ pub fn invalid_fixed_output_address_space() -> TestResult {
 
 pub fn invalid_d128_alias() -> TestResult {
     use aarch64_vmsa::attrs::{Stage1PermissionRegisterPair, Stage1PermissionRegisters};
-    use aarch64_vmsa::descriptor::Vmsa128;
+    use aarch64_vmsa::config::format::Vmsa128;
     let mut config = config();
     config.d128_stage1_alias = D128Stage1AliasKind::NonSecureExtension;
     config.stage1_permissions = Some(Stage1PermissionRegisters {
@@ -1044,10 +1100,7 @@ pub fn invalid_d128_alias() -> TestResult {
         unprivileged: None,
         gcs_implemented: false,
     });
-    let resolved = <Vmsa128 as AttributeCodec<NonSecureEl1Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_leaf(
+    let resolved = <Vmsa128 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::encode_leaf(
         &config,
         Level::L3,
         d128_stage1_leaf(d128_stage1_permissions(DataAccess::None)),
@@ -1068,10 +1121,11 @@ pub fn invalid_d128_final_level_nt() -> TestResult {
     });
     let mut leaf = d128_stage1_leaf(d128_stage1_permissions(DataAccess::None));
     leaf.controls.bbm_nt = true;
-    let resolved = <aarch64_vmsa::descriptor::Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
+    let resolved = <aarch64_vmsa::config::format::Vmsa128 as AttributeCodec<
+        NonSecureEl2Stage1,
         Granule4KiB,
         _,
-    >>::resolve_leaf(&config, Level::L3, leaf);
+    >>::encode_leaf(&config, Level::L3, leaf);
     result((resolved != Err(AttrError::InvalidD128Configuration)) as u64)
 }
 
@@ -1082,10 +1136,11 @@ pub fn conflicting_stage1_semantics() -> TestResult {
         execute: false,
     });
     leaf.controls.global = false;
-    let resolved = <Vmsa64 as AttributeCodec<NonSecureEl2Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_leaf(&config, Level::L3, leaf);
+    let resolved = <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
+        &config,
+        Level::L3,
+        leaf,
+    );
     result((resolved != Err(AttrError::ConflictingSemanticAttributes)) as u64)
 }
 
@@ -1098,7 +1153,7 @@ fn stage1_decode_failures(
     use aarch64_vmsa::attrs::{
         DirtyState, SemanticVmsa128Stage1LeafControls, Stage1EffectivePermissions,
     };
-    use aarch64_vmsa::descriptor::Vmsa128;
+    use aarch64_vmsa::config::format::Vmsa128;
     use aarch64_vmsa::low_level::raw::{FourBit, PermissionIndices};
 
     let template_permissions = Stage1EffectivePermissions {
@@ -1125,10 +1180,11 @@ fn stage1_decode_failures(
             software: SoftwareMetadata::new(0),
         },
     };
-    let template = <Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
-        Granule4KiB,
-        _,
-    >>::resolve_leaf(config, Level::L3, leaf)?;
+    let template = <Vmsa128 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
+        config,
+        Level::L3,
+        leaf,
+    )?;
     let mut failures = 0;
     for pi in 0..16 {
         for po in 0..16 {
@@ -1137,11 +1193,13 @@ fn stage1_decode_failures(
                 pi: FourBit::new(pi)?,
                 po: FourBit::new(po)?,
             };
-            let decoded = <Vmsa128 as AttributeCodec<NonSecureEl2Stage1,
-                Granule4KiB,
-                _,
-            >>::decode_leaf(config, Level::L3, raw)
-            .map(|value| value.permissions);
+            let decoded =
+                <Vmsa128 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
+                    config,
+                    Level::L3,
+                    raw,
+                )
+                .map(|value| value.permissions);
             let expected = stage1_expected(
                 pi,
                 privileged_overlay.then_some(po),
@@ -1325,10 +1383,11 @@ fn stage2_resolve_direct(
     config: &LiveVmsaConfig,
     permissions: Stage2LeafPermissions,
 ) -> Result<aarch64_vmsa::low_level::raw::RawVmsa64Stage2LeafAttrs, AttrError> {
-    <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
-        Granule4KiB,
-        _,
-    >>::resolve_leaf(config, Level::L3, stage2_leaf(permissions))
+    <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>, Granule4KiB, _>>::encode_leaf(
+        config,
+        Level::L3,
+        stage2_leaf(permissions),
+    )
 }
 
 fn stage2_resolve_xnx(
@@ -1338,7 +1397,7 @@ fn stage2_resolve_xnx(
     <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2XnxPermissions>,
         Granule4KiB,
         _,
-    >>::resolve_leaf(config, Level::L3, stage2_leaf(permissions))
+    >>::encode_leaf(config, Level::L3, stage2_leaf(permissions))
 }
 
 fn stage2_round_trip_direct(config: &LiveVmsaConfig, permissions: Stage2LeafPermissions) -> bool {

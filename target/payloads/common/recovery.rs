@@ -215,13 +215,14 @@ fn fresh_access_sentinel(context: &mut TestContext<'_, CurrentEnvironment>) -> T
     let root = context.allocate_root()?;
     let setup = normal_setup(context, root.phys_addr())?;
     let mut translation = context.install_owned(root, setup)?;
-    translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        page.phys_addr(),
-        vmsa_test_harness::LookupLevel::new(3)
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        vmsa_test_harness::MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            page.phys_addr(),
+            vmsa_test_harness::LookupLevel::new(3)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            vmsa_test_harness::MappingAttributes::READ_WRITE,
+        )?;
     let read = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE);
     translation.restore()?;
     read
@@ -414,13 +415,14 @@ fn secondary_access_failure(
     let root = context.allocate_root()?;
     let setup = normal_setup(context, root.phys_addr())?;
     let mut translation = context.install_owned(root, setup)?;
-    translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        page.phys_addr(),
-        vmsa_test_harness::LookupLevel::new(3)
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        vmsa_test_harness::MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            page.phys_addr(),
+            vmsa_test_harness::LookupLevel::new(3)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            vmsa_test_harness::MappingAttributes::READ_WRITE,
+        )?;
     context.maintain_cache(vmsa_test_harness::CacheMaintenanceOperation::CleanData {
         address: backing,
         bytes: core::mem::size_of::<u64>(),
@@ -494,19 +496,20 @@ pub(super) fn invalidation_failure(
     let root = context.allocate_root()?;
     let setup = normal_setup(context, root.phys_addr())?;
     let mut translation = context.install_owned(root, setup)?;
-    translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        old_page.phys_addr(),
-        vmsa_test_harness::LookupLevel::new(3)
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        vmsa_test_harness::MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            old_page.phys_addr(),
+            vmsa_test_harness::LookupLevel::new(3)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            vmsa_test_harness::MappingAttributes::READ_WRITE,
+        )?;
     let rejected = context.with_harness_failure(
         vmsa_test_harness::HarnessFailurePoint::Invalidation,
         0,
         || {
             translation
-                .remap::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+                .remap::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                     ADDRESS,
                     new_page.phys_addr(),
                     vmsa_test_harness::MappingAttributes::READ_WRITE,
@@ -520,11 +523,12 @@ pub(super) fn invalidation_failure(
     if !matches!(preserved, TestResult::Pass) {
         return preserved;
     }
-    translation.remap::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        new_page.phys_addr(),
-        vmsa_test_harness::MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .remap::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            new_page.phys_addr(),
+            vmsa_test_harness::MappingAttributes::READ_WRITE,
+        )?;
     let retry = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), NEW);
     if !matches!(retry, TestResult::Pass) {
         return retry;
@@ -560,13 +564,14 @@ pub(super) fn tlbi_failure(context: &mut TestContext<'_, CurrentEnvironment>) ->
     let root = context.allocate_root()?;
     let setup = normal_setup(context, root.phys_addr())?;
     let mut translation = context.install_owned(root, setup)?;
-    translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        page.phys_addr(),
-        vmsa_test_harness::LookupLevel::new(3)
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        vmsa_test_harness::MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            page.phys_addr(),
+            vmsa_test_harness::LookupLevel::new(3)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            vmsa_test_harness::MappingAttributes::READ_WRITE,
+        )?;
     let rejected =
         context.with_harness_failure(vmsa_test_harness::HarnessFailurePoint::Tlbi, 0, || {
             translation.tlbi(vmsa_test_harness::TlbiOperation::VirtualAddress(ADDRESS))
@@ -625,7 +630,7 @@ pub(super) fn mapper_map_failure(context: &mut TestContext<'_, CurrentEnvironmen
     let mut translation = context.install_owned(root, setup)?;
     let rejected =
         context.with_harness_failure(vmsa_test_harness::HarnessFailurePoint::Map, 0, || {
-            translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+            translation.map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                 ADDRESS,
                 page.phys_addr(),
                 vmsa_test_harness::LookupLevel::new(3)
@@ -635,20 +640,21 @@ pub(super) fn mapper_map_failure(context: &mut TestContext<'_, CurrentEnvironmen
         });
     if rejected != Err(vmsa_test_harness::HarnessError::InjectedFailure)
         || translation
-            .inspect::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+            .inspect::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                 ADDRESS,
             )?
             .is_some()
     {
         return vmsa_test_harness::HarnessError::InvalidState.into();
     }
-    translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        page.phys_addr(),
-        vmsa_test_harness::LookupLevel::new(3)
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        vmsa_test_harness::MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            page.phys_addr(),
+            vmsa_test_harness::LookupLevel::new(3)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            vmsa_test_harness::MappingAttributes::READ_WRITE,
+        )?;
     let retry =
         vmsa_test_harness::expect_completed(context.write_u64(ADDRESS, 0x4d41_505f_5245_5452));
     if !matches!(retry, TestResult::Pass) {
@@ -669,7 +675,7 @@ pub(super) fn mapper_range_failure(
     let rejected =
         context.with_harness_failure(vmsa_test_harness::HarnessFailurePoint::Map, 0, || {
             translation
-                .map_range::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+                .map_range::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                     ADDRESS,
                     pages.phys_addr(),
                     8192,
@@ -683,7 +689,7 @@ pub(super) fn mapper_range_failure(
     }
     for address in [ADDRESS, ADDRESS + 4096] {
         if translation
-            .inspect::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+            .inspect::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                 address,
             )?
             .is_some()
@@ -692,7 +698,7 @@ pub(super) fn mapper_range_failure(
         }
     }
     let outcome = translation
-        .map_range::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+        .map_range::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
             ADDRESS,
             pages.phys_addr(),
             8192,
@@ -720,15 +726,16 @@ pub(super) fn mapper_remap_failure(
     let root = context.allocate_root()?;
     let setup = normal_setup(context, root.phys_addr())?;
     let mut translation = context.install_owned(root, setup)?;
-    translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        first.phys_addr(),
-        vmsa_test_harness::LookupLevel::new(3)
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        vmsa_test_harness::MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            first.phys_addr(),
+            vmsa_test_harness::LookupLevel::new(3)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            vmsa_test_harness::MappingAttributes::READ_WRITE,
+        )?;
     let rejected_replacement = translation
-        .break_before_make::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+        .break_before_make::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
             ADDRESS,
             Some(second.phys_addr() + 1),
             vmsa_test_harness::MappingAttributes::READ_WRITE,
@@ -743,7 +750,7 @@ pub(super) fn mapper_remap_failure(
     let rejected =
         context.with_harness_failure(vmsa_test_harness::HarnessFailurePoint::Remap, 0, || {
             translation
-                .remap::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+                .remap::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                     ADDRESS,
                     second.phys_addr(),
                     vmsa_test_harness::MappingAttributes::READ_WRITE,
@@ -756,11 +763,12 @@ pub(super) fn mapper_remap_failure(
     if !matches!(preserved, TestResult::Pass) {
         return preserved;
     }
-    translation.remap::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        second.phys_addr(),
-        vmsa_test_harness::MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .remap::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            second.phys_addr(),
+            vmsa_test_harness::MappingAttributes::READ_WRITE,
+        )?;
     let retry = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), NEW);
     if !matches!(retry, TestResult::Pass) {
         return retry;
@@ -777,17 +785,18 @@ pub(super) fn mapper_protect_failure(
     let root = context.allocate_root()?;
     let setup = normal_setup(context, root.phys_addr())?;
     let mut translation = context.install_owned(root, setup)?;
-    translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        page.phys_addr(),
-        vmsa_test_harness::LookupLevel::new(3)
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        vmsa_test_harness::MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            page.phys_addr(),
+            vmsa_test_harness::LookupLevel::new(3)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            vmsa_test_harness::MappingAttributes::READ_WRITE,
+        )?;
     let rejected =
         context.with_harness_failure(vmsa_test_harness::HarnessFailurePoint::Protect, 0, || {
             translation
-                .protect::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+                .protect::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                     ADDRESS,
                     vmsa_test_harness::MappingAttributes::READ_ONLY,
                 )
@@ -800,7 +809,7 @@ pub(super) fn mapper_protect_failure(
     {
         return vmsa_test_harness::HarnessError::InvalidState.into();
     }
-    translation.protect::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+    translation.protect::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
         ADDRESS,
         vmsa_test_harness::MappingAttributes::READ_ONLY,
     )?;
@@ -825,13 +834,14 @@ fn mapper_unmap_failure_case(
     let root = context.allocate_root()?;
     let setup = normal_setup(context, root.phys_addr())?;
     let mut translation = context.install_owned(root, setup)?;
-    translation.map::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
-        ADDRESS,
-        page.phys_addr(),
-        vmsa_test_harness::LookupLevel::new(3)
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-        vmsa_test_harness::MappingAttributes::READ_WRITE,
-    )?;
+    translation
+        .map::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
+            ADDRESS,
+            page.phys_addr(),
+            vmsa_test_harness::LookupLevel::new(3)
+                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+            vmsa_test_harness::MappingAttributes::READ_WRITE,
+        )?;
     let written = vmsa_test_harness::expect_completed(context.write_u64(ADDRESS, VALUE));
     if !matches!(written, TestResult::Pass) {
         return written;
@@ -840,12 +850,12 @@ fn mapper_unmap_failure_case(
         context.with_harness_failure(vmsa_test_harness::HarnessFailurePoint::Unmap, 0, || {
             if reclaim {
                 translation.unmap_reclaim::<
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::format::Vmsa64,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                 >(ADDRESS)
             } else {
                 translation
-                    .unmap::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+                    .unmap::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                         ADDRESS,
                     )
                     .map(|mapping| vmsa_test_harness::UnmapResult {
@@ -864,14 +874,14 @@ fn mapper_unmap_failure_case(
     }
     if reclaim {
         let result = translation
-            .unmap_reclaim::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+            .unmap_reclaim::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                 ADDRESS,
             )?;
         if result.tables_freed == 0 {
             return vmsa_test_harness::HarnessError::InvalidState.into();
         }
     } else {
-        translation.unmap::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+        translation.unmap::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
             ADDRESS,
         )?;
     }

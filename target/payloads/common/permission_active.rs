@@ -19,7 +19,8 @@ fn single_privilege_case(
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
         SinglePrivilegeLeafPermissions, SinglePrivilegeTablePermissionLimits, SoftwareMetadata,
-        Stage2MemoryMode, };
+        Stage2MemoryMode,
+    };
     use vmsa_test_harness::{
         AccessKind, AddressBits, ExpectedFault, FaultClass, FaultMatcher, FaultStage, FaultStatus,
         Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
@@ -113,8 +114,8 @@ fn single_privilege_case(
     )?;
     live.map_semantic_for::<
         CurrentRegime,
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
         _,
     >(
         &config,
@@ -127,13 +128,17 @@ fn single_privilege_case(
     let decoded = live
         .inspect_semantic_for::<
             CurrentRegime,
-            aarch64_vmsa::descriptor::Vmsa64,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64,
+            aarch64_vmsa::config::granule::Granule4KiB,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if decoded != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     let result = match observation {
@@ -235,7 +240,8 @@ fn two_privilege_case(
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
         SoftwareMetadata, Stage2MemoryMode, TwoPrivilegeLeafPermissions,
-        TwoPrivilegeTablePermissionLimits, };
+        TwoPrivilegeTablePermissionLimits,
+    };
     use vmsa_test_harness::{
         AccessKind, AddressBits, Asid, ExpectedFault, FaultClass, FaultMatcher, FaultStage,
         FaultStatus, Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
@@ -318,8 +324,8 @@ fn two_privilege_case(
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             crate::LowerRegime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa64,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64,
         >(&mut root, aarch64_vmsa::address::Level::L0, 48, 48)?;
         mapper.map_semantic_leaf::<_>(
             &config,
@@ -351,13 +357,17 @@ fn two_privilege_case(
     let decoded = live
         .inspect_semantic_for::<
             crate::LowerRegime,
-            aarch64_vmsa::descriptor::Vmsa64,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64,
+            aarch64_vmsa::config::granule::Granule4KiB,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if decoded != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     let data_access = match privilege {
@@ -416,7 +426,13 @@ fn two_privilege_case(
                 (LowerPrivilege::Unprivileged, LowerObservation::Write) => {
                     context.el0_write_u64(ADDRESS + DATA_OFFSET, WRITTEN_VALUE)
                 }
-                _ => return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into(),
+                _ => {
+                    return vmsa_test_harness::HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                    .into();
+                }
             };
             vmsa_test_harness::expect_matching_fault(
                 observed,

@@ -1,5 +1,5 @@
 use aarch64_vmsa::address::{PhysAddr, TranslationGranule};
-use aarch64_vmsa::table::{TableAllocLayout, TableFrameProvider, TablePhysAddr};
+use aarch64_vmsa::table::{TableAddr, TableAllocLayout, TableFrameProvider};
 use core::ptr::NonNull;
 
 const MAX_ALLOCATIONS: usize = 128;
@@ -354,33 +354,32 @@ impl TestMemory {
     pub(crate) fn physical_to_virtual_offset(&self) -> u64 {
         (self.virtual_base.as_ptr() as u64).wrapping_sub(self.physical_base)
     }
+
+    pub(crate) const fn capacity_bytes(&self) -> u64 {
+        self.bytes as u64
+    }
 }
 
-impl<G: TranslationGranule> TableFrameProvider<G> for TestMemory {
+unsafe impl<G: TranslationGranule> TableFrameProvider<G> for TestMemory {
     type Error = MemoryError;
-    type Frame = TablePhysAddr<G>;
 
     fn allocate_zeroed_table(
         &mut self,
         layout: TableAllocLayout,
-    ) -> Result<Self::Frame, Self::Error> {
+    ) -> Result<TableAddr<G>, Self::Error> {
         let allocation = self.allocate(
             MemoryFailurePoint::TableFrame,
             layout.bytes() as usize,
             layout.align() as usize,
             true,
         )?;
-        TablePhysAddr::new(PhysAddr(self.physical_base + allocation.offset as u64))
+        TableAddr::new(self.physical_base + allocation.offset as u64)
             .map_err(|_| MemoryError::AddressInvalid)
     }
 
-    /// # Safety
-    ///
-    /// `frame` must be the most recently allocated live table for this provider.
-    unsafe fn free_table(
+    fn reclaim_table(
         &mut self,
-        frame: TablePhysAddr<G>,
-        layout: TableAllocLayout,
+        reclaim: aarch64_vmsa::table::TableReclaim<G>,
     ) -> Result<(), Self::Error> {
         if self.allocation_count == 0 {
             return Err(MemoryError::InvalidFree);
@@ -388,9 +387,9 @@ impl<G: TranslationGranule> TableFrameProvider<G> for TestMemory {
         let allocation = self.allocations[self.allocation_count - 1];
         let expected = self.physical_base + allocation.offset as u64;
         if !allocation.table
-            || frame.raw() != expected
-            || allocation.bytes != layout.bytes() as usize
-            || allocation.align != layout.align() as usize
+            || reclaim.addr().raw() != expected
+            || allocation.bytes != reclaim.layout().bytes() as usize
+            || allocation.align != reclaim.layout().align() as usize
         {
             return Err(MemoryError::InvalidFree);
         }

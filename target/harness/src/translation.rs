@@ -549,21 +549,11 @@ const _: () = {
         Some(bits) => bits,
         None => panic!("52-bit LPA2 geometry must be valid"),
     };
-    let host = match lpa2_el2_stage1_controls_for_mode(
-        true,
-        Granule::Size4KiB,
-        bits,
-        bits,
-    ) {
+    let host = match lpa2_el2_stage1_controls_for_mode(true, Granule::Size4KiB, bits, bits) {
         Some(controls) => controls.bits(),
         None => panic!("host EL2 LPA2 controls must be encodable"),
     };
-    let non_host = match lpa2_el2_stage1_controls_for_mode(
-        false,
-        Granule::Size4KiB,
-        bits,
-        bits,
-    ) {
+    let non_host = match lpa2_el2_stage1_controls_for_mode(false, Granule::Size4KiB, bits, bits) {
         Some(controls) => controls.bits(),
         None => panic!("non-host EL2 LPA2 controls must be encodable"),
     };
@@ -914,13 +904,10 @@ impl InstalledTranslation {
     }
 }
 
-use aarch64_vmsa::address::{
-    Granule4KiB, Granule16KiB, Granule64KiB, GranuleKind, Level, PhysAddr, TranslationGranule,
-    VirtAddr,
-};
-use aarch64_vmsa::descriptor::{
-    DescriptorFormat, DescriptorLayout, HasLayout, Vmsa64, Vmsa64Lpa2, Vmsa128,
-};
+use aarch64_vmsa::address::{GranuleKind, Level, PhysAddr, TranslationGranule, VirtAddr};
+use aarch64_vmsa::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
+use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
+use aarch64_vmsa::descriptor::{DescriptorFormat, DescriptorLayout, HasLayout};
 use aarch64_vmsa::low_level::raw::{
     FourBit, LeafAp, PermissionIndices, RawShareability, RawVmsa64Stage1LeafAttrs,
     RawVmsa64Stage1TableAttrs, RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs,
@@ -929,13 +916,116 @@ use aarch64_vmsa::low_level::raw::{
     TenBit, ThreeBit,
 };
 use aarch64_vmsa::mapper::{Mapper, Offline};
-use aarch64_vmsa::regime::{LeafFieldsOf, StageOf, TableFieldsOf, TranslationRegime};
+use aarch64_vmsa::regime::TranslationRegime;
 use aarch64_vmsa::table::{
-    OffsetTableAccess, RecursiveTableAccess, RootTable, TableAccess, TableAccessMut,
-    TableAllocLayout, TableFrameProvider, TablePhysAddr, TableShape, TableTransition,
+    OffsetTableAccess, RecursiveTableAccess, RootTable, TableAccess, TableAccessMut, TableAddr,
+    TableAllocLayout, TableFrameProvider, TableShape, TableTransition,
 };
 use aarch64_vmsa::translation::walk::{WalkInputAddr, WalkStep, Walker};
 use aarch64_vmsa::translation::{Stage1, Stage2};
+
+type StageOf<R> = <R as TranslationRegime>::Stage;
+type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeLeafFields<F, R, G>;
+type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeTableFields<F, R, G>;
+
+fn arena_table_access(memory: NonNull<TestMemory>) -> OffsetTableAccess {
+    // SAFETY: TestMemory owns one stable, contiguous direct-map region for its
+    // full lifetime; table addresses handed to the crate are allocated within it.
+    let memory = unsafe { memory.as_ref() };
+    let region = unsafe {
+        aarch64_vmsa::table::DirectMapRegion::from_raw_parts(
+            VirtAddr(memory.physical_to_virtual_offset()),
+            memory.physical_base(),
+            memory.capacity_bytes(),
+        )
+    };
+    OffsetTableAccess::new(region)
+}
+
+/// Compatibility surface used by payloads while preserving the crate's public
+/// semantic attribute families as the source of truth.
+pub trait AttributeCodecCompat<R, G, Cfg>: aarch64_vmsa::attrs::AttributeCodec<R, G, Cfg>
+where
+    R: TranslationRegime,
+    G: aarch64_vmsa::address::TranslationGranule,
+    Self: aarch64_vmsa::attrs::SemanticAttributeTypes<
+            R::Stage,
+            R,
+            Leaf = Self::SemanticLeaf,
+            Table = Self::SemanticTable,
+        >,
+{
+    type SemanticLeaf;
+    type SemanticTable;
+    type RawLeaf;
+    type RawTable;
+
+    fn encode_leaf(
+        config: &Cfg,
+        level: Level,
+        attrs: Self::SemanticLeaf,
+    ) -> Result<Self::RawLeaf, aarch64_vmsa::attrs::AttrError>;
+    fn encode_table(
+        config: &Cfg,
+        level: Level,
+        attrs: Self::SemanticTable,
+    ) -> Result<Self::RawTable, aarch64_vmsa::attrs::AttrError>;
+}
+
+impl<F, R, G, Cfg> AttributeCodecCompat<R, G, Cfg> for F
+where
+    R: TranslationRegime,
+    G: aarch64_vmsa::address::TranslationGranule,
+    F: aarch64_vmsa::attrs::AttributeCodec<R, G, Cfg>,
+{
+    type SemanticLeaf = aarch64_vmsa::attrs::SemanticLeafAttrs<F, R>;
+    type SemanticTable = aarch64_vmsa::attrs::SemanticTableAttrs<F, R>;
+    type RawLeaf = LeafFieldsOf<F, R, G>;
+    type RawTable = TableFieldsOf<F, R, G>;
+
+    fn encode_leaf(
+        config: &Cfg,
+        level: Level,
+        attrs: Self::SemanticLeaf,
+    ) -> Result<Self::RawLeaf, aarch64_vmsa::attrs::AttrError> {
+        <F as aarch64_vmsa::attrs::AttributeCodec<R, G, Cfg>>::encode_leaf(config, level, attrs)
+    }
+
+    fn encode_table(
+        config: &Cfg,
+        level: Level,
+        attrs: Self::SemanticTable,
+    ) -> Result<Self::RawTable, aarch64_vmsa::attrs::AttrError> {
+        <F as aarch64_vmsa::attrs::AttributeCodec<R, G, Cfg>>::encode_table(config, level, attrs)
+    }
+}
+
+trait RootTableCompat<F, R, G> {
+    fn new(addr: TableAddr<G>, level: Level, addr_bits: u8, output_addr_bits: u8) -> Self
+    where
+        F: DescriptorFormat,
+        R: TranslationRegime,
+        G: aarch64_vmsa::address::TranslationGranule;
+}
+
+impl<F, R, G> RootTableCompat<F, R, G> for RootTable<F, R, G>
+where
+    F: DescriptorFormat,
+    R: TranslationRegime,
+    G: aarch64_vmsa::address::TranslationGranule,
+{
+    fn new(addr: TableAddr<G>, level: Level, addr_bits: u8, output_addr_bits: u8) -> Self {
+        Self::from_geometry(
+            aarch64_vmsa::table::RootTableGeometry::new_at_level(
+                addr,
+                level,
+                addr_bits,
+                output_addr_bits,
+            )
+            .expect("validated translation geometry"),
+        )
+    }
+}
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
@@ -1103,19 +1193,19 @@ macro_rules! stage1_test_regime {
 }
 
 stage1_test_regime!(
-    aarch64_vmsa::regime::NonSecureEl2Stage1,
+    aarch64_vmsa::config::regime::NonSecureEl2Stage1,
     false,
     false,
     256 * 1024
 );
 stage1_test_regime!(
-    aarch64_vmsa::regime::SecureEl2Stage1,
+    aarch64_vmsa::config::regime::SecureEl2Stage1,
     false,
     false,
     256 * 1024
 );
 stage1_test_regime!(
-    aarch64_vmsa::regime::RealmEl2Stage1,
+    aarch64_vmsa::config::regime::RealmEl2Stage1,
     false,
     false,
     256 * 1024
@@ -1124,7 +1214,12 @@ stage1_test_regime!(
 // encoded as NS=0,NSE=1; leaving the shared runtime mapper's old zero value
 // selected Secure PAS and produced a GPT-backed EL3 permission fault as soon
 // as the candidate began fetching instructions.
-stage1_test_regime!(aarch64_vmsa::regime::RootEl3Stage1, true, true, 64 * 1024);
+stage1_test_regime!(
+    aarch64_vmsa::config::regime::RootEl3Stage1,
+    true,
+    true,
+    64 * 1024
+);
 
 macro_rules! two_privilege_test_regime_for_granule {
     ($regime:ty, $granule:ty) => {
@@ -1216,12 +1311,12 @@ macro_rules! two_privilege_test_regime {
     };
 }
 
-two_privilege_test_regime!(aarch64_vmsa::regime::NonSecureEl1Stage1);
-two_privilege_test_regime!(aarch64_vmsa::regime::SecureEl1Stage1);
-two_privilege_test_regime!(aarch64_vmsa::regime::RealmEl1Stage1);
-two_privilege_test_regime!(aarch64_vmsa::regime::NonSecureEl2HostStage1);
-two_privilege_test_regime!(aarch64_vmsa::regime::SecureEl2HostStage1);
-two_privilege_test_regime!(aarch64_vmsa::regime::RealmEl2HostStage1);
+two_privilege_test_regime!(aarch64_vmsa::config::regime::NonSecureEl1Stage1);
+two_privilege_test_regime!(aarch64_vmsa::config::regime::SecureEl1Stage1);
+two_privilege_test_regime!(aarch64_vmsa::config::regime::RealmEl1Stage1);
+two_privilege_test_regime!(aarch64_vmsa::config::regime::NonSecureEl2HostStage1);
+two_privilege_test_regime!(aarch64_vmsa::config::regime::SecureEl2HostStage1);
+two_privilege_test_regime!(aarch64_vmsa::config::regime::RealmEl2HostStage1);
 
 macro_rules! stage2_test_regime_for_granule {
     ($regime:ty, $granule:ty) => {
@@ -1284,21 +1379,29 @@ macro_rules! stage2_test_regime {
     };
 }
 
-stage2_test_regime!(aarch64_vmsa::regime::NonSecureEl2Stage2);
+stage2_test_regime!(aarch64_vmsa::config::regime::NonSecureEl2Stage2);
 stage2_test_regime!(
-    aarch64_vmsa::regime::NonSecureEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>
+    aarch64_vmsa::config::regime::NonSecureEl2Stage2<
+        aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+    >
 );
-stage2_test_regime!(aarch64_vmsa::regime::SecureEl2SecureIpaStage2);
+stage2_test_regime!(aarch64_vmsa::config::regime::SecureEl2SecureIpaStage2);
 stage2_test_regime!(
-    aarch64_vmsa::regime::SecureEl2SecureIpaStage2<aarch64_vmsa::attrs::Stage2XnxPermissions>
+    aarch64_vmsa::config::regime::SecureEl2SecureIpaStage2<
+        aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+    >
 );
-stage2_test_regime!(aarch64_vmsa::regime::SecureEl2NonSecureIpaStage2);
+stage2_test_regime!(aarch64_vmsa::config::regime::SecureEl2NonSecureIpaStage2);
 stage2_test_regime!(
-    aarch64_vmsa::regime::SecureEl2NonSecureIpaStage2<aarch64_vmsa::attrs::Stage2XnxPermissions>
+    aarch64_vmsa::config::regime::SecureEl2NonSecureIpaStage2<
+        aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+    >
 );
-stage2_test_regime!(aarch64_vmsa::regime::RealmEl2Stage2);
+stage2_test_regime!(aarch64_vmsa::config::regime::RealmEl2Stage2);
 stage2_test_regime!(
-    aarch64_vmsa::regime::RealmEl2Stage2<aarch64_vmsa::attrs::Stage2XnxPermissions>
+    aarch64_vmsa::config::regime::RealmEl2Stage2<
+        aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+    >
 );
 
 pub(crate) struct ArenaFrameProvider {
@@ -1315,14 +1418,15 @@ impl ArenaFrameProvider {
     }
 }
 
-impl<G: aarch64_vmsa::address::TranslationGranule> TableFrameProvider<G> for ArenaFrameProvider {
+unsafe impl<G: aarch64_vmsa::address::TranslationGranule> TableFrameProvider<G>
+    for ArenaFrameProvider
+{
     type Error = crate::MemoryError;
-    type Frame = TablePhysAddr<G>;
 
     fn allocate_zeroed_table(
         &mut self,
         layout: TableAllocLayout,
-    ) -> Result<Self::Frame, Self::Error> {
+    ) -> Result<TableAddr<G>, Self::Error> {
         // SAFETY: TestContext serializes access to the arena for the mapper lifetime.
         <TestMemory as TableFrameProvider<G>>::allocate_zeroed_table(
             unsafe { self.memory.as_mut() },
@@ -1330,15 +1434,15 @@ impl<G: aarch64_vmsa::address::TranslationGranule> TableFrameProvider<G> for Are
         )
     }
 
-    unsafe fn free_table(
+    fn reclaim_table(
         &mut self,
-        frame: TablePhysAddr<G>,
-        layout: TableAllocLayout,
+        reclaim: aarch64_vmsa::table::TableReclaim<G>,
     ) -> Result<(), Self::Error> {
-        // SAFETY: The mapper supplies a frame previously returned by this provider.
-        unsafe {
-            <TestMemory as TableFrameProvider<G>>::free_table(self.memory.as_mut(), frame, layout)
-        }
+        // SAFETY: TestContext serializes access to the arena for the mapper lifetime.
+        <TestMemory as TableFrameProvider<G>>::reclaim_table(
+            unsafe { self.memory.as_mut() },
+            reclaim,
+        )
     }
 }
 
@@ -1362,7 +1466,9 @@ impl TestGranule for Granule64KiB {
     const GRANULE: Granule = Granule::Size64KiB;
 }
 
-pub trait TestFormat: DescriptorFormat {
+pub trait TestFormat:
+    DescriptorFormat + aarch64_vmsa::descriptor::SupportsLiveDescriptorIo
+{
     const FORMAT: TranslationFormat;
     fn descriptor_bits(raw: Self::Raw) -> DescriptorBits;
     fn raw_descriptor(bits: DescriptorBits) -> Option<Self::Raw>;
@@ -1684,7 +1790,7 @@ where
     Some(address)
 }
 
-impl<F, G> aarch64_vmsa::mapper::MapperInvalidation<F, G> for ArchitecturalInvalidation
+unsafe impl<F, G> aarch64_vmsa::mapper::MapperInvalidation<F, G> for ArchitecturalInvalidation
 where
     F: DescriptorFormat,
     G: TranslationGranule,
@@ -1743,7 +1849,7 @@ where
         }
     }
 
-    fn before_table_frame_reclaim(&mut self, _: TablePhysAddr<G>, _: TableAllocLayout) {
+    fn before_table_frame_reclaim(&mut self, _: TableAddr<G>, _: TableAllocLayout) {
         self.invalidate_all();
     }
 
@@ -1794,22 +1900,20 @@ where
     if child_level == root_level {
         return Err(HarnessError::InvalidState);
     }
-    let root_address =
-        TablePhysAddr::new(PhysAddr(setup.root.get())).map_err(|_| HarnessError::Memory)?;
+    let root_address = TableAddr::new(setup.root.get()).map_err(|_| HarnessError::Memory)?;
     let transition = TableTransition::new(
         TableShape::<Vmsa64, Granule4KiB>::root(root_level),
         TableShape::<Vmsa64, Granule4KiB>::root(child_level),
     )
     .map_err(|_| HarnessError::InvalidState)?;
     type Layout<R> = <Vmsa64 as HasLayout<StageOf<R>, Granule4KiB>>::Layout;
-    let descriptor =
-        <Layout<R> as DescriptorLayout<StageOf<R>, Granule4KiB>>::table_descriptor(
-            PhysAddr(setup.root.get()),
-            transition,
-            <R as TestRegimeFor<Granule4KiB>>::raw_table()?,
-        )
-        .map_err(|_| HarnessError::InvalidState)?
-            | (1 << 10);
+    let descriptor = <Layout<R> as DescriptorLayout<StageOf<R>, Granule4KiB>>::table_descriptor(
+        root_address,
+        transition,
+        <R as TestRegimeFor<Granule4KiB>>::raw_table()?,
+    )
+    .map_err(|_| HarnessError::InvalidState)?
+        | (1 << 10);
     let offset = unsafe { memory.as_ref() }.physical_to_virtual_offset();
     let root_virtual = setup.root.get().wrapping_add(offset) as *mut u64;
     if root_virtual.is_null() || recursive_index >= 512 {
@@ -1866,13 +1970,10 @@ where
         return Err(HarnessError::InvalidState);
     }
     let start_level = setup.start_level.ok_or(HarnessError::InvalidState)?;
-    let root_address =
-        TablePhysAddr::new(PhysAddr(setup.root.get())).map_err(|_| HarnessError::Memory)?;
+    let root_address = TableAddr::new(setup.root.get()).map_err(|_| HarnessError::Memory)?;
     // SAFETY: The installed translation root and all descendant tables are
     // allocated from the live per-test arena with a constant physical offset.
-    let offset = unsafe { memory.as_ref() }.physical_to_virtual_offset();
-    // SAFETY: The arena offset maps every table frame owned by this session.
-    let access = unsafe { OffsetTableAccess::new(VirtAddr(offset)) };
+    let access = arena_table_access(memory);
     let root = RootTable::new(
         root_address,
         Level::new(start_level.get()),
@@ -1909,8 +2010,7 @@ where
     LeafFieldsOf<F, R, G>: Copy,
     TableFieldsOf<F, R, G>: Copy,
 {
-    let removed = mapper
-        .unmap(WalkInputAddr::new(input))
+    let removed = unsafe { mapper.unmap(WalkInputAddr::new(input)) }
         .map_err(|_| HarnessError::InvalidState)?;
     let old_output = removed.old().output_base();
     let old_level = removed.old().level();
@@ -2217,17 +2317,13 @@ where
     }
 
     let start_level = setup.start_level.ok_or(HarnessError::InvalidState)?;
-    let root_address =
-        TablePhysAddr::new(PhysAddr(setup.root.get())).map_err(|_| HarnessError::Memory)?;
+    let root_address = TableAddr::new(setup.root.get()).map_err(|_| HarnessError::Memory)?;
 
     let memory = NonNull::from(memory);
 
     // SAFETY: The adapter supplies the same reserved contiguous arena used by
     // the frame provider and keeps it live through lower translation restore.
-    let offset = unsafe { memory.as_ref() }.physical_to_virtual_offset();
-
-    // SAFETY: The offset maps every adapter-owned table frame in the arena.
-    let access = unsafe { OffsetTableAccess::new(VirtAddr(offset)) };
+    let access = arena_table_access(memory);
 
     let root = RootTable::new(
         root_address,
@@ -2377,8 +2473,7 @@ where
                 }
 
                 if mapping.output().0 != output || *mapping.fields() != fields {
-                    mapper
-                        .unmap(WalkInputAddr::new(input))
+                    unsafe { mapper.unmap(WalkInputAddr::new(input)) }
                         .map_err(|_| HarnessError::InvalidState)?;
 
                     mapper
@@ -2522,10 +2617,7 @@ where
     let mut address = arena_start;
 
     while address <= arena_last {
-        if address != stack_page
-            && address != exception_stack_page
-            && !is_state_page(address)
-        {
+        if address != stack_page && address != exception_stack_page && !is_state_page(address) {
             ensure_data_page!(address);
         }
 
@@ -2588,11 +2680,9 @@ where
         return Err(HarnessError::InvalidState);
     }
     let start_level = setup.start_level.ok_or(HarnessError::InvalidState)?;
-    let root_address =
-        TablePhysAddr::new(PhysAddr(setup.root.get())).map_err(|_| HarnessError::Memory)?;
+    let root_address = TableAddr::new(setup.root.get()).map_err(|_| HarnessError::Memory)?;
     let memory = NonNull::from(memory);
-    let offset = unsafe { memory.as_ref() }.physical_to_virtual_offset();
-    let access = unsafe { OffsetTableAccess::new(VirtAddr(offset)) };
+    let access = arena_table_access(memory);
     let root = RootTable::new(
         root_address,
         Level::new(start_level.get()),
@@ -2732,10 +2822,7 @@ where
     }
     let mut address = arena_start;
     while address <= arena_last {
-        if address != stack_page
-            && address != exception_stack_page
-            && !is_state_page(address)
-        {
+        if address != stack_page && address != exception_stack_page && !is_state_page(address) {
             mapper
                 .map_leaf(
                     WalkInputAddr::new(address),
@@ -2842,7 +2929,7 @@ unsafe impl TableAccess<Vmsa64, Granule4KiB> for ProbeTableAccess {
 
     fn table_at<'a>(
         &'a self,
-        location: aarch64_vmsa::table::TableAccessLocation<Vmsa64, Granule4KiB>,
+        location: aarch64_vmsa::table::TableAccessLocation<'a, Vmsa64, Granule4KiB>,
     ) -> Result<aarch64_vmsa::table::TranslationTable<'a, Vmsa64, Granule4KiB>, Self::Error> {
         if self.fail_read {
             Err(ProbeAccessError::Read)
@@ -2857,7 +2944,7 @@ unsafe impl TableAccess<Vmsa64, Granule4KiB> for ProbeTableAccess {
 unsafe impl TableAccessMut<Vmsa64, Granule4KiB> for ProbeTableAccess {
     fn table_at_mut<'a>(
         &'a mut self,
-        location: aarch64_vmsa::table::TableAccessLocation<Vmsa64, Granule4KiB>,
+        location: aarch64_vmsa::table::TableAccessLocation<'a, Vmsa64, Granule4KiB>,
     ) -> Result<aarch64_vmsa::table::TranslationTableMut<'a, Vmsa64, Granule4KiB>, Self::Error>
     {
         if self.fail_write {
@@ -2883,14 +2970,13 @@ struct ProbeFrameProvider {
     fail_free: bool,
 }
 
-impl TableFrameProvider<Granule4KiB> for ProbeFrameProvider {
+unsafe impl TableFrameProvider<Granule4KiB> for ProbeFrameProvider {
     type Error = ProbeFrameError;
-    type Frame = TablePhysAddr<Granule4KiB>;
 
     fn allocate_zeroed_table(
         &mut self,
         layout: TableAllocLayout,
-    ) -> Result<Self::Frame, Self::Error> {
+    ) -> Result<TableAddr<Granule4KiB>, Self::Error> {
         if self.fail_allocate {
             Err(ProbeFrameError::Allocate)
         } else {
@@ -2900,15 +2986,16 @@ impl TableFrameProvider<Granule4KiB> for ProbeFrameProvider {
         }
     }
 
-    unsafe fn free_table(
+    fn reclaim_table(
         &mut self,
-        frame: TablePhysAddr<Granule4KiB>,
-        layout: TableAllocLayout,
+        reclaim: aarch64_vmsa::table::TableReclaim<Granule4KiB>,
     ) -> Result<(), Self::Error> {
         if self.fail_free {
             Err(ProbeFrameError::Free)
         } else {
-            unsafe { self.inner.free_table(frame, layout) }.map_err(|_| ProbeFrameError::Inner)
+            self.inner
+                .reclaim_table(reclaim)
+                .map_err(|_| ProbeFrameError::Inner)
         }
     }
 }
@@ -2926,8 +3013,8 @@ pub(crate) fn verify_mapper_provider_probe(
     root_memory: &mut RootTableMemory,
     probe: MapperProviderProbe,
 ) -> bool {
+    use aarch64_vmsa::config::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::mapper::{Mapper, MapperError, Offline};
-    use aarch64_vmsa::regime::NonSecureEl2Stage1;
     use aarch64_vmsa::translation::walk::WalkInputAddr;
 
     let root_level = if matches!(
@@ -2939,19 +3026,18 @@ pub(crate) fn verify_mapper_provider_probe(
         Level::L0
     };
     let input_bits = if root_level == Level::L3 { 12 } else { 48 };
-    let Ok(root_address) = TablePhysAddr::new(PhysAddr(root_memory.phys_addr())) else {
+    let Ok(root_address) = TableAddr::new(root_memory.phys_addr()) else {
         return false;
     };
-    let offset = unsafe { memory.as_ref() }.physical_to_virtual_offset();
     let access = ProbeTableAccess {
-        inner: unsafe { OffsetTableAccess::new(VirtAddr(offset)) },
+        inner: arena_table_access(memory),
         fail_read: matches!(probe, MapperProviderProbe::TableRead),
         fail_write: matches!(probe, MapperProviderProbe::DescriptorWrite),
     };
     let frames = ProbeFrameProvider {
         inner: ArenaFrameProvider::new(memory),
         fail_allocate: matches!(probe, MapperProviderProbe::FrameAllocate),
-        fail_free: false,
+        fail_free: matches!(probe, MapperProviderProbe::FrameFree),
     };
     let root = RootTable::new(root_address, root_level, input_bits, 48);
     let Ok(mut mapper) =
@@ -2991,16 +3077,15 @@ pub(crate) fn verify_mapper_provider_probe(
             {
                 return false;
             }
-            mapper.frames_mut().fail_free = true;
             matches!(
-                mapper.unmap_reclaim(WalkInputAddr::new(0)),
+                unsafe { mapper.unmap_reclaim(WalkInputAddr::new(0)) },
                 Err(MapperError::Frame(ProbeFrameError::Free))
             )
         }
     }
 }
 
-impl<F, G> aarch64_vmsa::mapper::MapperInvalidation<F, G> for ProbeInvalidation
+unsafe impl<F, G> aarch64_vmsa::mapper::MapperInvalidation<F, G> for ProbeInvalidation
 where
     F: DescriptorFormat,
     G: TranslationGranule,
@@ -3039,7 +3124,7 @@ where
     ) {
         self.record(Self::TABLE_REMOVED);
     }
-    fn before_table_frame_reclaim(&mut self, _: TablePhysAddr<G>, _: TableAllocLayout) {
+    fn before_table_frame_reclaim(&mut self, _: TableAddr<G>, _: TableAllocLayout) {
         self.record(Self::BEFORE_RECLAIM);
     }
     fn synchronize(&mut self) {
@@ -3100,6 +3185,10 @@ pub enum MapperOperationError {
         offset: u64,
     },
     OutputAddressOutOfRange {
+        address: u64,
+        output_address_bits: u8,
+    },
+    TableAddressOutOfRange {
         address: u64,
         output_address_bits: u8,
     },
@@ -3174,6 +3263,13 @@ fn normalize_mapper_operation_error(
             output_address_bits,
         } => MapperOperationError::OutputAddressOutOfRange {
             address: addr.0,
+            output_address_bits,
+        },
+        MapperError::TableAddressOutOfRange {
+            addr,
+            output_address_bits,
+        } => MapperOperationError::TableAddressOutOfRange {
+            address: addr,
             output_address_bits,
         },
         MapperError::UnalignedInput { addr, align } => MapperOperationError::UnalignedInput {
@@ -3251,38 +3347,40 @@ where
         input: u64,
         output: u64,
         level: LookupLevel,
-        leaf: F::SemanticLeaf,
-        table: F::SemanticTable,
+        leaf: <F as AttributeCodecCompat<R, G, Cfg>>::SemanticLeaf,
+        table: <F as AttributeCodecCompat<R, G, Cfg>>::SemanticTable,
     ) -> Result<(), HarnessError>
     where
-        F: aarch64_vmsa::attrs::AttributeCodec<
+        F: AttributeCodecCompat<
                 R,
                 G,
                 Cfg,
-                RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, R, G>,
-                RawTable = aarch64_vmsa::regime::TableFieldsOf<F, R, G>,
+                RawLeaf = LeafFieldsOf<F, R, G>,
+                RawTable = TableFieldsOf<F, R, G>,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<F, R, G>: Copy,
+        LeafFieldsOf<F, R, G>: Copy,
     {
-        aarch64_vmsa::mapper::map_semantic_leaf::<F, R, G, _, _, _, Cfg>(
-            &mut self.inner,
-            config,
-            WalkInputAddr::new(input),
-            PhysAddr(output),
-            Level::new(level.get()),
-            leaf,
-            table,
-        )
-        .map(|_| ())
-        .map_err(|error| match error {
-            aarch64_vmsa::mapper::SemanticMapperError::Attribute(error) => {
-                HarnessError::Attribute(normalize_attribute_error(error))
-            }
-            aarch64_vmsa::mapper::SemanticMapperError::Mapper(_) => HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            },
-        })
+        self.inner
+            .map_semantic_leaf::<Cfg>(
+                config,
+                WalkInputAddr::new(input),
+                PhysAddr(output),
+                Level::new(level.get()),
+                leaf,
+                table,
+            )
+            .map(|_| ())
+            .map_err(|error| match error {
+                aarch64_vmsa::mapper::SemanticMapperError::Attribute(error) => {
+                    HarnessError::Attribute(normalize_attribute_error(error))
+                }
+                aarch64_vmsa::mapper::SemanticMapperError::Mapper(_) => {
+                    HarnessError::CrateBehavior {
+                        expected: 1,
+                        actual: 0,
+                    }
+                }
+            })
     }
 
     pub fn isolated_malformed_table(&mut self) -> IsolatedMalformedTable<'_, R, G, F> {
@@ -3293,16 +3391,16 @@ where
         &mut self,
         input: u64,
         config: &Cfg,
-    ) -> Result<Option<F::SemanticLeaf>, HarnessError>
+    ) -> Result<Option<<F as AttributeCodecCompat<R, G, Cfg>>::SemanticLeaf>, HarnessError>
     where
-        F: aarch64_vmsa::attrs::AttributeCodec<
+        F: AttributeCodecCompat<
                 R,
                 G,
                 Cfg,
-                RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<F, R, G>,
-                RawTable = aarch64_vmsa::regime::TableFieldsOf<F, R, G>,
+                RawLeaf = LeafFieldsOf<F, R, G>,
+                RawTable = TableFieldsOf<F, R, G>,
             >,
-        aarch64_vmsa::regime::LeafFieldsOf<F, R, G>: Copy,
+        LeafFieldsOf<F, R, G>: Copy,
     {
         let mapping = self
             .inner
@@ -3333,7 +3431,7 @@ where
         replacement: DescriptorBits,
     ) -> Result<DescriptorBits, HarnessError> {
         let root = self.mapper.inner.root();
-        let (location, entry_index, original) = {
+        let (cursor, entry_index, original) = {
             let walker = Walker::<F, R, G, _>::new(root, self.mapper.inner.access())
                 .map_err(|_| HarnessError::InvalidState)?;
             match walker
@@ -3341,29 +3439,31 @@ where
                 .map_err(|_| HarnessError::InvalidState)?
             {
                 aarch64_vmsa::translation::walk::WalkOutcome::Leaf(leaf) => {
-                    (leaf.location(), leaf.entry_index(), leaf.raw())
+                    (leaf.cursor().table(), leaf.entry_index(), Some(leaf.raw()))
                 }
                 aarch64_vmsa::translation::walk::WalkOutcome::Invalid(invalid) => {
-                    let location = invalid.location();
-                    let entry_index = invalid.entry_index();
-                    let table = self
-                        .mapper
-                        .inner
-                        .access()
-                        .table_at(location)
-                        .map_err(|_| HarnessError::InvalidState)?;
-                    let original = table.read(entry_index).ok_or(HarnessError::InvalidState)?;
-                    (location, entry_index, original)
+                    (invalid.cursor().table(), invalid.entry_index(), None)
                 }
             }
         };
         let replacement = F::raw_descriptor(replacement).ok_or(HarnessError::InvalidState)?;
-        let mut table = self
+        let address = self
             .mapper
             .inner
-            .access_mut()
-            .table_at_mut(location)
-            .map_err(|_| HarnessError::InvalidState)?;
+            .access()
+            .offset()
+            .0
+            .checked_add(cursor.current().raw())
+            .ok_or(HarnessError::InvalidState)?;
+        let pointer = NonNull::new(address as *mut F::Raw).ok_or(HarnessError::InvalidState)?;
+        // SAFETY: The isolated mapper owns the live arena table identified by
+        // the crate-produced cursor, and no table borrow survives this point.
+        let mut table = unsafe {
+            aarch64_vmsa::table::TranslationTableMut::from_raw_parts(pointer, cursor.shape())
+        };
+        let original = original
+            .or_else(|| table.read(entry_index))
+            .ok_or(HarnessError::InvalidState)?;
         table
             .write(entry_index, replacement)
             .map_err(|_| HarnessError::InvalidState)?;
@@ -3523,15 +3623,10 @@ impl<R: TranslationRegime, G: TestGranule, F: DescriptorFormat> TestMapper<R, G,
 where
     F: HasLayout<StageOf<R>, G>,
 {
-    pub fn verify_offline_accessors_into_parts(mut self) -> bool {
+    pub fn verify_offline_accessors_into_parts(self) -> bool {
         let expected_root = self.inner.root();
         let expected_offset = self.inner.access().offset();
         let expected_memory = self.inner.frames().memory();
-        if self.inner.access_mut().offset() != expected_offset
-            || self.inner.frames_mut().memory() != expected_memory
-        {
-            return false;
-        }
         let (root, access, frames) = self.inner.into_parts();
         root.addr().raw() == expected_root.addr().raw()
             && root.level() == expected_root.level()
@@ -3541,7 +3636,10 @@ where
             && frames.memory() == expected_memory
     }
 
-    pub fn verify_live_accessors_into_parts(self) -> bool {
+    pub fn verify_live_accessors_into_parts(self) -> bool
+    where
+        F: aarch64_vmsa::descriptor::SupportsLiveDescriptorIo,
+    {
         let (root, access, frames) = self.inner.into_parts();
         let expected_root = root;
         let expected_offset = access.offset();
@@ -3565,13 +3663,11 @@ where
             || mapper.access().offset() != expected_offset
             || mapper.frames().memory() != expected_memory
             || mapper.invalidation().marker != 0x51a7_e001
-            || mapper.access_mut().offset() != expected_offset
-            || mapper.frames_mut().memory() != expected_memory
         {
             return false;
         }
-        mapper.invalidation_mut().marker = 0x51a7_e002;
-        let (root, access, frames, invalidation) = mapper.into_parts();
+        let (root, access, frames, mut invalidation) = mapper.into_parts();
+        invalidation.marker = 0x51a7_e002;
         root.addr().raw() == expected_root.addr().raw()
             && root.level() == expected_root.level()
             && root.addr_bits() == expected_root.addr_bits()
@@ -3604,20 +3700,51 @@ where
         input_bits: u8,
         output_bits: u8,
     ) -> Result<(), MapperConstructionError> {
-        let root_address =
-            TablePhysAddr::new(PhysAddr(root_address)).map_err(|error| match error {
-                aarch64_vmsa::table::TableAddressError::Unaligned { addr, align } => {
-                    MapperConstructionError::UnalignedRoot {
-                        address: addr.0,
-                        align,
-                    }
+        let root_address = TableAddr::new(root_address).map_err(|error| match error {
+            aarch64_vmsa::table::TableAddressError::Unaligned { addr, align } => {
+                MapperConstructionError::UnalignedRoot {
+                    address: addr,
+                    align,
                 }
-            })?;
-        // SAFETY: TestMemory guarantees a constant physical-to-virtual offset.
-        let offset = unsafe { memory.as_ref() }.physical_to_virtual_offset();
-        // SAFETY: The offset maps every arena physical address to its reserved VA.
-        let access = unsafe { OffsetTableAccess::new(VirtAddr(offset)) };
-        let root = RootTable::new(root_address, start_level, input_bits, output_bits);
+            }
+        })?;
+        let access = arena_table_access(memory);
+        let geometry = aarch64_vmsa::table::RootTableGeometry::<F, G>::new_at_level(
+            root_address,
+            start_level,
+            input_bits,
+            output_bits,
+        )
+        .map_err(|error| match error {
+            aarch64_vmsa::table::RootGeometryError::InvalidLevel => {
+                MapperConstructionError::InvalidRootLevel {
+                    root_level: start_level.as_i8(),
+                    lowest_level: F::EXTENDED_LOWEST_ROOT_LEVEL.as_i8(),
+                    final_level: F::FINAL_LEVEL.as_i8(),
+                }
+            }
+            aarch64_vmsa::table::RootGeometryError::InvalidInputAddressBits {
+                requested,
+                maximum,
+            } => MapperConstructionError::InvalidRootAddressBits {
+                addr_bits: requested,
+                max_addr_bits: maximum,
+            },
+            aarch64_vmsa::table::RootGeometryError::InvalidOutputAddressBits {
+                requested,
+                maximum,
+            } => MapperConstructionError::InvalidConfiguredOutputAddressBits {
+                output_address_bits: requested,
+                format_max_bits: maximum,
+            },
+            aarch64_vmsa::table::RootGeometryError::TableAddressOutOfRange => {
+                MapperConstructionError::RootAddressOutOfRange {
+                    address: root_address.raw(),
+                    output_address_bits: output_bits,
+                }
+            }
+        })?;
+        let root = RootTable::from_geometry(geometry);
         Mapper::<F, R, G, _, _, Offline>::new_offline(root, access, ArenaFrameProvider::new(memory))
             .map(|_| ())
             .map_err(|error| match error {
@@ -3651,6 +3778,13 @@ where
                     address: addr.0,
                     output_address_bits,
                 },
+                aarch64_vmsa::mapper::MapperError::TableAddressOutOfRange {
+                    addr,
+                    output_address_bits,
+                } => MapperConstructionError::RootAddressOutOfRange {
+                    address: addr,
+                    output_address_bits,
+                },
                 _ => MapperConstructionError::Unexpected,
             })
     }
@@ -3662,12 +3796,11 @@ where
         input_bits: u8,
         output_bits: u8,
     ) -> Result<Self, HarnessError> {
-        let root_address =
-            TablePhysAddr::new(PhysAddr(root.phys_addr())).map_err(|_| HarnessError::Memory)?;
+        let root_address = TableAddr::new(root.phys_addr()).map_err(|_| HarnessError::Memory)?;
         // SAFETY: TestMemory guarantees a constant physical-to-virtual offset.
         let offset = unsafe { memory.as_ref() }.physical_to_virtual_offset();
         // SAFETY: The offset maps every arena physical address to its reserved VA.
-        let access = unsafe { OffsetTableAccess::new(VirtAddr(offset)) };
+        let access = arena_table_access(memory);
         let root = RootTable::new(root_address, start_level, input_bits, output_bits);
         let inner = Mapper::new_offline(root, access, ArenaFrameProvider::new(memory))
             .map_err(|_| HarnessError::InvalidState)?;
@@ -3734,7 +3867,10 @@ where
             .map_err(|_| HarnessError::InvalidState)
     }
 
-    pub fn verify_break_before_make_ordering(self) -> bool {
+    pub fn verify_break_before_make_ordering(self) -> bool
+    where
+        F: aarch64_vmsa::descriptor::SupportsLiveDescriptorIo,
+    {
         let Ok(leaf) = R::raw_leaf(MappingAttributes::READ_WRITE) else {
             return false;
         };
@@ -3760,8 +3896,12 @@ where
         {
             return false;
         }
-        mapper.invalidation_mut().clear_events();
-        if mapper.unmap(WalkInputAddr::new(0)).is_err()
+        let (root, access, frames, mut invalidation) = mapper.into_parts();
+        invalidation.clear_events();
+        let Ok(mut mapper) = Mapper::new_live(root, access, frames, invalidation) else {
+            return false;
+        };
+        if unsafe { mapper.unmap(WalkInputAddr::new(0)) }.is_err()
             || mapper
                 .map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
                 .is_err()
@@ -3865,9 +4005,7 @@ where
             {
                 continue;
             }
-            let window_end = start
-                .checked_add(CODE_WINDOW)
-                .ok_or(HarnessError::Memory)?;
+            let window_end = start.checked_add(CODE_WINDOW).ok_or(HarnessError::Memory)?;
             let end = linked_runtime_data_regions
                 .iter()
                 .copied()
@@ -3948,8 +4086,7 @@ where
         for start in [G::align_down(
             vmsa_test_architecture::exception::linkage_data_address()
                 .saturating_sub(LINKAGE_DATA_PREFIX),
-        )]
-        {
+        )] {
             let end = start
                 .checked_add(LINKAGE_DATA_WINDOW)
                 .ok_or(HarnessError::Memory)?;
@@ -4269,8 +4406,7 @@ where
     }
 
     pub fn unmap_exact(&mut self, input: u64) -> Result<MappingInspection, MapperOperationError> {
-        self.inner
-            .unmap(WalkInputAddr::new(input))
+        unsafe { self.inner.unmap(WalkInputAddr::new(input)) }
             .map(|outcome| MappingInspection {
                 output: outcome.old().output().0,
                 level: LookupLevel::new(outcome.old().level().as_i8())
@@ -4307,8 +4443,7 @@ where
     }
 
     pub fn unmap_reclaim_exact(&mut self, input: u64) -> Result<UnmapResult, MapperOperationError> {
-        self.inner
-            .unmap_reclaim(WalkInputAddr::new(input))
+        unsafe { self.inner.unmap_reclaim(WalkInputAddr::new(input)) }
             .map(|outcome| UnmapResult {
                 mapping: MappingInspection {
                     output: outcome.old().output().0,

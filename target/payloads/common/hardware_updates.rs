@@ -19,7 +19,7 @@ fn vmsa64_update_case(
         SemanticStage1LeafAttrs, SemanticStage1TableAttrs, SemanticVmsa64Stage1LeafControls,
         SemanticVmsa64Stage1TableControls, Shareability, SinglePrivilegeLeafPermissions,
         SinglePrivilegeTablePermissionLimits, SoftwareMetadata, Stage2MemoryMode,
-        };
+    };
     use vmsa_test_harness::{
         AccessKind, AddressBits, ExpectedFault, FaultClass, FaultMatcher, FaultStage, FaultStatus,
         Granule, LookupLevel, PhysicalAddress, TranslationControls, TranslationFormat,
@@ -117,8 +117,8 @@ fn vmsa64_update_case(
     )?;
     translation.map_semantic_for::<
         CurrentRegime,
-        aarch64_vmsa::descriptor::Vmsa64,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule4KiB,
         _,
     >(
         &config,
@@ -131,13 +131,17 @@ fn vmsa64_update_case(
     let installed = translation
         .inspect_semantic_for::<
             CurrentRegime,
-            aarch64_vmsa::descriptor::Vmsa64,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64,
+            aarch64_vmsa::config::granule::Granule4KiB,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if installed != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     let result = match observation {
@@ -162,15 +166,19 @@ fn vmsa64_update_case(
             let after = translation
                 .inspect_semantic_for::<
                     CurrentRegime,
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::format::Vmsa64,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if after.controls.access_flag {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into()
             }
         }
         UpdateObservation::DirtyDisabled => {
@@ -187,15 +195,19 @@ fn vmsa64_update_case(
             let after = translation
                 .inspect_semantic_for::<
                     CurrentRegime,
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::format::Vmsa64,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if after.permissions.data == DataAccess::ReadOnly {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into()
             }
         }
         UpdateObservation::DirtyEnabled => {
@@ -207,15 +219,19 @@ fn vmsa64_update_case(
             let after = translation
                 .inspect_semantic_for::<
                     CurrentRegime,
-                    aarch64_vmsa::descriptor::Vmsa64,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::format::Vmsa64,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if after.permissions.data == DataAccess::ReadWrite {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into()
             }
         }
     };
@@ -235,7 +251,8 @@ fn d128_update_case(
         LiveVmsaConfig, MemoryAttributes, MemoryTransience, SemanticStage1LeafAttrs,
         SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs, Shareability,
         SoftwareMetadata, Stage1EffectivePermissions, Stage1PermissionRegisterPair,
-        Stage1PermissionRegisters, Stage2MemoryMode, };
+        Stage1PermissionRegisters, Stage2MemoryMode,
+    };
     use vmsa_test_harness::{
         AccessKind, AddressBits, ExpectedFault, FaultClass, FaultMatcher, FaultStage, FaultStatus,
         Granule, LookupLevel, PhysicalAddress, TranslationFormat, TranslationSetup,
@@ -307,8 +324,8 @@ fn d128_update_case(
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             crate::LowerRegime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
         >(
             &mut root,
             aarch64_vmsa::address::Level::new(start.get()),
@@ -353,13 +370,17 @@ fn d128_update_case(
     let installed = translation
         .inspect_semantic_for::<
             LowerRegime,
-            aarch64_vmsa::descriptor::Vmsa128,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
             _,
         >(ADDRESS, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if installed != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     let result = match observation {
@@ -383,15 +404,19 @@ fn d128_update_case(
             let after = translation
                 .inspect_semantic_for::<
                     LowerRegime,
-                    aarch64_vmsa::descriptor::Vmsa128,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::format::Vmsa128,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if after.controls.access_flag {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into()
             }
         }
         UpdateObservation::DirtyDisabled => {
@@ -408,15 +433,19 @@ fn d128_update_case(
             let after = translation
                 .inspect_semantic_for::<
                     LowerRegime,
-                    aarch64_vmsa::descriptor::Vmsa128,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::format::Vmsa128,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if after.controls.dirty_state == DirtyState::Clean {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into()
             }
         }
         UpdateObservation::DirtyEnabled => {
@@ -429,15 +458,19 @@ fn d128_update_case(
             let after = translation
                 .inspect_semantic_for::<
                     LowerRegime,
-                    aarch64_vmsa::descriptor::Vmsa128,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::format::Vmsa128,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if after.controls.dirty_state == DirtyState::Dirty {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into()
             }
         }
     };
@@ -472,7 +505,8 @@ fn d128_stage2_update_case(
         Cacheability, D128Stage1AliasKind, DirtyState, LiveVmsaConfig, MemoryAttributes,
         SemanticStage2LeafAttrs, SemanticVmsa128Stage2LeafControls,
         SemanticVmsa128Stage2TableAttrs, Shareability, SoftwareMetadata, Stage2MemoryAttributes,
-        Stage2MemoryMode, Stage2Permission, Stage2PermissionRegisters, };
+        Stage2MemoryMode, Stage2Permission, Stage2PermissionRegisters,
+    };
     use vmsa_test_harness::{
         AccessKind, AddressBits, Asid, ExpectedFault, FaultClass, FaultMatcher, FaultStage,
         FaultStatus, Granule, LookupLevel, MappingAttributes, PhysicalAddress, TranslationFormat,
@@ -535,13 +569,17 @@ fn d128_stage2_update_case(
         context.write_u64(page.virtual_address() as u64, VALUE),
         vmsa_test_harness::AccessResult::Completed { .. }
     ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let mut stage1_root = context.allocate_root_16k()?;
     let mut stage2_root = context.allocate_root()?;
     let recovery_size = aarch64_vmsa::table::TableGeometry::<
-        aarch64_vmsa::descriptor::Vmsa128,
-        aarch64_vmsa::address::Granule4KiB,
+        aarch64_vmsa::config::format::Vmsa128,
+        aarch64_vmsa::config::granule::Granule4KiB,
     >::offset_at_level_raw(u64::MAX, aarch64_vmsa::address::Level::L1)
     .and_then(|mask| mask.checked_add(1))
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
@@ -551,8 +589,8 @@ fn d128_stage2_update_case(
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             LowerRegime,
-            aarch64_vmsa::address::Granule16KiB,
-            aarch64_vmsa::descriptor::Vmsa64Lpa2,
+            aarch64_vmsa::config::granule::Granule16KiB,
+            aarch64_vmsa::config::format::Vmsa64Lpa2,
         >(
             &mut stage1_root,
             aarch64_vmsa::address::Level::L0,
@@ -569,8 +607,8 @@ fn d128_stage2_update_case(
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             Stage2Regime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
         >(
             &mut stage2_root,
             aarch64_vmsa::address::Level::NEG1,
@@ -598,7 +636,11 @@ fn d128_stage2_update_case(
             .inspect_semantic_leaf::<_>(target_ipa, &config)?
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
         if installed != leaf {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     let stage1_setup = TranslationSetup {
@@ -635,13 +677,17 @@ fn d128_stage2_update_case(
         .stage2_mut()?
         .inspect_semantic_for::<
             Stage2Regime,
-            aarch64_vmsa::descriptor::Vmsa128,
-            aarch64_vmsa::address::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
             _,
         >(target_ipa, &config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if before != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
 
     let result = match observation {
@@ -668,15 +714,19 @@ fn d128_stage2_update_case(
                 .stage2_mut()?
                 .inspect_semantic_for::<
                     Stage2Regime,
-                    aarch64_vmsa::descriptor::Vmsa128,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::format::Vmsa128,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                     _,
                 >(target_ipa, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if after.controls.access_flag {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into()
             }
         }
         UpdateObservation::DirtyDisabled => {
@@ -701,15 +751,19 @@ fn d128_stage2_update_case(
                 .stage2_mut()?
                 .inspect_semantic_for::<
                     Stage2Regime,
-                    aarch64_vmsa::descriptor::Vmsa128,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::format::Vmsa128,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                     _,
                 >(target_ipa, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if after.controls.dirty_state == DirtyState::Clean {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into()
             }
         }
         UpdateObservation::DirtyEnabled => {
@@ -723,15 +777,19 @@ fn d128_stage2_update_case(
                 .stage2_mut()?
                 .inspect_semantic_for::<
                     Stage2Regime,
-                    aarch64_vmsa::descriptor::Vmsa128,
-                    aarch64_vmsa::address::Granule4KiB,
+                    aarch64_vmsa::config::format::Vmsa128,
+                    aarch64_vmsa::config::granule::Granule4KiB,
                     _,
                 >(target_ipa, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             if after.controls.dirty_state == DirtyState::Dirty {
                 TestResult::Pass
             } else {
-                vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+                vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into()
             }
         }
     };

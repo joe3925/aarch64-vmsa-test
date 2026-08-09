@@ -48,8 +48,8 @@ fn malformed_vmsa64_leaf(
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             CurrentRegime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa64,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa64,
         >(&mut root, aarch64_vmsa::address::Level::L0, 48, 48)?;
         mapper.map_attributes_leaf(
             ADDRESS,
@@ -131,7 +131,7 @@ fn fresh_vmsa64_mapping(context: &mut TestContext<'_, CurrentEnvironment>) -> Te
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let root = context.allocate_root()?;
-    active_granule::<aarch64_vmsa::descriptor::Vmsa64, aarch64_vmsa::address::Granule4KiB>(
+    active_granule::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
         context,
         root,
         ActiveGeometry {
@@ -171,7 +171,7 @@ macro_rules! lpa2_malformed_case {
 
 lpa2_malformed_case!(
     lpa2_ds_reserved_type,
-    aarch64_vmsa::address::Granule4KiB,
+    aarch64_vmsa::config::granule::Granule4KiB,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::NEG1,
     Lpa2MalformedLeaf::ReservedType,
@@ -180,7 +180,7 @@ lpa2_malformed_case!(
 );
 lpa2_malformed_case!(
     lpa2_ds_address,
-    aarch64_vmsa::address::Granule4KiB,
+    aarch64_vmsa::config::granule::Granule4KiB,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::NEG1,
     Lpa2MalformedLeaf::Address,
@@ -189,7 +189,7 @@ lpa2_malformed_case!(
 );
 lpa2_malformed_case!(
     lpa2_ds_res0,
-    aarch64_vmsa::address::Granule4KiB,
+    aarch64_vmsa::config::granule::Granule4KiB,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::NEG1,
     Lpa2MalformedLeaf::Res0,
@@ -198,7 +198,7 @@ lpa2_malformed_case!(
 );
 lpa2_malformed_case!(
     lpa2_ds_res1,
-    aarch64_vmsa::address::Granule4KiB,
+    aarch64_vmsa::config::granule::Granule4KiB,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::NEG1,
     Lpa2MalformedLeaf::Res1,
@@ -207,7 +207,7 @@ lpa2_malformed_case!(
 );
 lpa2_malformed_case!(
     lpa2_64k_reserved_type,
-    aarch64_vmsa::address::Granule64KiB,
+    aarch64_vmsa::config::granule::Granule64KiB,
     vmsa_test_harness::Granule::Size64KiB,
     aarch64_vmsa::address::Level::L1,
     Lpa2MalformedLeaf::ReservedType,
@@ -216,7 +216,7 @@ lpa2_malformed_case!(
 );
 lpa2_malformed_case!(
     lpa2_64k_address,
-    aarch64_vmsa::address::Granule64KiB,
+    aarch64_vmsa::config::granule::Granule64KiB,
     vmsa_test_harness::Granule::Size64KiB,
     aarch64_vmsa::address::Level::L1,
     Lpa2MalformedLeaf::Address,
@@ -225,7 +225,7 @@ lpa2_malformed_case!(
 );
 lpa2_malformed_case!(
     lpa2_64k_res0,
-    aarch64_vmsa::address::Granule64KiB,
+    aarch64_vmsa::config::granule::Granule64KiB,
     vmsa_test_harness::Granule::Size64KiB,
     aarch64_vmsa::address::Level::L1,
     Lpa2MalformedLeaf::Res0,
@@ -234,7 +234,7 @@ lpa2_malformed_case!(
 );
 lpa2_malformed_case!(
     lpa2_64k_res1,
-    aarch64_vmsa::address::Granule64KiB,
+    aarch64_vmsa::config::granule::Granule64KiB,
     vmsa_test_harness::Granule::Size64KiB,
     aarch64_vmsa::address::Level::L1,
     Lpa2MalformedLeaf::Res1,
@@ -253,30 +253,30 @@ fn malformed_lpa2_leaf<G>(
 where
     G: vmsa_test_harness::adapter::TestGranule,
     CurrentRegime: vmsa_test_harness::adapter::TestRegimeFor<G>,
-    aarch64_vmsa::descriptor::Vmsa64:
+    aarch64_vmsa::config::format::Vmsa64:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2:
+    aarch64_vmsa::config::format::Vmsa64Lpa2:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>,
-    <aarch64_vmsa::descriptor::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
+    <aarch64_vmsa::config::format::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
         aarch64_vmsa::translation::Stage1,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
             aarch64_vmsa::translation::Stage1,
             G,
-            LeafFields = aarch64_vmsa::regime::LeafFieldsOf<
-                aarch64_vmsa::descriptor::Vmsa64,
+            LeafFields = crate::LeafFieldsOf<
+                aarch64_vmsa::config::format::Vmsa64,
                 CurrentRegime,
                 G,
             >,
-            TableFields = aarch64_vmsa::regime::TableFieldsOf<
-                aarch64_vmsa::descriptor::Vmsa64,
+            TableFields = crate::TableFieldsOf<
+                aarch64_vmsa::config::format::Vmsa64,
                 CurrentRegime,
                 G,
             >,
         >,
-    aarch64_vmsa::regime::LeafFieldsOf<aarch64_vmsa::descriptor::Vmsa64, CurrentRegime, G>:
-        Copy + PartialEq,
-    aarch64_vmsa::descriptor::Vmsa64Lpa2: aarch64_vmsa::attrs::AttributeCodec<CurrentRegime,
+    crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, CurrentRegime, G>: Copy + PartialEq,
+    aarch64_vmsa::config::format::Vmsa64Lpa2: vmsa_test_harness::AttributeCodecCompat<
+            CurrentRegime,
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
@@ -289,13 +289,13 @@ where
                 crate::CurrentTablePas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1TableControls,
             >,
-            RawLeaf = aarch64_vmsa::regime::LeafFieldsOf<
-                aarch64_vmsa::descriptor::Vmsa64Lpa2,
+            RawLeaf = crate::LeafFieldsOf<
+                aarch64_vmsa::config::format::Vmsa64Lpa2,
                 CurrentRegime,
                 G,
             >,
-            RawTable = aarch64_vmsa::regime::TableFieldsOf<
-                aarch64_vmsa::descriptor::Vmsa64Lpa2,
+            RawTable = crate::TableFieldsOf<
+                aarch64_vmsa::config::format::Vmsa64Lpa2,
                 CurrentRegime,
                 G,
             >,
@@ -331,7 +331,7 @@ where
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             CurrentRegime,
             G,
-            aarch64_vmsa::descriptor::Vmsa64Lpa2,
+            aarch64_vmsa::config::format::Vmsa64Lpa2,
         >(&mut root, start_level, 52, output_width)?;
         mapper.map_attributes_leaf(
             ADDRESS,
@@ -341,7 +341,7 @@ where
         )?;
         sandbox = context.prepare_transition_runtime(
             &mut mapper,
-            active_granule::<aarch64_vmsa::descriptor::Vmsa64Lpa2, G> as *const () as u64,
+            active_granule::<aarch64_vmsa::config::format::Vmsa64Lpa2, G> as *const () as u64,
             false,
         )?;
         let leaf = mapper
@@ -400,7 +400,7 @@ where
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             CurrentRegime,
             G,
-            aarch64_vmsa::descriptor::Vmsa64Lpa2,
+            aarch64_vmsa::config::format::Vmsa64Lpa2,
         >(&mut root, start_level, 52, output_width)?;
         mapper.map_attributes_leaf(
             fresh_address,
@@ -470,8 +470,8 @@ fn malformed_d128_leaf(
     let observation = {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             crate::LowerRegime,
-            aarch64_vmsa::address::Granule4KiB,
-            aarch64_vmsa::descriptor::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
+            aarch64_vmsa::config::format::Vmsa128,
         >(&mut root, start, 52, 52)?;
         mapper.map_hardware_managed_page(
             ADDRESS,

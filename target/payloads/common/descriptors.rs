@@ -9,13 +9,23 @@ pub fn raw_field_bounds() -> TestResult {
 
     macro_rules! bounded {
         ($constructor:path, $maximum:expr, $invalid:expr) => {{
-            let zero = $constructor(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-            let maximum = $constructor($maximum).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+            let zero = $constructor(0).map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?;
+            let maximum = $constructor($maximum).map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?;
             if zero.bits() != 0
                 || maximum.bits() != $maximum
                 || $constructor($invalid) != Err(AttrError::RawFieldOutOfRange)
             {
-                return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+                return HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                }
+                .into();
             }
         }};
     }
@@ -34,24 +44,38 @@ pub fn raw_field_bounds() -> TestResult {
             .ok()
             != Some(bits)
         {
-            return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     if RawShareability::from_bits(0b01) != Err(AttrError::InvalidShareability) {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     for value in [false, true] {
         if Stage1NotDirty::new(value).bit() != value || Stage2Dirty::new(value).bit() != value {
-            return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+            return HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+            .into();
         }
     }
     TestResult::Pass
 }
 
 pub fn descriptor_errors() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
+    use aarch64_vmsa::address::{Level, PhysAddr};
     use aarch64_vmsa::attrs::AttrError;
-    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout, Vmsa64};
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout};
     use aarch64_vmsa::low_level::raw::{
         FourBit, LeafAp, RawShareability, RawVmsa64Stage1LeafAttrs, RawVmsa64Stage1TableAttrs,
         TableAp, ThreeBit,
@@ -61,10 +85,19 @@ pub fn descriptor_errors() -> TestResult {
 
     type Layout = <Vmsa64 as HasLayout<Stage1, Granule4KiB>>::Layout;
     let leaf = RawVmsa64Stage1LeafAttrs {
-        attr_index: ThreeBit::new(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+        attr_index: ThreeBit::new(0).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?,
         ns: false,
-        ap: LeafAp::from_bits(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
-        shareability: RawShareability::from_bits(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+        ap: LeafAp::from_bits(0).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?,
+        shareability: RawShareability::from_bits(0).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?,
         access_flag: true,
         alias_bit: false,
         dirty_bit_modifier: false,
@@ -80,21 +113,36 @@ pub fn descriptor_errors() -> TestResult {
         leaf,
     ) != Err(DescriptorError::InvalidLeafLevel { level: Level::L0 })
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     let parent = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0);
-    let child = TableShape::<Vmsa64, Granule4KiB>::new(Level::L2, 2)
-        .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
-    let transition = TableTransition::new(parent, child).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    let child = TableShape::<Vmsa64, Granule4KiB>::new(Level::L2, 2).map_err(|_| {
+        HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+    })?;
+    let transition =
+        TableTransition::new(parent, child).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     let table = RawVmsa64Stage1TableAttrs {
         privileged_execute_never_limit: false,
         unprivileged_execute_never_limit: false,
-        ap_table: TableAp::from_bits(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+        ap_table: TableAp::from_bits(0).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?,
         ns_table: false,
         software: FourBit::ZERO,
     };
     if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::table_descriptor(
-        PhysAddr(0x4000),
+        aarch64_vmsa::table::TableAddr::new(0x4000).expect("aligned table address"),
         transition,
         table,
     ) != Err(DescriptorError::InvalidTableTransition {
@@ -103,7 +151,11 @@ pub fn descriptor_errors() -> TestResult {
         stride_count: 2,
     }) || FourBit::new(0x10) != Err(AttrError::RawFieldOutOfRange)
     {
-        return HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
     }
     TestResult::Pass
 }
@@ -119,7 +171,10 @@ fn d128_stage1_leaf(
         attr_index: FourBit::ZERO,
         bbm_nt,
         not_dirty: Stage1NotDirty::new(false),
-        shareability: RawShareability::from_bits(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+        shareability: RawShareability::from_bits(0).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?,
         access_flag: true,
         alias_bit: false,
         contiguous: false,
@@ -130,7 +185,10 @@ fn d128_stage1_leaf(
             po: FourBit::ZERO,
         },
         ns: false,
-        software: TenBit::new(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+        software: TenBit::new(0).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?,
     })
 }
 
@@ -144,7 +202,10 @@ fn d128_stage2_leaf(
         mem_attr: FourBit::ZERO,
         bbm_nt,
         dirty: Stage2Dirty::new(false),
-        shareability: RawShareability::from_bits(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+        shareability: RawShareability::from_bits(0).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?,
         access_flag: true,
         force_no_execute: false,
         contiguous: false,
@@ -154,13 +215,18 @@ fn d128_stage2_leaf(
             po: FourBit::ZERO,
         },
         ns: false,
-        software: TenBit::new(0).map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?,
+        software: TenBit::new(0).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?,
     })
 }
 
 pub fn d128_stage1_final_bbm_nt_error() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout, Vmsa128};
+    use aarch64_vmsa::address::{Level, PhysAddr};
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout};
     use aarch64_vmsa::translation::Stage1;
     type Layout = <Vmsa128 as HasLayout<Stage1, Granule4KiB>>::Layout;
     if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::leaf_descriptor(
@@ -171,13 +237,19 @@ pub fn d128_stage1_final_bbm_nt_error() -> TestResult {
     {
         TestResult::Pass
     } else {
-        HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+        HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into()
     }
 }
 
 pub fn d128_stage2_final_bbm_nt_error() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout, Vmsa128};
+    use aarch64_vmsa::address::{Level, PhysAddr};
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout};
     use aarch64_vmsa::translation::Stage2;
     type Layout = <Vmsa128 as HasLayout<Stage2, Granule4KiB>>::Layout;
     if <Layout as DescriptorLayout<Stage2, Granule4KiB>>::leaf_descriptor(
@@ -188,13 +260,19 @@ pub fn d128_stage2_final_bbm_nt_error() -> TestResult {
     {
         TestResult::Pass
     } else {
-        HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+        HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into()
     }
 }
 
 pub fn d128_stage1_table_nt_skl0_error() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout, Vmsa128};
+    use aarch64_vmsa::address::{Level, PhysAddr};
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout};
     use aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs;
     use aarch64_vmsa::table::{TableShape, TableTransition};
     use aarch64_vmsa::translation::Stage1;
@@ -203,26 +281,35 @@ pub fn d128_stage1_table_nt_skl0_error() -> TestResult {
         TableShape::<Vmsa128, Granule4KiB>::root(Level::L0),
         TableShape::<Vmsa128, Granule4KiB>::root(Level::L1),
     )
-    .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    .map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
     let fields = RawVmsa128Stage1TableAttrs {
         table_nt: true,
         ..RawVmsa128Stage1TableAttrs::default()
     };
     if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::table_descriptor(
-        PhysAddr(0),
+        aarch64_vmsa::table::TableAddr::new(0).expect("aligned table address"),
         transition,
         fields,
     ) == Err(DescriptorError::ReservedFieldSet { bit: 6 })
     {
         TestResult::Pass
     } else {
-        HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+        HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into()
     }
 }
 
 pub fn d128_stage2_table_nt_skl0_error() -> TestResult {
-    use aarch64_vmsa::address::{Granule4KiB, Level, PhysAddr};
-    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout, Vmsa128};
+    use aarch64_vmsa::address::{Level, PhysAddr};
+    use aarch64_vmsa::config::format::Vmsa128;
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout};
     use aarch64_vmsa::low_level::raw::RawVmsa128Stage2TableAttrs;
     use aarch64_vmsa::table::{TableShape, TableTransition};
     use aarch64_vmsa::translation::Stage2;
@@ -231,19 +318,26 @@ pub fn d128_stage2_table_nt_skl0_error() -> TestResult {
         TableShape::<Vmsa128, Granule4KiB>::root(Level::L0),
         TableShape::<Vmsa128, Granule4KiB>::root(Level::L1),
     )
-    .map_err(|_| HarnessError::CrateBehavior { expected: 1, actual: 0 })?;
+    .map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
     let fields = RawVmsa128Stage2TableAttrs {
         table_nt: true,
         ..RawVmsa128Stage2TableAttrs::default()
     };
     if <Layout as DescriptorLayout<Stage2, Granule4KiB>>::table_descriptor(
-        PhysAddr(0),
+        aarch64_vmsa::table::TableAddr::new(0).expect("aligned table address"),
         transition,
         fields,
     ) == Err(DescriptorError::ReservedFieldSet { bit: 6 })
     {
         TestResult::Pass
     } else {
-        HarnessError::CrateBehavior { expected: 1, actual: 0 }.into()
+        HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into()
     }
 }
