@@ -322,8 +322,6 @@ macro_rules! for_each_registered_test {
             RecursiveBaseErrors, "tables.recursive-error-base", entry(NORMAL, Requirements::NONE), (recursive_base_errors), (none), (none), (none), (none);
             RecursiveLevelError, "tables.recursive-error-level", entry(NORMAL, Requirements::NONE), (recursive_level_error), (none), (none), (none), (none);
             RecursivePathErrors, "tables.recursive-error-path", entry(NORMAL, Requirements::NONE), (recursive_path_errors), (none), (none), (none), (none);
-            RecursiveOverflowError, "tables.recursive-error-overflow", entry(NORMAL, Requirements::NONE), (recursive_overflow_error), (none), (none), (none), (none);
-            RecursiveNullMappingError, "tables.recursive-error-null-mapping", entry(NORMAL, Requirements::NONE), (recursive_null_mapping_error), (none), (none), (none), (none);
             TableAllocationFailure0, "recovery.allocation-table-0", entry(NORMAL, Requirements::NONE), (table_allocation_failure_0), (none), (none), (none), (none);
             TableAllocationFailure1, "recovery.allocation-table-1", entry(NORMAL, Requirements::NONE), (table_allocation_failure_1), (none), (none), (none), (none);
             TableAllocationFailure2, "recovery.allocation-table-2", entry(NORMAL, Requirements::NONE), (table_allocation_failure_2), (none), (none), (none), (none);

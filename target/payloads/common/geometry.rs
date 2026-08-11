@@ -602,10 +602,7 @@ pub fn value_boundaries() -> TestResult {
     );
     let walker = aarch64_vmsa::translation::Walker::new(root, &RejectTableAccess)
         .expect("valid walker root");
-    let cursor = walker
-        .cursor(aarch64_vmsa::translation::WalkInputAddr::new(0))
-        .expect("valid walk cursor")
-        .table();
+    let cursor = walker.start().current();
     let path = TableWalkPath::<Vmsa64, Granule4KiB>::root();
     if root.addr() != address
         || root.level() != Level::L0
@@ -733,10 +730,7 @@ pub fn path_boundaries() -> TestResult {
         );
     let walker = aarch64_vmsa::translation::Walker::new(root_table, &RejectTableAccess)
         .expect("valid walker root");
-    let root_cursor = walker
-        .cursor(aarch64_vmsa::translation::WalkInputAddr::new(0))
-        .expect("valid walk cursor")
-        .table();
+    let root_cursor = walker.start().current();
     let level1 = root_cursor
         .next_table(
             0x12,
@@ -807,20 +801,21 @@ pub fn walk_cursor_boundaries() -> TestResult {
         RootTableGeometry::new_at_level(root, Level::L0, 48, 48).expect("valid root geometry"),
     );
     let walker = Walker::new(root_table, &RejectTableAccess).expect("valid walker root");
-    let cursor = walker
-        .cursor(input)
+    let walk = walker
+        .start_at(input)
         .map_err(|_| HarnessError::CrateBehavior {
             expected: 1,
             actual: 0,
         })?;
+    let cursor = walk.current();
     let expected_index = ((input.raw() >> 39) & 0x1ff) as usize;
-    if cursor.input() != input
-        || cursor.root() != root
+    if walk.input() != input
+        || cursor.root_addr() != root
         || cursor.root_level() != Level::L0
         || cursor.current() != root
         || cursor.level() != Level::L0
         || !cursor.path().is_root()
-        || cursor.entry_index() != Ok(expected_index)
+        || cursor.entry_index(input.raw()) != Ok(expected_index)
     {
         return HarnessError::CrateBehavior {
             expected: 1,
@@ -844,12 +839,11 @@ pub fn walk_cursor_boundaries() -> TestResult {
                 expected: 1,
                 actual: 0,
             })?;
-    if child.root() != root
+    if child.root_addr() != root
         || child.current() != next_addr
         || child.level() != Level::L1
         || child.path().len() != 1
         || child.path().index(0) != Some(expected_index)
-        || child.table().current() != next_addr
     {
         return HarnessError::CrateBehavior {
             expected: 1,
@@ -1109,9 +1103,9 @@ pub fn cursor_next_table_errors() -> TestResult {
     );
     let walker = Walker::new(root_table, &RejectTableAccess).expect("valid walker root");
     let cursor = walker
-        .cursor(WalkInputAddr::new(0x1234_5000))
-        .expect("valid walk cursor")
-        .table();
+        .start_at(WalkInputAddr::new(0x1234_5000))
+        .expect("valid addressed walk")
+        .current();
     let next = NextTable::<Vmsa64, Granule4KiB>::new(next_addr, Level::L1, 1).map_err(|_| {
         HarnessError::CrateBehavior {
             expected: 1,
@@ -1153,10 +1147,7 @@ pub fn cursor_next_table_errors() -> TestResult {
             .expect("valid final-level root geometry"),
     );
     let final_walker = Walker::new(final_root, &RejectTableAccess).expect("valid walker root");
-    let final_cursor = final_walker
-        .cursor(WalkInputAddr::new(0))
-        .expect("valid walk cursor")
-        .table();
+    let final_cursor = final_walker.start().current();
     if final_cursor.next_table(0, next)
         != Err(AccessError::InvalidTableLevel {
             root_level: Level::L3,
@@ -1171,14 +1162,14 @@ pub fn cursor_next_table_errors() -> TestResult {
         .into();
     }
     let walk = walker
-        .cursor(WalkInputAddr::new(0x1234_5000))
+        .start_at(WalkInputAddr::new(0x1234_5000))
         .map_err(|_| HarnessError::CrateBehavior {
             expected: 1,
             actual: 0,
         })?;
-    if walk.table() != cursor
+    if walk.current() != cursor
         || !matches!(
-            walk.next_table(512, next),
+            walk.current().next_table(512, next),
             Err(AccessError::TablePathIndexOutOfRange {
                 index: 512,
                 entries: 512,

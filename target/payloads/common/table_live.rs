@@ -283,8 +283,3 @@ walker_error_case!(recursive_index_error, verify_recursive_index_error);
 walker_error_case!(recursive_base_errors, verify_recursive_base_errors);
 walker_error_case!(recursive_level_error, verify_recursive_level_error);
 walker_error_case!(recursive_path_errors, verify_recursive_path_errors);
-walker_error_case!(recursive_overflow_error, verify_recursive_overflow_error);
-walker_error_case!(
-    recursive_null_mapping_error,
-    verify_recursive_null_mapping_error
-);

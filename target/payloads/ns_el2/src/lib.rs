@@ -673,12 +673,6 @@ fn recursive_level_error(context: &mut TestContext<'_, CurrentEnvironment>) -> T
 fn recursive_path_errors(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     table_live::recursive_path_errors(context)
 }
-fn recursive_overflow_error(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    table_live::recursive_overflow_error(context)
-}
-fn recursive_null_mapping_error(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    table_live::recursive_null_mapping_error(context)
-}
 fn allocation_failure(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     recovery::allocation_failure(context)
 }

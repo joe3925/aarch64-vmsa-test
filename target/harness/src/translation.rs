@@ -921,7 +921,7 @@ use aarch64_vmsa::table::{
     OffsetTableAccess, RecursiveTableAccess, RootTable, TableAccess, TableAccessMut, TableAddr,
     TableAllocLayout, TableFrameProvider, TableShape, TableTransition,
 };
-use aarch64_vmsa::translation::walk::{WalkInputAddr, WalkStep, Walker};
+use aarch64_vmsa::translation::walk::{WalkEntry, WalkInputAddr, Walker};
 use aarch64_vmsa::translation::{Stage1, Stage2};
 
 type StageOf<R> = <R as TranslationRegime>::Stage;
@@ -3307,7 +3307,8 @@ fn normalize_mapper_operation_error(
             entry_index,
         },
         MapperError::NotMapped { input } => MapperOperationError::NotMapped { input: input.raw() },
-        MapperError::InvalidRootLevel { .. }
+        MapperError::WalkPathEntryNotTable { .. }
+        | MapperError::InvalidRootLevel { .. }
         | MapperError::InvalidRootAddressBits { .. }
         | MapperError::InvalidConfiguredOutputAddressBits { .. } => {
             MapperOperationError::Unexpected
@@ -3435,7 +3436,9 @@ where
             let walker = Walker::<F, R, G, _>::new(root, self.mapper.inner.access())
                 .map_err(|_| HarnessError::InvalidState)?;
             match walker
-                .walk(WalkInputAddr::new(input))
+                .start_at(WalkInputAddr::new(input))
+                .map_err(|_| HarnessError::InvalidState)?
+                .finish()
                 .map_err(|_| HarnessError::InvalidState)?
             {
                 aarch64_vmsa::translation::walk::WalkOutcome::Leaf(leaf) => {
@@ -3547,19 +3550,16 @@ where
     A: TableAccess<F, G>,
 {
     let walker = Walker::<F, R, G, _>::new(root, access).map_err(|_| HarnessError::InvalidState)?;
-    let mut cursor = walker
-        .cursor(WalkInputAddr::new(input))
+    let mut walk = walker
+        .start_at(WalkInputAddr::new(input))
         .map_err(|_| HarnessError::InvalidState)?;
     let mut inspection = WalkInspection {
         steps: [None; 6],
         length: 0,
     };
     loop {
-        match walker
-            .step(cursor)
-            .map_err(|_| HarnessError::InvalidState)?
-        {
-            WalkStep::Invalid(invalid) => {
+        match walk.step().map_err(|_| HarnessError::InvalidState)? {
+            WalkEntry::Invalid(invalid) => {
                 inspection.push(WalkDescriptorInspection {
                     level: LookupLevel::new(invalid.level().as_i8())
                         .ok_or(HarnessError::InvalidState)?,
@@ -3571,7 +3571,7 @@ where
                 })?;
                 return Ok(inspection);
             }
-            WalkStep::Leaf(leaf) => {
+            WalkEntry::Leaf(leaf) => {
                 let kind = match leaf.kind() {
                     aarch64_vmsa::translation::walk::WalkLeafKind::Block => {
                         WalkDescriptorKind::Block
@@ -3585,11 +3585,15 @@ where
                     kind,
                     raw: Some(F::descriptor_bits(leaf.raw())),
                     next_table: None,
-                    output: Some(leaf.output().0),
+                    output: Some(
+                        walk.output(&leaf)
+                            .map_err(|_| HarnessError::InvalidState)?
+                            .0,
+                    ),
                 })?;
                 return Ok(inspection);
             }
-            WalkStep::Table(table) => {
+            WalkEntry::Table(table) => {
                 inspection.push(WalkDescriptorInspection {
                     level: LookupLevel::new(table.level().as_i8())
                         .ok_or(HarnessError::InvalidState)?,
@@ -3599,7 +3603,8 @@ where
                     next_table: Some(table.next().raw()),
                     output: None,
                 })?;
-                cursor = table.next_cursor();
+                walk.step_in(table)
+                    .map_err(|_| HarnessError::InvalidState)?;
             }
         }
     }
@@ -3985,6 +3990,10 @@ where
             vmsa_test_architecture::transition::runtime_state_address()
                 & !(LINKED_RUNTIME_DATA_WINDOW - 1),
         ];
+        let runtime_tail_start = code_regions[0]
+            .checked_add(CODE_WINDOW)
+            .ok_or(HarnessError::Memory)?;
+        let runtime_tail_end = vmsa_test_architecture::exception::linkage_data_address();
         let is_linked_runtime_data = |address: u64| {
             linked_runtime_data_regions.iter().any(|start| {
                 (*start..start.saturating_add(LINKED_RUNTIME_DATA_WINDOW)).contains(&address)
@@ -4042,6 +4051,40 @@ where
                 }
                 address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
             }
+        }
+        // Compiler-generated constants and lookup tables can land after the
+        // fixed executable window but before relocation-backed linkage data.
+        // Keep that linked-image tail available to privileged helpers.
+        let mut address = G::align_down(runtime_tail_start);
+        while address < runtime_tail_end {
+            if !(stack_start..stack_end).contains(&address)
+                && !(arena_start..arena_end).contains(&address)
+                && !data_pages.contains(&address)
+                && !is_linked_runtime_data(address)
+                && !sandbox_regions.iter().any(|(input, _)| *input == address)
+                && self
+                    .inner
+                    .translate(WalkInputAddr::new(address))
+                    .map_err(|_| HarnessError::InvalidState)?
+                    .is_none()
+            {
+                self.map_attributes_leaf(
+                    address,
+                    address,
+                    leaf_level,
+                    MappingAttributes {
+                        writable: false,
+                        executable: false,
+                        user_accessible: false,
+                    },
+                )
+                .map_err(|_| {
+                    HarnessError::TransitionPreparation(
+                        crate::TransitionPreparationError::VmsaRuntimeLinkageData,
+                    )
+                })?;
+            }
+            address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
         }
         // Compiler support globals (for example the stack protector) share a
         // bounded linked data neighborhood with the exception runtime state.

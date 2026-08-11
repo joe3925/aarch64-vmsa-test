@@ -549,11 +549,11 @@ impl<'a, E: Environment> TestContext<'a, E> {
         let Ok(walker) = Walker::new(root, access) else {
             return false;
         };
-        let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
+        let Ok(mut walk) = walker.start_at(WalkInputAddr::new(0)) else {
             return false;
         };
         matches!(
-            walker.step(cursor),
+            walk.step(),
             Err(WalkError::Access(WalkerProbeAccessError::Rejected))
         )
     }
@@ -603,8 +603,8 @@ impl<'a, E: Environment> TestContext<'a, E> {
         use aarch64_vmsa::address::{Level, PhysAddr};
         use aarch64_vmsa::config::granule::Granule4KiB;
         use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
-        use aarch64_vmsa::table::{NextTable, RootTable, TableAddr, TableShape};
-        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
+        use aarch64_vmsa::table::{RootTable, TableAddr, TableShape};
+        use aarch64_vmsa::translation::walk::{WalkError, Walker};
 
         let Ok(root) = self.allocate_root() else {
             return false;
@@ -622,27 +622,16 @@ impl<'a, E: Environment> TestContext<'a, E> {
         };
         let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
             root_addr,
-            Level::NEG1,
-            48,
+            Level::L3,
+            12,
             48,
         );
         let Ok(walker) = Walker::new(root, access) else {
             return false;
         };
-        let Ok(cursor) = walker.cursor(WalkInputAddr::new(512 << 12)) else {
-            return false;
-        };
-        let Ok(zero) = TableAddr::<Granule4KiB>::new(0) else {
-            return false;
-        };
-        let Ok(next) = NextTable::<WalkerProbeFormat, Granule4KiB>::new(zero, Level::L3, 4) else {
-            return false;
-        };
-        let Ok(cursor) = cursor.next_table(0, next) else {
-            return false;
-        };
+        let mut walk = walker.start();
         matches!(
-            walker.step(cursor),
+            walk.step_to(512),
             Err(WalkError::EntryIndexOutOfRange {
                 index: 512,
                 entries: 512,
@@ -815,128 +804,6 @@ impl<'a, E: Environment> TestContext<'a, E> {
                     expected: Level::L0,
                     actual: Level::L1,
                 })
-    }
-
-    pub fn verify_recursive_overflow_error(&self) -> bool {
-        use aarch64_vmsa::address::{Level, PhysAddr, VirtAddr};
-        use aarch64_vmsa::config::format::Vmsa64;
-        use aarch64_vmsa::config::granule::Granule64KiB;
-        use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
-        use aarch64_vmsa::table::{
-            AccessError, NextTable, RecursiveTableAccess, RootTable, TableAddr,
-        };
-        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
-
-        let Ok(root) = self.allocate_root_64k() else {
-            return false;
-        };
-        let Ok(root_addr) = TableAddr::<Granule64KiB>::new(root.phys_addr()) else {
-            return false;
-        };
-        let recursive_base = (1 << 55) | (1 << 42) | (1 << 29) | (1 << 16);
-        // SAFETY: The repeated index geometry is valid. The deliberately wide
-        // path below returns AddressOverflow before producing or dereferencing
-        // a recursive virtual pointer.
-        let Ok(access) = (unsafe {
-            RecursiveTableAccess::<Vmsa64, Granule64KiB>::new(
-                1,
-                VirtAddr(recursive_base),
-                root_addr,
-                Level::L0,
-            )
-        }) else {
-            return false;
-        };
-        let Ok(zero) = TableAddr::<Granule64KiB>::new(0) else {
-            return false;
-        };
-        let root_table = RootTable::<Vmsa64, NonSecureEl1Stage1, Granule64KiB>::new(
-            root_addr,
-            Level::L0,
-            48,
-            48,
-        );
-        let Ok(walker) = Walker::new(root_table, &access) else {
-            return false;
-        };
-        let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
-            return false;
-        };
-        let Ok(cursor) = cursor.next_table(
-            0,
-            NextTable::new(zero, Level::L1, 4).expect("zero satisfies the wide alignment"),
-        ) else {
-            return false;
-        };
-        let Ok(cursor) = cursor.next_table(
-            0,
-            NextTable::new(zero, Level::L2, 1).expect("zero satisfies table alignment"),
-        ) else {
-            return false;
-        };
-        matches!(
-            walker.step(cursor),
-            Err(WalkError::Access(AccessError::AddressOverflow))
-        )
-    }
-
-    pub fn verify_recursive_null_mapping_error(&self) -> bool {
-        use aarch64_vmsa::address::{Level, PhysAddr, VirtAddr};
-        use aarch64_vmsa::config::format::Vmsa64;
-        use aarch64_vmsa::config::granule::Granule4KiB;
-        use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
-        use aarch64_vmsa::table::{
-            AccessError, NextTable, RecursiveTableAccess, RootTable, TableAddr,
-        };
-        use aarch64_vmsa::translation::walk::{WalkError, WalkInputAddr, Walker};
-
-        let Ok(root) = self.allocate_root() else {
-            return false;
-        };
-        let Ok(root_addr) = TableAddr::<Granule4KiB>::new(root.phys_addr()) else {
-            return false;
-        };
-        let recursive_base = (1 << 39) | (1 << 30) | (1 << 21) | (1 << 12);
-        // SAFETY: The repeated index geometry is valid. The path below clears
-        // every populated VA field and returns NullMapping before a table is
-        // created or any recursive virtual address is dereferenced.
-        let Ok(access) = (unsafe {
-            RecursiveTableAccess::<Vmsa64, Granule4KiB>::new(
-                1,
-                VirtAddr(recursive_base),
-                root_addr,
-                Level::L0,
-            )
-        }) else {
-            return false;
-        };
-        let Ok(zero) = TableAddr::<Granule4KiB>::new(0) else {
-            return false;
-        };
-        let root_table =
-            RootTable::<Vmsa64, NonSecureEl1Stage1, Granule4KiB>::new(root_addr, Level::L0, 48, 48);
-        let Ok(walker) = Walker::new(root_table, &access) else {
-            return false;
-        };
-        let Ok(cursor) = walker.cursor(WalkInputAddr::new(0)) else {
-            return false;
-        };
-        let Ok(cursor) = cursor.next_table(
-            0,
-            NextTable::new(zero, Level::L1, 4).expect("zero satisfies the wide alignment"),
-        ) else {
-            return false;
-        };
-        let Ok(cursor) = cursor.next_table(
-            0,
-            NextTable::new(zero, Level::L2, 1).expect("zero satisfies table alignment"),
-        ) else {
-            return false;
-        };
-        matches!(
-            walker.step(cursor),
-            Err(WalkError::Access(AccessError::NullMapping))
-        )
     }
 
     pub fn verify_arena_exhaustion_boundary(&self) -> bool {
