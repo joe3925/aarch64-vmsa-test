@@ -1902,8 +1902,10 @@ where
     }
     let root_address = TableAddr::new(setup.root.get()).map_err(|_| HarnessError::Memory)?;
     let transition = TableTransition::new(
-        TableShape::<Vmsa64, Granule4KiB>::root(root_level),
-        TableShape::<Vmsa64, Granule4KiB>::root(child_level),
+        TableShape::<Vmsa64, Granule4KiB>::root(root_level)
+            .map_err(|_| HarnessError::InvalidState)?,
+        TableShape::<Vmsa64, Granule4KiB>::root(child_level)
+            .map_err(|_| HarnessError::InvalidState)?,
     )
     .map_err(|_| HarnessError::InvalidState)?;
     type Layout<R> = <Vmsa64 as HasLayout<StageOf<R>, Granule4KiB>>::Layout;
@@ -3200,10 +3202,6 @@ pub enum MapperOperationError {
         address: u64,
         align: u64,
     },
-    LengthNotMappingMultiple {
-        length: u64,
-        mapping_size: u64,
-    },
     InputNotLeafBase {
         input: u64,
         covered_input_base: u64,
@@ -3280,12 +3278,6 @@ fn normalize_mapper_operation_error(
             address: addr.0,
             align,
         },
-        MapperError::LengthNotMappingMultiple { len, mapping_size } => {
-            MapperOperationError::LengthNotMappingMultiple {
-                length: len,
-                mapping_size,
-            }
-        }
         MapperError::InputNotLeafBase {
             input,
             covered_input_base,
@@ -3342,6 +3334,10 @@ where
     G: TestGranule,
     F: TestFormat + HasLayout<StageOf<R>, G>,
 {
+    pub fn table_geometry(&self) -> aarch64_vmsa::table::TableGeometry<F, G> {
+        self.inner.table_geometry()
+    }
+
     pub fn map_semantic_leaf<Cfg>(
         &mut self,
         config: &Cfg,
@@ -4454,33 +4450,6 @@ where
                 output: outcome.old().output().0,
                 level: LookupLevel::new(outcome.old().level().as_i8())
                     .expect("mapper leaf levels are architectural"),
-            })
-            .map_err(normalize_mapper_operation_error)
-    }
-
-    pub fn map_range_exact(
-        &mut self,
-        input: u64,
-        output: u64,
-        length: u64,
-        level: i8,
-        attributes: MappingAttributes,
-    ) -> Result<MapRangeResult, MapperOperationError> {
-        let leaf = R::raw_leaf(attributes).map_err(|_| MapperOperationError::Unexpected)?;
-        let table = R::raw_table().map_err(|_| MapperOperationError::Unexpected)?;
-        self.inner
-            .map_range(
-                WalkInputAddr::new(input),
-                PhysAddr(output),
-                length,
-                Level::new(level),
-                leaf,
-                table,
-            )
-            .map(|outcome| MapRangeResult {
-                mappings_created: outcome.mappings_created(),
-                bytes_mapped: outcome.bytes_mapped(),
-                tables_allocated: outcome.tables_allocated(),
             })
             .map_err(normalize_mapper_operation_error)
     }

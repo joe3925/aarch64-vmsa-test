@@ -195,6 +195,9 @@ fn d128_stage2_table_nt_skl0_error(_: &mut TestContext<'_, CurrentEnvironment>) 
 fn geometry_value_boundaries(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     geometry::value_boundaries()
 }
+fn geometry_level_spans(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    geometry::level_spans()
+}
 fn geometry_path_boundaries(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     geometry::path_boundaries()
 }
@@ -204,8 +207,8 @@ fn walk_cursor_boundaries(_: &mut TestContext<'_, CurrentEnvironment>) -> TestRe
 fn table_shape_transition_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     geometry::table_shape_transition_matrix()
 }
-fn path_capacity_errors(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    geometry::path_capacity_errors()
+fn invalid_table_levels(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    geometry::invalid_table_levels()
 }
 fn cursor_next_table_errors(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     geometry::cursor_next_table_errors()
@@ -558,41 +561,11 @@ fn live_reclaim_outcome(context: &mut TestContext<'_, CurrentEnvironment>) -> Te
 fn live_reclaim_post_fault(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     mapper_live::live_reclaim_post_fault(context, vmsa_test_harness::RegimeAttributes::Normal)
 }
-fn zero_range_outcome(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    mapper_live::zero_range_outcome(context)
-}
-fn single_range_outcome(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    mapper_live::single_range_outcome(context)
-}
-fn invalid_range_length(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    mapper_live::invalid_range_length(context)
-}
-fn unaligned_range_input(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    mapper_live::unaligned_range_input(context)
-}
-fn unaligned_range_output(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    mapper_live::unaligned_range_output(context)
-}
-fn input_range_end_out_of_range(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-    mapper_live::input_range_end_out_of_range(context)
-}
-fn input_range_arithmetic_overflow(
-    context: &mut TestContext<'_, CurrentEnvironment>,
-) -> TestResult {
-    mapper_live::input_range_arithmetic_overflow(context)
-}
-fn output_range_arithmetic_overflow(
-    context: &mut TestContext<'_, CurrentEnvironment>,
-) -> TestResult {
-    mapper_live::output_range_arithmetic_overflow(context)
-}
 fn frame_provider_error(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     mapper_live::frame_provider_error(context)
 }
-fn range_partial_prefix_postcondition(
-    context: &mut TestContext<'_, CurrentEnvironment>,
-) -> TestResult {
-    mapper_live::range_partial_prefix_postcondition(context)
+fn map_leaf_partial_table_path(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    mapper_live::map_leaf_partial_table_path(context)
 }
 fn multi_pe_visibility(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     coherency::multi_pe_translation_visibility(context, vmsa_test_harness::RegimeAttributes::Normal)

@@ -235,169 +235,6 @@ where
     TestResult::Pass
 }
 
-pub fn zero_range_outcome(context: &mut TestContext<'_, crate::CurrentEnvironment>) -> TestResult {
-    let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
-    if mapper.map_range_exact(u64::MAX, u64::MAX, 0, 3, MappingAttributes::READ_WRITE)
-        != Ok(vmsa_test_harness::MapRangeResult {
-            mappings_created: 0,
-            bytes_mapped: 0,
-            tables_allocated: 0,
-        })
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    TestResult::Pass
-}
-
-pub fn single_range_outcome(
-    context: &mut TestContext<'_, crate::CurrentEnvironment>,
-) -> TestResult {
-    let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
-    if mapper.map_range_exact(0, 0, 4096, 3, MappingAttributes::READ_WRITE)
-        != Ok(vmsa_test_harness::MapRangeResult {
-            mappings_created: 1,
-            bytes_mapped: 4096,
-            tables_allocated: 3,
-        })
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    TestResult::Pass
-}
-
-pub fn invalid_range_length(
-    context: &mut TestContext<'_, crate::CurrentEnvironment>,
-) -> TestResult {
-    let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
-    if mapper.map_range_exact(0, 0, 4097, 3, MappingAttributes::READ_WRITE)
-        != Err(
-            vmsa_test_harness::MapperOperationError::LengthNotMappingMultiple {
-                length: 4097,
-                mapping_size: 4096,
-            },
-        )
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    TestResult::Pass
-}
-
-pub fn unaligned_range_input(
-    context: &mut TestContext<'_, crate::CurrentEnvironment>,
-) -> TestResult {
-    let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
-    if mapper.map_range_exact(1, 0, 4096, 3, MappingAttributes::READ_WRITE)
-        != Err(vmsa_test_harness::MapperOperationError::UnalignedInput {
-            address: 1,
-            align: 4096,
-        })
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    TestResult::Pass
-}
-
-pub fn unaligned_range_output(
-    context: &mut TestContext<'_, crate::CurrentEnvironment>,
-) -> TestResult {
-    let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
-    if mapper.map_range_exact(0, 1, 4096, 3, MappingAttributes::READ_WRITE)
-        != Err(vmsa_test_harness::MapperOperationError::UnalignedOutput {
-            address: 1,
-            align: 4096,
-        })
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    TestResult::Pass
-}
-
-pub fn input_range_end_out_of_range(
-    context: &mut TestContext<'_, crate::CurrentEnvironment>,
-) -> TestResult {
-    let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
-    if mapper.map_range_exact(0xffff_f000, 0, 8192, 3, MappingAttributes::READ_WRITE)
-        != Err(
-            vmsa_test_harness::MapperOperationError::InputAddressOutOfRange {
-                address: 0x1_0000_0fff,
-                address_bits: 32,
-            },
-        )
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    TestResult::Pass
-}
-
-pub fn input_range_arithmetic_overflow(
-    context: &mut TestContext<'_, crate::CurrentEnvironment>,
-) -> TestResult {
-    let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::NEG1, 57, 48)?;
-    if mapper.map_range_exact(u64::MAX - 4095, 0, 8192, 3, MappingAttributes::READ_WRITE)
-        != Err(vmsa_test_harness::MapperOperationError::AddressOverflow)
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    TestResult::Pass
-}
-
-pub fn output_range_arithmetic_overflow(
-    context: &mut TestContext<'_, crate::CurrentEnvironment>,
-) -> TestResult {
-    let mut root = context.allocate_root()?;
-    let mut mapper = context.offline_mapper_for_format_with_geometry::<crate::CurrentRegime, aarch64_vmsa::config::granule::Granule4KiB, aarch64_vmsa::config::format::Vmsa64>(&mut root, aarch64_vmsa::address::Level::L0, 32, 48)?;
-    if mapper.map_range_exact(0, u64::MAX - 4095, 8192, 3, MappingAttributes::READ_WRITE)
-        != Err(
-            vmsa_test_harness::MapperOperationError::OutputAddressOverflow {
-                base: u64::MAX - 4095,
-                offset: 8191,
-            },
-        )
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    TestResult::Pass
-}
-
 pub fn frame_provider_error(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
@@ -599,12 +436,9 @@ pub fn break_before_make_ordering(
     }
 }
 
-pub fn range_partial_prefix_postcondition(
+pub fn map_leaf_partial_table_path(
     context: &mut TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    const PAGE: u64 = 4096;
-    const START: u64 = 2 * 1024 * 1024 - PAGE;
-    let output = context.allocate_contiguous(3)?;
     let mut root = context.allocate_root()?;
     let baseline_allocations = context.arena_allocation_count();
     let mut mapper = context.offline_mapper_for_format_with_geometry::<
@@ -617,23 +451,15 @@ pub fn range_partial_prefix_postcondition(
         32,
         32,
     )?;
-    let failed = context.with_table_allocation_failure(3, || {
-        mapper.map_range_exact(
-            START,
-            output.phys_addr(),
-            3 * PAGE,
-            3,
-            MappingAttributes::READ_WRITE,
-        )
+    let failed = context.with_table_allocation_failure(2, || {
+        mapper.map_attributes_leaf_exact(0, 0, 3, MappingAttributes::READ_WRITE)
     })?;
     if failed
         != Err(vmsa_test_harness::MapperOperationError::FrameProvider(
             vmsa_test_harness::MemoryError::InjectedFailure,
         ))
-        || mapper.translate(START)?.map(|mapping| mapping.output) != Some(output.phys_addr())
-        || mapper.translate(START + PAGE)?.is_some()
-        || mapper.translate(START + 2 * PAGE)?.is_some()
-        || context.arena_allocation_count() != baseline_allocations + 3
+        || mapper.translate(0)?.is_some()
+        || context.arena_allocation_count() != baseline_allocations + 2
     {
         return vmsa_test_harness::HarnessError::CrateBehavior {
             expected: 1,
@@ -642,21 +468,15 @@ pub fn range_partial_prefix_postcondition(
         .into();
     }
     let completed = mapper
-        .map_range_exact(
-            START + PAGE,
-            output.phys_addr() + PAGE,
-            2 * PAGE,
-            3,
-            MappingAttributes::READ_WRITE,
-        )
+        .map_attributes_leaf_exact(0, 0, 3, MappingAttributes::READ_WRITE)
         .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
             expected: 1,
             actual: 0,
         })?;
-    if completed.mappings_created != 2
-        || completed.bytes_mapped != 2 * PAGE
-        || completed.tables_allocated != 1
-        || context.arena_allocation_count() != baseline_allocations + 4
+    if completed.tables_allocated != 1
+        || completed.covered_size != 4096
+        || mapper.translate(0)?.map(|mapping| mapping.output) != Some(0)
+        || context.arena_allocation_count() != baseline_allocations + 3
     {
         return vmsa_test_harness::HarnessError::CrateBehavior {
             expected: 1,
@@ -664,30 +484,14 @@ pub fn range_partial_prefix_postcondition(
         }
         .into();
     }
-    let third = mapper.unmap_reclaim_exact(START + 2 * PAGE).map_err(|_| {
+    let reclaimed = mapper.unmap_reclaim_exact(0).map_err(|_| {
         vmsa_test_harness::HarnessError::CrateBehavior {
             expected: 1,
             actual: 0,
         }
     })?;
-    let second = mapper.unmap_reclaim_exact(START + PAGE).map_err(|_| {
-        vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-    })?;
-    let first = mapper.unmap_reclaim_exact(START).map_err(|_| {
-        vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-    })?;
-    if third.tables_freed != 0
-        || third.root_now_empty
-        || second.tables_freed != 1
-        || second.root_now_empty
-        || first.tables_freed != 3
-        || !first.root_now_empty
+    if reclaimed.tables_freed != 3
+        || !reclaimed.root_now_empty
         || context.arena_allocation_count() != baseline_allocations
     {
         return vmsa_test_harness::HarnessError::CrateBehavior {
@@ -936,14 +740,20 @@ pub fn exact_page_outcome(context: &mut TestContext<'_, crate::CurrentEnvironmen
         aarch64_vmsa::config::granule::Granule4KiB,
         aarch64_vmsa::config::format::Vmsa64,
     >(&mut root, aarch64_vmsa::address::Level::L0, 32, 32)?;
+    let mapper_geometry = mapper.table_geometry();
     let outcome = mapper.map_attributes_leaf_exact(0, 0, 3, MappingAttributes::READ_WRITE);
-    if outcome
-        != Ok(vmsa_test_harness::MapLeafResult {
-            tables_allocated: 3,
-            level: LookupLevel::new(3).expect("level 3 is valid"),
-            kind: vmsa_test_harness::WalkDescriptorKind::Page,
-            covered_size: 4096,
-        })
+    if mapper_geometry
+        != aarch64_vmsa::table::TableGeometry::<
+            aarch64_vmsa::config::format::Vmsa64,
+            aarch64_vmsa::config::granule::Granule4KiB,
+        >::new()
+        || outcome
+            != Ok(vmsa_test_harness::MapLeafResult {
+                tables_allocated: 3,
+                level: LookupLevel::new(3).expect("level 3 is valid"),
+                kind: vmsa_test_harness::WalkDescriptorKind::Page,
+                covered_size: 4096,
+            })
     {
         return vmsa_test_harness::HarnessError::CrateBehavior {
             expected: 1,

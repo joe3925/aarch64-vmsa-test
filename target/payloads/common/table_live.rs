@@ -12,6 +12,7 @@ pub(super) fn recursive_table_access(
     const ADDRESS: u64 = 0x6700_0000;
     const RECURSIVE_INDEX: usize = 1;
     let page = context.allocate_page()?;
+    let other_root = context.allocate_root()?;
     let root = context.allocate_root()?;
     let capabilities = context.capabilities();
     let root_address = PhysicalAddress::new(root.phys_addr());
@@ -68,6 +69,17 @@ pub(super) fn recursive_table_access(
         return vmsa_test_harness::HarnessError::CrateBehavior {
             expected: 1,
             actual: 0,
+        }
+        .into();
+    }
+    if !translation.recursive_root_mismatch_4k(
+        RECURSIVE_INDEX,
+        recursive_base,
+        other_root.phys_addr(),
+    )? {
+        return vmsa_test_harness::HarnessError::CrateBehavior {
+            expected: root_address.get(),
+            actual: other_root.phys_addr(),
         }
         .into();
     }

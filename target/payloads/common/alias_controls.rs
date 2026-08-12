@@ -611,7 +611,8 @@ fn d128_table_control(control: D128TableControl) -> TestResult {
         if matches!(control, D128TableControl::TableNt) {
             type Layout = <Vmsa128 as HasLayout<Stage1, Granule4KiB>>::Layout;
             let transition = TableTransition::new(
-                TableShape::<Vmsa128, Granule4KiB>::root(Level::L0),
+                TableShape::<Vmsa128, Granule4KiB>::root(Level::L0)
+                    .map_err(|_| aarch64_vmsa::attrs::AttrError::InvalidD128Configuration)?,
                 TableShape::<Vmsa128, Granule4KiB>::new(Level::L2, 2)
                     .map_err(|_| aarch64_vmsa::attrs::AttrError::InvalidD128Configuration)?,
             )
@@ -783,7 +784,8 @@ fn d128_stage2_table_control(control: D128Stage2TableControl) -> TestResult {
         if matches!(control, D128Stage2TableControl::TableNt) {
             type Layout = <Vmsa128 as HasLayout<Stage2, Granule4KiB>>::Layout;
             let transition = TableTransition::new(
-                TableShape::<Vmsa128, Granule4KiB>::root(Level::L0),
+                TableShape::<Vmsa128, Granule4KiB>::root(Level::L0)
+                    .map_err(|_| aarch64_vmsa::attrs::AttrError::InvalidD128Configuration)?,
                 TableShape::<Vmsa128, Granule4KiB>::new(Level::L2, 2)
                     .map_err(|_| aarch64_vmsa::attrs::AttrError::InvalidD128Configuration)?,
             )

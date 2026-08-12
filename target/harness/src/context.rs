@@ -484,7 +484,9 @@ impl<'a, E: Environment> TestContext<'a, E> {
         let Some(pointer) = NonNull::new(root.virtual_address().cast::<u64>()) else {
             return false;
         };
-        let shape = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0);
+        let Ok(shape) = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0) else {
+            return false;
+        };
         // SAFETY: `root` owns a live, aligned 4 KiB VMSA64 table for the whole
         // lifetime of this bounded verification method.
         let mut table = unsafe { TranslationTableMut::from_raw_parts(pointer, shape) };
@@ -537,7 +539,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         };
         let access = WalkerProbeAccess {
             base,
-            shape: TableShape::root(Level::L0),
+            shape: TableShape::root(Level::L0).expect("level 0 is a valid root shape"),
             reject: true,
         };
         let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
@@ -617,7 +619,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         };
         let access = WalkerProbeAccess {
             base,
-            shape: TableShape::root(Level::L3),
+            shape: TableShape::root(Level::L3).expect("level 3 is a valid root shape"),
             reject: false,
         };
         let root = RootTable::<WalkerProbeFormat, NonSecureEl1Stage1, Granule4KiB>::new(
@@ -784,8 +786,12 @@ impl<'a, E: Environment> TestContext<'a, E> {
         use aarch64_vmsa::config::granule::Granule4KiB;
         use aarch64_vmsa::table::{AccessError, TableShape, TableWalkPath};
 
-        let parent = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0);
-        let child = TableShape::<Vmsa64, Granule4KiB>::root(Level::L1);
+        let Ok(parent) = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0) else {
+            return false;
+        };
+        let Ok(child) = TableShape::<Vmsa64, Granule4KiB>::root(Level::L1) else {
+            return false;
+        };
         let mut index_path = TableWalkPath::<Vmsa64, Granule4KiB>::root();
         let index_error = index_path.push(Level::L0, parent, child, 512);
 
@@ -2827,21 +2833,41 @@ where
     {
         self.failures.check(HarnessFailurePoint::Map)?;
         self.with_mapper::<F, G, _>(|mapper| {
-            mapper
-                .map_range(
-                    aarch64_vmsa::translation::WalkInputAddr::new(input),
-                    aarch64_vmsa::address::PhysAddr(output),
-                    bytes,
-                    aarch64_vmsa::address::Level::new(level.get()),
-                    <E::Regime as TestRegimeFor<G>>::raw_leaf(attributes)?,
-                    <E::Regime as TestRegimeFor<G>>::raw_table()?,
-                )
-                .map(|result| crate::MapRangeResult {
-                    mappings_created: result.mappings_created(),
-                    bytes_mapped: result.bytes_mapped(),
-                    tables_allocated: result.tables_allocated(),
-                })
-                .map_err(|_| HarnessError::InvalidState)
+            let level = aarch64_vmsa::address::Level::new(level.get());
+            let span = aarch64_vmsa::table::TableGeometry::<F, G>::level_span(level)
+                .ok_or(HarnessError::InvalidState)?;
+            if bytes % span != 0 {
+                return Err(HarnessError::InvalidState);
+            }
+
+            let mappings_created = bytes / span;
+            let leaf = <E::Regime as TestRegimeFor<G>>::raw_leaf(attributes)?;
+            let table = <E::Regime as TestRegimeFor<G>>::raw_table()?;
+            let mut tables_allocated = 0u64;
+
+            for mapping in 0..mappings_created {
+                let offset = mapping.checked_mul(span).ok_or(HarnessError::Memory)?;
+                let current_input = input.checked_add(offset).ok_or(HarnessError::Memory)?;
+                let current_output = output.checked_add(offset).ok_or(HarnessError::Memory)?;
+                let outcome = mapper
+                    .map_leaf(
+                        aarch64_vmsa::translation::WalkInputAddr::new(current_input),
+                        aarch64_vmsa::address::PhysAddr(current_output),
+                        level,
+                        leaf,
+                        table,
+                    )
+                    .map_err(|_| HarnessError::InvalidState)?;
+                tables_allocated = tables_allocated
+                    .checked_add(u64::from(outcome.tables_allocated()))
+                    .ok_or(HarnessError::Memory)?;
+            }
+
+            Ok(crate::MapRangeResult {
+                mappings_created,
+                bytes_mapped: bytes,
+                tables_allocated,
+            })
         })
     }
 
@@ -3214,6 +3240,64 @@ where
                         .expect("mapper returned an architectural lookup level"),
                 })
                 .ok_or(HarnessError::InvalidState)
+        })
+    }
+
+    pub fn recursive_root_mismatch_4k(
+        &mut self,
+        recursive_index: usize,
+        recursive_base: u64,
+        other_root: u64,
+    ) -> Result<bool, HarnessError>
+    where
+        E::Regime: TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                StageOf<E::Regime>,
+                aarch64_vmsa::config::granule::Granule4KiB,
+            >,
+        LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
+            E::Regime,
+            aarch64_vmsa::config::granule::Granule4KiB,
+        >: Copy,
+    {
+        let expected_root = self.setup.root.get();
+        let root_level = aarch64_vmsa::address::Level::new(
+            self.setup
+                .start_level
+                .ok_or(HarnessError::InvalidState)?
+                .get(),
+        );
+        let input_bits = self.setup.input_bits.get();
+        let output_bits = self.setup.output_bits.get();
+
+        self.with_recursive_mapper(recursive_index, recursive_base, |mapper| {
+            let other_root_addr = aarch64_vmsa::table::TableAddr::new(other_root)
+                .map_err(|_| HarnessError::InvalidState)?;
+            let geometry = aarch64_vmsa::table::RootTableGeometry::<
+                aarch64_vmsa::config::format::Vmsa64,
+                aarch64_vmsa::config::granule::Granule4KiB,
+            >::new_at_level(
+                other_root_addr, root_level, input_bits, output_bits
+            )
+            .map_err(|_| HarnessError::InvalidState)?;
+            let root = aarch64_vmsa::table::RootTable::<
+                aarch64_vmsa::config::format::Vmsa64,
+                E::Regime,
+                aarch64_vmsa::config::granule::Granule4KiB,
+            >::from_geometry(geometry);
+            let walker = aarch64_vmsa::translation::Walker::new(root, mapper.access())
+                .map_err(|_| HarnessError::InvalidState)?;
+
+            Ok(matches!(
+                walker.translate(aarch64_vmsa::translation::WalkInputAddr::new(0)),
+                Err(aarch64_vmsa::translation::walk::WalkError::Access(
+                    aarch64_vmsa::table::AccessError::RecursiveRootMismatch {
+                        expected,
+                        actual,
+                    },
+                )) if expected == expected_root && actual == other_root
+            ))
         })
     }
 }

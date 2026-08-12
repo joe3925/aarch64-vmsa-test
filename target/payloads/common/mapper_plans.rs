@@ -29,7 +29,8 @@ pub fn step_by_one_plan() -> TestResult {
 
     let fields = fields()?;
     let input = WalkInputAddr::new(0x1234_0000);
-    let extended_root = TableShape::<Vmsa128, Granule4KiB>::root(Level::NEG2);
+    let extended_root = TableShape::<Vmsa128, Granule4KiB>::root(Level::NEG2)
+        .expect("level -2 is a valid D128 root shape");
     let mut step = StepByOneTablePlan::new(fields);
     let step_plan = <StepByOneTablePlan<_> as TablePlanProvider<
         Vmsa128,
@@ -74,7 +75,7 @@ pub fn bounded_skl_plan() -> TestResult {
     >>::plan_table(
         &mut bounded,
         TablePlanContext::new(
-            TableShape::root(Level::NEG2),
+            TableShape::root(Level::NEG2).expect("level -2 is a valid D128 root shape"),
             Level::L2,
             WalkInputAddr::new(0x1234_0000),
         ),
@@ -113,7 +114,7 @@ pub fn maximum_skl_plan() -> TestResult {
     >>::plan_table(
         &mut maximum,
         TablePlanContext::new(
-            TableShape::root(Level::NEG2),
+            TableShape::root(Level::NEG2).expect("level -2 is a valid D128 root shape"),
             Level::L2,
             WalkInputAddr::new(0x1234_0000),
         ),
@@ -151,7 +152,7 @@ pub fn bounded_skl_no_plan() -> TestResult {
     >>::plan_table(
         &mut too_small,
         TablePlanContext::new(
-            TableShape::root(Level::L0),
+            TableShape::root(Level::L0).expect("level 0 is a valid root shape"),
             Level::L3,
             WalkInputAddr::new(0x1234_0000),
         ),
@@ -191,7 +192,7 @@ pub fn max_skl_extended_root() -> TestResult {
     >>::plan_table(
         &mut planner,
         TablePlanContext::new(
-            TableShape::root(Level::NEG2),
+            TableShape::root(Level::NEG2).expect("level -2 is a valid D128 root shape"),
             Level::L3,
             WalkInputAddr::new(0),
         ),
@@ -248,7 +249,8 @@ where
 
     for parent_raw in Level::NEG2.as_i8()..Level::L3.as_i8() {
         let parent_level = Level::new(parent_raw);
-        let parent = TableShape::<Vmsa128, G>::root(parent_level);
+        let parent = TableShape::<Vmsa128, G>::root(parent_level)
+            .expect("matrix uses valid D128 table levels");
 
         let mut step_by_one = StepByOneTablePlan::new(raw_fields);
         let step_plan =
@@ -463,7 +465,6 @@ fn operation_error_code(error: vmsa_test_harness::MapperOperationError) -> u64 {
         vmsa_test_harness::MapperOperationError::OutputAddressOutOfRange { .. } => 113,
         vmsa_test_harness::MapperOperationError::UnalignedInput { .. } => 114,
         vmsa_test_harness::MapperOperationError::UnalignedOutput { .. } => 115,
-        vmsa_test_harness::MapperOperationError::LengthNotMappingMultiple { .. } => 116,
         vmsa_test_harness::MapperOperationError::InputNotLeafBase { .. } => 117,
         vmsa_test_harness::MapperOperationError::AlreadyMapped { .. } => 118,
         vmsa_test_harness::MapperOperationError::NotMapped { .. } => 119,

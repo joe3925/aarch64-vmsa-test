@@ -539,7 +539,8 @@ pub fn value_boundaries() -> TestResult {
         .into();
     }
 
-    let root_shape = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0);
+    let root_shape =
+        TableShape::<Vmsa64, Granule4KiB>::root(Level::L0).expect("level 0 is a valid root shape");
     let child_shape = TableShape::<Vmsa64, Granule4KiB>::new(Level::L2, 2).map_err(|_| {
         HarnessError::CrateBehavior {
             expected: 1,
@@ -624,6 +625,74 @@ pub fn value_boundaries() -> TestResult {
     TestResult::Pass
 }
 
+fn level_span_failures<F, G>(expected: &[(aarch64_vmsa::address::Level, Option<u64>)]) -> u64
+where
+    F: aarch64_vmsa::descriptor::DescriptorFormat,
+    G: aarch64_vmsa::address::TranslationGranule,
+{
+    let geometry = aarch64_vmsa::table::TableGeometry::<F, G>::new();
+    let _clone = geometry.clone();
+    expected
+        .iter()
+        .filter(|&&(level, span)| {
+            aarch64_vmsa::table::TableGeometry::<F, G>::level_span(level) != span
+        })
+        .count() as u64
+}
+
+pub fn level_spans() -> TestResult {
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
+    use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
+
+    let failures = level_span_failures::<Vmsa64, Granule4KiB>(&[
+        (Level::NEG1, Some(1u64 << 48)),
+        (Level::L0, Some(1u64 << 39)),
+        (Level::L1, Some(1u64 << 30)),
+        (Level::L2, Some(1u64 << 21)),
+        (Level::L3, Some(1u64 << 12)),
+    ]) + level_span_failures::<Vmsa64, Granule16KiB>(&[
+        (Level::NEG1, Some(1u64 << 58)),
+        (Level::L0, Some(1u64 << 47)),
+        (Level::L2, Some(1u64 << 25)),
+        (Level::L3, Some(1u64 << 14)),
+    ]) + level_span_failures::<Vmsa64, Granule64KiB>(&[
+        (Level::NEG1, None),
+        (Level::L0, Some(1u64 << 55)),
+        (Level::L2, Some(1u64 << 29)),
+        (Level::L3, Some(1u64 << 16)),
+    ]) + level_span_failures::<Vmsa64Lpa2, Granule4KiB>(&[
+        (Level::NEG1, Some(1u64 << 48)),
+        (Level::L3, Some(1u64 << 12)),
+    ]) + level_span_failures::<Vmsa64Lpa2, Granule16KiB>(&[
+        (Level::NEG1, Some(1u64 << 58)),
+        (Level::L3, Some(1u64 << 14)),
+    ]) + level_span_failures::<Vmsa64Lpa2, Granule64KiB>(&[
+        (Level::NEG1, None),
+        (Level::L3, Some(1u64 << 16)),
+    ]) + level_span_failures::<Vmsa128, Granule4KiB>(&[
+        (Level::NEG2, Some(1u64 << 52)),
+        (Level::NEG1, Some(1u64 << 44)),
+        (Level::L0, Some(1u64 << 36)),
+        (Level::L2, Some(1u64 << 20)),
+        (Level::L3, Some(1u64 << 12)),
+    ]) + level_span_failures::<Vmsa128, Granule16KiB>(&[
+        (Level::NEG2, None),
+        (Level::NEG1, Some(1u64 << 54)),
+        (Level::L0, Some(1u64 << 44)),
+        (Level::L2, Some(1u64 << 24)),
+        (Level::L3, Some(1u64 << 14)),
+    ]) + level_span_failures::<Vmsa128, Granule64KiB>(&[
+        (Level::NEG2, None),
+        (Level::NEG1, None),
+        (Level::L0, Some(1u64 << 52)),
+        (Level::L2, Some(1u64 << 28)),
+        (Level::L3, Some(1u64 << 16)),
+    ]);
+
+    failures_result(failures)
+}
+
 pub fn path_boundaries() -> TestResult {
     use aarch64_vmsa::address::{Level, PhysAddr};
     use aarch64_vmsa::config::format::Vmsa64;
@@ -645,7 +714,7 @@ pub fn path_boundaries() -> TestResult {
         expected: 1,
         actual: 0,
     })?;
-    let l0 = TableShape::root(Level::L0);
+    let l0 = TableShape::root(Level::L0).expect("level 0 is a valid root shape");
     let l1 = TableShape::new(Level::L1, 1).map_err(|_| HarnessError::CrateBehavior {
         expected: 1,
         actual: 0,
@@ -776,7 +845,8 @@ pub fn walk_cursor_boundaries() -> TestResult {
     use aarch64_vmsa::config::format::Vmsa64;
     use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::descriptor::DescriptorFormat;
-    use aarch64_vmsa::table::{NextTable, RootTable, RootTableGeometry, TableAddr};
+    use aarch64_vmsa::table::{NextTable, RootTable, RootTableGeometry, TableAddr, TableGeometry};
+    use aarch64_vmsa::translation::walk::{WalkCursorError, WalkError};
     use aarch64_vmsa::translation::{WalkInputAddr, Walker};
 
     let root = TableAddr::new(0x4000).map_err(|_| HarnessError::CrateBehavior {
@@ -801,6 +871,15 @@ pub fn walk_cursor_boundaries() -> TestResult {
         RootTableGeometry::new_at_level(root, Level::L0, 48, 48).expect("valid root geometry"),
     );
     let walker = Walker::new(root_table, &RejectTableAccess).expect("valid walker root");
+    let walker_geometry = walker.table_geometry();
+    let _geometry_clone = walker_geometry.clone();
+    if walker_geometry != TableGeometry::<Vmsa64, Granule4KiB>::new() {
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
+    }
     let walk = walker
         .start_at(input)
         .map_err(|_| HarnessError::CrateBehavior {
@@ -844,6 +923,37 @@ pub fn walk_cursor_boundaries() -> TestResult {
         || child.level() != Level::L1
         || child.path().len() != 1
         || child.path().index(0) != Some(expected_index)
+    {
+        return HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+        .into();
+    }
+
+    let narrow_root = RootTable::<Vmsa64, crate::CurrentRegime, Granule4KiB>::from_geometry(
+        RootTableGeometry::new_at_level(root, Level::L3, 21, 48)
+            .expect("valid narrow root geometry"),
+    );
+    let narrow_walker =
+        Walker::new(narrow_root, &RejectTableAccess).expect("valid narrow walker root");
+    let maximum = WalkInputAddr::new((1u64 << 21) - 1);
+    let first_out_of_range = WalkInputAddr::new(1u64 << 21);
+    if narrow_walker.start_at(maximum).is_err()
+        || !matches!(
+            narrow_walker.start_at(first_out_of_range),
+            Err(WalkCursorError::InputAddressOutOfRange {
+                addr,
+                addr_bits: 21,
+            }) if addr == first_out_of_range.raw()
+        )
+        || !matches!(
+            narrow_walker.translate(first_out_of_range),
+            Err(WalkError::Cursor(WalkCursorError::InputAddressOutOfRange {
+                addr,
+                addr_bits: 21,
+            })) if addr == first_out_of_range.raw()
+        )
     {
         return HarnessError::CrateBehavior {
             expected: 1,
@@ -919,7 +1029,7 @@ where
     }
     if TableShape::<F, G>::new(Level::new(4), 1)
         != Err(AccessError::InvalidTableLevel {
-            root_level: Level::new(4),
+            root_level: F::EXTENDED_LOWEST_ROOT_LEVEL,
             level: Level::new(4),
             final_level: F::FINAL_LEVEL,
         })
@@ -929,7 +1039,8 @@ where
 
     for parent_raw in F::EXTENDED_LOWEST_ROOT_LEVEL.as_i8()..Level::L3.as_i8() {
         let parent_level = Level::new(parent_raw);
-        let parent = TableShape::<F, G>::root(parent_level);
+        let parent =
+            TableShape::<F, G>::root(parent_level).expect("matrix uses valid table levels");
         for child_raw in (parent_raw + 1)..=Level::L3.as_i8() {
             let distance = (child_raw - parent_raw) as u8;
             if distance > 4 {
@@ -975,7 +1086,8 @@ where
             failures += 1;
         }
     }
-    let reverse_parent = TableShape::<F, G>::root(Level::L1);
+    let reverse_parent =
+        TableShape::<F, G>::root(Level::L1).expect("level 1 is a valid table level");
     let reverse_child = TableShape::<F, G>::new(Level::L0, 1).unwrap();
     if TableTransition::new(reverse_parent, reverse_child)
         != Err(AccessError::InvalidTableTransition {
@@ -1012,48 +1124,45 @@ pub fn table_shape_transition_matrix() -> TestResult {
     failures_result(failures)
 }
 
-pub fn path_capacity_errors() -> TestResult {
+pub fn invalid_table_levels() -> TestResult {
     use aarch64_vmsa::address::Level;
-    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::format::{Vmsa64, Vmsa128};
     use aarch64_vmsa::config::granule::Granule4KiB;
-    use aarch64_vmsa::table::{AccessError, TableShape, TableWalkPath};
+    use aarch64_vmsa::descriptor::DescriptorFormat;
+    use aarch64_vmsa::table::{AccessError, TableGeometry, TableShape, TableWalkPath};
 
-    type Path = TableWalkPath<Vmsa64, Granule4KiB>;
-    let root_level = Level::new(-20);
-    let mut path = Path::root();
-    for depth in 0..14i8 {
-        let parent_level = Level::new(root_level.as_i8() + depth);
-        path.push(
-            root_level,
-            TableShape::root(parent_level),
-            TableShape::new(parent_level.next(), 1).map_err(|_| HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            })?,
-            depth as usize,
-        )
-        .map_err(|_| HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        })?;
-    }
-    let parent_level = Level::new(root_level.as_i8() + 14);
-    if path.len() != 14
-        || path.entry(root_level, 13).map(|entry| entry.index()) != Some(13)
-        || path.index(13) != Some(13)
-        || path.terminal_level(root_level) != Ok(parent_level)
-        || path.push(
-            root_level,
-            TableShape::root(parent_level),
-            TableShape::new(parent_level.next(), 1).map_err(|_| HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            })?,
-            14,
-        ) != Err(AccessError::TablePathCapacityExceeded {
-            len: 15,
-            index_bits: 9,
-        })
+    let below = Level::new(<Vmsa64 as DescriptorFormat>::EXTENDED_LOWEST_ROOT_LEVEL.as_i8() - 1);
+    let above = Level::new(<Vmsa64 as DescriptorFormat>::FINAL_LEVEL.as_i8() + 1);
+    let extreme = Level::new(i8::MIN);
+    let expected_below = Err(AccessError::InvalidTableLevel {
+        root_level: <Vmsa64 as DescriptorFormat>::EXTENDED_LOWEST_ROOT_LEVEL,
+        level: below,
+        final_level: <Vmsa64 as DescriptorFormat>::FINAL_LEVEL,
+    });
+    let expected_above = Err(AccessError::InvalidTableLevel {
+        root_level: <Vmsa64 as DescriptorFormat>::EXTENDED_LOWEST_ROOT_LEVEL,
+        level: above,
+        final_level: <Vmsa64 as DescriptorFormat>::FINAL_LEVEL,
+    });
+    let expected_extreme = Err(AccessError::InvalidTableLevel {
+        root_level: <Vmsa64 as DescriptorFormat>::EXTENDED_LOWEST_ROOT_LEVEL,
+        level: extreme,
+        final_level: <Vmsa64 as DescriptorFormat>::FINAL_LEVEL,
+    });
+
+    if TableShape::<Vmsa64, Granule4KiB>::root(below) != expected_below
+        || TableShape::<Vmsa64, Granule4KiB>::new(below, 1) != expected_below
+        || TableShape::<Vmsa64, Granule4KiB>::root(above) != expected_above
+        || TableShape::<Vmsa64, Granule4KiB>::new(above, 1) != expected_above
+        || TableShape::<Vmsa64, Granule4KiB>::root(extreme) != expected_extreme
+        || TableShape::<Vmsa64, Granule4KiB>::new(extreme, 1) != expected_extreme
+        || TableGeometry::<Vmsa64, Granule4KiB>::checked_level_shift(below).is_some()
+        || TableGeometry::<Vmsa64, Granule4KiB>::checked_level_shift(above).is_some()
+        || TableGeometry::<Vmsa64, Granule4KiB>::checked_level_shift(extreme).is_some()
+        || TableGeometry::<Vmsa64, Granule4KiB>::max_addr_bits(below).is_some()
+        || TableGeometry::<Vmsa64, Granule4KiB>::level_span(extreme).is_some()
+        || TableShape::<Vmsa64, Granule4KiB>::root(Level::NEG1).is_err()
+        || TableShape::<Vmsa64, Granule4KiB>::root(Level::L3).is_err()
     {
         return HarnessError::CrateBehavior {
             expected: 1,
@@ -1062,10 +1171,11 @@ pub fn path_capacity_errors() -> TestResult {
         .into();
     }
 
+    type Path = TableWalkPath<Vmsa128, Granule4KiB>;
     let mut excessive_step = Path::root();
     if excessive_step.push(
         Level::NEG2,
-        TableShape::root(Level::NEG2),
+        TableShape::root(Level::NEG2).expect("level -2 is a valid D128 root shape"),
         TableShape::new(Level::L3, 1).map_err(|_| HarnessError::CrateBehavior {
             expected: 1,
             actual: 0,
@@ -1132,7 +1242,7 @@ pub fn cursor_next_table_errors() -> TestResult {
                 root_level,
                 level,
                 final_level: Level::L3,
-            }) if root_level == Level::new(4) && level == Level::new(4)
+            }) if root_level == Level::NEG1 && level == Level::new(4)
         )
     {
         return HarnessError::CrateBehavior {

@@ -119,7 +119,12 @@ pub fn descriptor_errors() -> TestResult {
         }
         .into();
     }
-    let parent = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0);
+    let parent = TableShape::<Vmsa64, Granule4KiB>::root(Level::L0).map_err(|_| {
+        HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        }
+    })?;
     let child = TableShape::<Vmsa64, Granule4KiB>::new(Level::L2, 2).map_err(|_| {
         HarnessError::CrateBehavior {
             expected: 1,
@@ -278,8 +283,18 @@ pub fn d128_stage1_table_nt_skl0_error() -> TestResult {
     use aarch64_vmsa::translation::Stage1;
     type Layout = <Vmsa128 as HasLayout<Stage1, Granule4KiB>>::Layout;
     let transition = TableTransition::new(
-        TableShape::<Vmsa128, Granule4KiB>::root(Level::L0),
-        TableShape::<Vmsa128, Granule4KiB>::root(Level::L1),
+        TableShape::<Vmsa128, Granule4KiB>::root(Level::L0).map_err(|_| {
+            HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+        })?,
+        TableShape::<Vmsa128, Granule4KiB>::root(Level::L1).map_err(|_| {
+            HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+        })?,
     )
     .map_err(|_| HarnessError::CrateBehavior {
         expected: 1,
@@ -315,8 +330,18 @@ pub fn d128_stage2_table_nt_skl0_error() -> TestResult {
     use aarch64_vmsa::translation::Stage2;
     type Layout = <Vmsa128 as HasLayout<Stage2, Granule4KiB>>::Layout;
     let transition = TableTransition::new(
-        TableShape::<Vmsa128, Granule4KiB>::root(Level::L0),
-        TableShape::<Vmsa128, Granule4KiB>::root(Level::L1),
+        TableShape::<Vmsa128, Granule4KiB>::root(Level::L0).map_err(|_| {
+            HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+        })?,
+        TableShape::<Vmsa128, Granule4KiB>::root(Level::L1).map_err(|_| {
+            HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+        })?,
     )
     .map_err(|_| HarnessError::CrateBehavior {
         expected: 1,
