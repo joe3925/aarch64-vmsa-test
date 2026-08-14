@@ -181,46 +181,70 @@ def rust_environment() -> dict[str, str]:
 
 
 def ensure_rust(log: Path) -> None:
-    machine = os.uname().machine
-    if machine == "x86_64":
-        triple = "x86_64-unknown-linux-gnu"
-        expected = RUSTUP_SHA256_X86_64
-    elif machine in {"aarch64", "arm64"}:
-        triple = "aarch64-unknown-linux-gnu"
-        expected = RUSTUP_SHA256_AARCH64
-    else:
-        raise RuntimeError(f"unsupported container architecture {machine}")
-    cargo = Path("/cache/cargo/bin/cargo")
-    rustup = Path("/cache/cargo/bin/rustup")
-    environment = rust_environment()
-    if not rustup.is_file():
-        installer = Path("/cache/rustup-init")
-        url = f"https://static.rust-lang.org/rustup/archive/{RUSTUP_VERSION}/{triple}/rustup-init"
-        with urllib.request.urlopen(url, timeout=120) as response:
-            data = response.read()
-        actual = hashlib.sha256(data).hexdigest()
-        if actual != expected:
-            raise RuntimeError(f"rustup-init checksum mismatch: expected {expected}, got {actual}")
-        installer.write_bytes(data)
-        installer.chmod(0o755)
+    # Every preparation container shares /cache. Serialize both bootstrap and
+    # toolchain installation so a cold parallel build cannot overwrite or
+    # execute rustup-init while another container is still writing it.
+    with prepare.cache_lock("rust-toolchain"):
+        machine = os.uname().machine
+        if machine == "x86_64":
+            triple = "x86_64-unknown-linux-gnu"
+            expected = RUSTUP_SHA256_X86_64
+        elif machine in {"aarch64", "arm64"}:
+            triple = "aarch64-unknown-linux-gnu"
+            expected = RUSTUP_SHA256_AARCH64
+        else:
+            raise RuntimeError(f"unsupported container architecture {machine}")
+        cargo = Path("/cache/cargo/bin/cargo")
+        rustup = Path("/cache/cargo/bin/rustup")
+        environment = rust_environment()
+        if not rustup.is_file():
+            installer = Path("/cache/rustup-init")
+            url = (
+                f"https://static.rust-lang.org/rustup/archive/{RUSTUP_VERSION}/"
+                f"{triple}/rustup-init"
+            )
+            with urllib.request.urlopen(url, timeout=120) as response:
+                data = response.read()
+            actual = hashlib.sha256(data).hexdigest()
+            if actual != expected:
+                raise RuntimeError(
+                    f"rustup-init checksum mismatch: expected {expected}, got {actual}"
+                )
+            installer.write_bytes(data)
+            installer.chmod(0o755)
+            checked(
+                [
+                    str(installer),
+                    "-y",
+                    "--no-modify-path",
+                    "--profile",
+                    "minimal",
+                    "--default-toolchain",
+                    "none",
+                ],
+                TESTS,
+                log,
+                environment,
+            )
         checked(
-            [str(installer), "-y", "--no-modify-path", "--profile", "minimal", "--default-toolchain", "none"],
+            [
+                str(rustup),
+                "toolchain",
+                "install",
+                RUST_TOOLCHAIN,
+                "--profile",
+                "minimal",
+                "--target",
+                TARGET_TRIPLE,
+                "--component",
+                "rust-src",
+            ],
             TESTS,
             log,
             environment,
         )
-    checked(
-        [
-            str(rustup), "toolchain", "install", RUST_TOOLCHAIN,
-            "--profile", "minimal", "--target", TARGET_TRIPLE,
-            "--component", "rust-src",
-        ],
-        TESTS,
-        log,
-        environment,
-    )
-    if not cargo.is_file():
-        raise RuntimeError("pinned Rust installation did not provide cargo")
+        if not cargo.is_file():
+            raise RuntimeError("pinned Rust installation did not provide cargo")
 
 
 def build_rust(package: str, log: Path) -> Path:

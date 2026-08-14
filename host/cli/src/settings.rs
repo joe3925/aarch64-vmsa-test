@@ -9,6 +9,7 @@ pub const TF_A_TESTS_REVISION: &str = "3b3d800133081b48482b1205a32671b82bc2b640"
 pub const HAFNIUM_REVISION: &str = "ce12c6e53838f1cf07d50b616b72db57a81539a4";
 pub const TF_RMM_REVISION: &str = "13a82ef5f3bbe4181c8c73a898b6ccdd61e12dae";
 
+pub const PREPARATION_TIMEOUT: Duration = Duration::from_secs(900);
 pub const BUILD_TIMEOUT: Duration = Duration::from_secs(300);
 pub const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 pub const REALM_STAGE2_STARTUP_TIMEOUT: Duration = Duration::from_secs(60);

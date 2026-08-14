@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 use crate::podman;
 use crate::protocol::{Counts, Event, Parser};
 use crate::settings::{
-    BUILD_TIMEOUT, REALM_STAGE2_STARTUP_TIMEOUT, STARTUP_TIMEOUT, SUITE_TIMEOUT, TEST_TIMEOUT,
+    BUILD_TIMEOUT, PREPARATION_TIMEOUT, REALM_STAGE2_STARTUP_TIMEOUT, STARTUP_TIMEOUT,
+    SUITE_TIMEOUT, TEST_TIMEOUT,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -138,6 +139,7 @@ fn preparation_dashboard() -> &'static Mutex<PreparationDashboard> {
 #[derive(Clone, Copy)]
 struct SupervisorLimits {
     initial: Duration,
+    preparation: Duration,
     build: Duration,
     startup: Duration,
     suite: Duration,
@@ -155,6 +157,7 @@ impl SupervisorLimits {
     fn production(expected_target: &str) -> Self {
         Self {
             initial: BUILD_TIMEOUT,
+            preparation: PREPARATION_TIMEOUT,
             build: BUILD_TIMEOUT,
             startup: if expected_target == "realm-stage2" {
                 REALM_STAGE2_STARTUP_TIMEOUT
@@ -171,6 +174,7 @@ impl SupervisorLimits {
         let short = Duration::from_millis(300);
         Self {
             initial: Duration::from_secs(5),
+            preparation: short,
             build: short,
             startup: short,
             suite: short,
@@ -227,7 +231,7 @@ pub fn prepare(
     let (sender, receiver) = mpsc::channel();
     let stdout_thread = reader_thread(stdout, Stream::Stdout, stdout_log, sender.clone());
     let stderr_thread = reader_thread(stderr, Stream::Stderr, stderr_log, sender);
-    let mut deadline = Instant::now() + BUILD_TIMEOUT;
+    let mut deadline = Instant::now() + PREPARATION_TIMEOUT;
     let mut detail_step = 0;
     let mut detail_total = 1;
     let mut firmware_cache_key = None;
@@ -262,12 +266,14 @@ pub fn prepare(
                 match line.text.as_str() {
                     "VMSA-INFRA PHASE prepare-start" => {
                         render_preparation(progress, 0, 1, "preparing sources", false, false);
+                        deadline = Instant::now() + PREPARATION_TIMEOUT;
                     }
                     "VMSA-INFRA PHASE prepare-complete" => {
                         render_preparation(progress, 1, 1, "sources prepared", false, false);
                     }
                     "VMSA-INFRA PHASE build-start" => {
                         render_preparation(progress, 0, 1, "initializing build", false, false);
+                        deadline = Instant::now() + BUILD_TIMEOUT;
                     }
                     "VMSA-INFRA PHASE build-complete" => {
                         render_preparation(
@@ -278,6 +284,7 @@ pub fn prepare(
                             false,
                             false,
                         );
+                        deadline = Instant::now() + BUILD_TIMEOUT;
                     }
                     "VMSA-INFRA PHASE package-complete" => {
                         detail_step = detail_total;
@@ -326,14 +333,6 @@ pub fn prepare(
                     }
                     _ if !crate::terminal::stderr_is_terminal() => stream_terminal(&line),
                     _ => {}
-                }
-                if matches!(
-                    line.text.as_str(),
-                    "VMSA-INFRA PHASE prepare-start"
-                        | "VMSA-INFRA PHASE build-start"
-                        | "VMSA-INFRA PHASE build-complete"
-                ) {
-                    deadline = Instant::now() + BUILD_TIMEOUT;
                 }
             }
             Ok(Err(error)) => {
@@ -734,7 +733,7 @@ fn supervise(
                     "VMSA-INFRA PHASE prepare-start" => {
                         phase = "preparation";
                         phase_started_at = Instant::now();
-                        deadline = phase_started_at + limits.build;
+                        deadline = phase_started_at + limits.preparation;
                     }
                     "VMSA-INFRA PHASE prepare-complete" if stream_live => eprintln!(
                         "vmsa-test: preparation completed in {:.3}s",
