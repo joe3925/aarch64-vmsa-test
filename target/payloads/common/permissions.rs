@@ -4,9 +4,8 @@ use aarch64_vmsa::attrs::{
     MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs, SemanticStage2LeafAttrs,
     SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls,
     SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, Shareability,
-    SinglePrivilegeLeafPermissions, SinglePrivilegeTablePermissionLimits, SoftwareMetadata,
-    Stage2LeafPermissions, Stage2MemoryAttributes, Stage2MemoryMode, TwoPrivilegeLeafPermissions,
-    TwoPrivilegeTablePermissionLimits,
+    SinglePrivilegeTablePermissionLimits, SoftwareMetadata, Stage1EffectivePermissions,
+    Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permission, TwoPrivilegeTablePermissionLimits,
 };
 use aarch64_vmsa::config::format::Vmsa64;
 use aarch64_vmsa::config::granule::Granule4KiB;
@@ -15,13 +14,20 @@ use aarch64_vmsa::config::stage2::{Stage2Permissions, Stage2XnxPermissions};
 use vmsa_test_harness::TestResult;
 
 pub fn stage1_single_matrix() -> TestResult {
-    use aarch64_vmsa::low_level::raw::{LeafAp, TableAp};
+    use aarch64_vmsa::low_level::raw::{FourBit, TableAp};
 
     let config = config();
     let mut failures = 0;
     for data in [DataAccess::ReadOnly, DataAccess::ReadWrite] {
         for execute in [false, true] {
-            let permissions = SinglePrivilegeLeafPermissions { data, execute };
+            let permissions = aarch64_vmsa::attrs::Stage1EffectivePermissions {
+                privileged_data: data,
+                unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
+                privileged_execute: execute,
+                unprivileged_execute: false,
+                privileged_gcs: false,
+                unprivileged_gcs: false,
+            };
             let leaf = single_leaf(permissions);
             let result =
                 <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
@@ -44,17 +50,25 @@ pub fn stage1_single_matrix() -> TestResult {
     if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
         &config,
         Level::L3,
-        single_leaf(SinglePrivilegeLeafPermissions {
-            data: DataAccess::None,
-            execute: false,
+        single_leaf(aarch64_vmsa::attrs::Stage1EffectivePermissions {
+            privileged_data: DataAccess::None,
+            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
+            privileged_execute: false,
+            unprivileged_execute: false,
+            privileged_gcs: false,
+            unprivileged_gcs: false,
         }),
     ) != Err(AttrError::UnencodablePermissions)
     {
         failures += 1;
     }
-    let valid_leaf = single_leaf(SinglePrivilegeLeafPermissions {
-        data: DataAccess::ReadWrite,
-        execute: true,
+    let valid_leaf = single_leaf(aarch64_vmsa::attrs::Stage1EffectivePermissions {
+        privileged_data: DataAccess::ReadWrite,
+        unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
+        privileged_execute: true,
+        unprivileged_execute: false,
+        privileged_gcs: false,
+        unprivileged_gcs: false,
     });
     match <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
         &config,
@@ -64,12 +78,15 @@ pub fn stage1_single_matrix() -> TestResult {
         Ok(raw) => {
             for bits in [0, 2] {
                 let mut invalid = raw;
-                invalid.ap = LeafAp::from_bits(bits).map_err(|_| {
-                    vmsa_test_harness::HarnessError::CrateBehavior {
-                        expected: 1,
-                        actual: 0,
-                    }
-                })?;
+                let primary = invalid.permissions.primary.bits();
+                invalid.permissions.primary =
+                    FourBit::new((primary & !1) | (bits & 1)).map_err(|_| {
+                        vmsa_test_harness::HarnessError::CrateBehavior {
+                            expected: 1,
+                            actual: 0,
+                        }
+                    })?;
+                invalid.permissions.dirty = bits & 2 != 0;
                 if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
                     &config,
                     Level::L3,
@@ -80,7 +97,11 @@ pub fn stage1_single_matrix() -> TestResult {
                 }
             }
             let mut invalid = raw;
-            invalid.privileged_execute_never = true;
+            invalid.permissions.primary = FourBit::new(invalid.permissions.primary.bits() | 4)
+                .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                })?;
             if <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
                 &config,
                 Level::L3,
@@ -196,11 +217,13 @@ pub fn stage1_two_privilege_matrix() -> TestResult {
     for (privileged_data, unprivileged_data) in valid_pairs {
         for privileged_execute in [false, true] {
             for unprivileged_execute in [false, true] {
-                let permissions = TwoPrivilegeLeafPermissions {
+                let permissions = Stage1EffectivePermissions {
                     privileged_data,
                     unprivileged_data,
                     privileged_execute,
                     unprivileged_execute,
+                    privileged_gcs: false,
+                    unprivileged_gcs: false,
                 };
                 let leaf = two_privilege_leaf(permissions);
                 let round_trip =
@@ -235,11 +258,13 @@ pub fn stage1_two_privilege_matrix() -> TestResult {
             if valid_pairs.contains(&(privileged_data, unprivileged_data)) {
                 continue;
             }
-            let invalid = two_privilege_leaf(TwoPrivilegeLeafPermissions {
+            let invalid = two_privilege_leaf(Stage1EffectivePermissions {
                 privileged_data,
                 unprivileged_data,
                 privileged_execute: false,
                 unprivileged_execute: false,
+                privileged_gcs: false,
+                unprivileged_gcs: false,
             });
             if <Vmsa64 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::encode_leaf(
                 &config,
@@ -317,7 +342,7 @@ pub fn stage1_two_privilege_matrix() -> TestResult {
 }
 
 pub fn stage2_direct_matrix() -> TestResult {
-    use aarch64_vmsa::low_level::raw::{Stage2Ap, Stage2ExecuteNever};
+    use aarch64_vmsa::low_level::raw::FourBit;
 
     let config = config();
     let mut failures = 0;
@@ -329,57 +354,59 @@ pub fn stage2_direct_matrix() -> TestResult {
         for (privileged_execute, unprivileged_execute) in [(false, false), (true, true)] {
             if !stage2_round_trip_direct(
                 &config,
-                Stage2LeafPermissions {
-                    data,
-                    privileged_execute,
-                    unprivileged_execute,
-                },
+                Stage2Permission::direct(data, privileged_execute, unprivileged_execute),
             ) {
                 failures += 1;
             }
         }
-        for (privileged_execute, unprivileged_execute) in [(false, true), (true, false)] {
-            if stage2_resolve_direct(
-                &config,
-                Stage2LeafPermissions {
-                    data,
-                    privileged_execute,
-                    unprivileged_execute,
-                },
-            ) != Err(AttrError::InvalidStage2ExecuteNever)
-            {
-                failures += 1;
+        if data != DataAccess::None {
+            for (privileged_execute, unprivileged_execute) in [(false, true), (true, false)] {
+                if stage2_resolve_direct(
+                    &config,
+                    Stage2Permission::direct(data, privileged_execute, unprivileged_execute),
+                ) != Err(AttrError::InvalidStage2ExecuteNever)
+                {
+                    failures += 1;
+                }
             }
         }
         for privileged_execute in [false, true] {
             for unprivileged_execute in [false, true] {
                 if !stage2_round_trip_xnx(
                     &config,
-                    Stage2LeafPermissions {
-                        data,
-                        privileged_execute,
-                        unprivileged_execute,
-                    },
+                    Stage2Permission::direct(data, privileged_execute, unprivileged_execute),
                 ) {
                     failures += 1;
                 }
             }
         }
     }
-    let valid = Stage2LeafPermissions {
-        data: DataAccess::ReadWrite,
-        privileged_execute: true,
-        unprivileged_execute: true,
+    let valid = match DataAccess::ReadWrite {
+        aarch64_vmsa::attrs::DataAccess::None => aarch64_vmsa::attrs::Stage2Permission::NoAccess,
+        aarch64_vmsa::attrs::DataAccess::ReadOnly => {
+            aarch64_vmsa::attrs::Stage2Permission::ReadOnly {
+                privileged_execute: true,
+                unprivileged_execute: true,
+            }
+        }
+        aarch64_vmsa::attrs::DataAccess::ReadWrite => {
+            aarch64_vmsa::attrs::Stage2Permission::ReadWrite {
+                privileged_execute: true,
+                unprivileged_execute: true,
+            }
+        }
     };
     match stage2_resolve_direct(&config, valid) {
         Ok(raw) => {
             let mut invalid_access = raw;
-            invalid_access.access = Stage2Ap::from_bits(2).map_err(|_| {
+            let primary = invalid_access.permissions.primary.bits();
+            invalid_access.permissions.primary = FourBit::new(primary & !1).map_err(|_| {
                 vmsa_test_harness::HarnessError::CrateBehavior {
                     expected: 1,
                     actual: 0,
                 }
             })?;
+            invalid_access.permissions.dirty = true;
             if <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
                 Granule4KiB,
                 _,
@@ -390,13 +417,13 @@ pub fn stage2_direct_matrix() -> TestResult {
             }
             for bits in [1, 3] {
                 let mut invalid_execute = raw;
-                invalid_execute.execute_never =
-                    Stage2ExecuteNever::from_bits(bits).map_err(|_| {
-                        vmsa_test_harness::HarnessError::CrateBehavior {
-                            expected: 1,
-                            actual: 0,
-                        }
-                    })?;
+                invalid_execute.permissions.primary = FourBit::new(
+                    (invalid_execute.permissions.primary.bits() & 0b0011) | (bits << 2),
+                )
+                .map_err(|_| vmsa_test_harness::HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                })?;
                 if <Vmsa64 as AttributeCodec<
                     NonSecureEl2Stage2<Stage2Permissions>,
                     Granule4KiB,
@@ -451,10 +478,14 @@ pub fn d128_stage2_base_matrix() -> TestResult {
     use aarch64_vmsa::low_level::raw::{FourBit, PermissionIndices};
 
     let mut config = config();
-    config.stage2_permissions = Some(Stage2PermissionRegisters {
-        s2pir_el2: 0xfedc_ba98_7654_3210,
+    config.stage2_permissions = aarch64_vmsa::attrs::Stage2PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage2PermissionRegisters {
+                s2pir_el2: 0xfedc_ba98_7654_3210,
+            },
+        ),
         s2por_el1: None,
-    });
+    };
     let expected = [
         Stage2Permission::NoAccess,
         Stage2Permission::NoAccess,
@@ -577,7 +608,7 @@ pub fn d128_stage2_base_matrix() -> TestResult {
         }
     }
     let mut unavailable = config;
-    unavailable.stage2_permissions = None;
+    unavailable.stage2_permissions = aarch64_vmsa::attrs::Stage2PermissionSettings::direct();
     if <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
         Granule4KiB,
         _,
@@ -586,10 +617,12 @@ pub fn d128_stage2_base_matrix() -> TestResult {
     {
         failures += 1;
     }
-    config.stage2_permissions = Some(Stage2PermissionRegisters {
-        s2pir_el2: 0,
+    config.stage2_permissions = aarch64_vmsa::attrs::Stage2PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage2PermissionRegisters { s2pir_el2: 0 },
+        ),
         s2por_el1: None,
-    });
+    };
     if <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
         Granule4KiB,
         _,
@@ -652,10 +685,14 @@ pub fn d128_stage2_overlay_matrix() -> TestResult {
         },
     ];
     let mut config = config();
-    config.stage2_permissions = Some(Stage2PermissionRegisters {
-        s2pir_el2: IDENTITY_REGISTER,
+    config.stage2_permissions = aarch64_vmsa::attrs::Stage2PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage2PermissionRegisters {
+                s2pir_el2: IDENTITY_REGISTER,
+            },
+        ),
         s2por_el1: Some(IDENTITY_REGISTER),
-    });
+    };
     let leaf = |permissions| SemanticStage2LeafAttrs {
         memory: Stage2MemoryAttributes::Combined(memory()),
         permissions,
@@ -712,10 +749,14 @@ pub fn d128_stage2_overlay_matrix() -> TestResult {
     }
 
     // With no overlay register, PO is architecturally ignored for every base entry.
-    config.stage2_permissions = Some(Stage2PermissionRegisters {
-        s2pir_el2: IDENTITY_REGISTER,
+    config.stage2_permissions = aarch64_vmsa::attrs::Stage2PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage2PermissionRegisters {
+                s2pir_el2: IDENTITY_REGISTER,
+            },
+        ),
         s2por_el1: None,
-    });
+    };
     let template = <Vmsa128 as AttributeCodec<
         NonSecureEl2Stage2<Stage2Permissions>,
         Granule4KiB,
@@ -821,23 +862,29 @@ fn stage2_expected(
 }
 
 pub fn d128_stage1_indirection_matrix() -> TestResult {
-    use aarch64_vmsa::attrs::{Stage1PermissionRegisterPair, Stage1PermissionRegisters};
+    use aarch64_vmsa::attrs::{
+        Stage1BasePermissions, Stage1PermissionOverlays, Stage1PermissionRegisters,
+        Stage1PermissionSettings,
+    };
 
     const IDENTITY_REGISTER: u64 = 0xfedc_ba98_7654_3210;
     let mut failures = 0;
     for gcs_implemented in [false, true] {
         for privileged_overlay in [false, true] {
             for unprivileged_overlay in [None, Some(false), Some(true)] {
-                let pair = |overlay: bool| Stage1PermissionRegisterPair {
-                    base: IDENTITY_REGISTER,
-                    overlay: overlay.then_some(IDENTITY_REGISTER),
-                };
                 let mut config = config();
-                config.stage1_permissions = Some(Stage1PermissionRegisters {
-                    privileged: pair(privileged_overlay),
-                    unprivileged: unprivileged_overlay.map(pair),
-                    gcs_implemented,
-                });
+                config.stage1_permissions = Stage1PermissionSettings {
+                    base: Stage1BasePermissions::Indirect(Stage1PermissionRegisters {
+                        privileged: IDENTITY_REGISTER,
+                        unprivileged: unprivileged_overlay.map(|_| IDENTITY_REGISTER),
+                        gcs_implemented,
+                    }),
+                    overlays: Stage1PermissionOverlays {
+                        privileged: privileged_overlay.then_some(IDENTITY_REGISTER),
+                        unprivileged: unprivileged_overlay
+                            .and_then(|enabled| enabled.then_some(IDENTITY_REGISTER)),
+                    },
+                };
                 failures += stage1_decode_failures(
                     &config,
                     privileged_overlay,
@@ -906,16 +953,21 @@ pub fn d128_stage1_indirection_unavailable() -> TestResult {
 }
 
 pub fn d128_stage1_missing_combination() -> TestResult {
-    use aarch64_vmsa::attrs::{Stage1PermissionRegisterPair, Stage1PermissionRegisters};
+    use aarch64_vmsa::attrs::Stage1PermissionRegisters;
     let mut config = config();
-    config.stage1_permissions = Some(Stage1PermissionRegisters {
-        privileged: Stage1PermissionRegisterPair {
-            base: 0,
-            overlay: None,
+    config.stage1_permissions = aarch64_vmsa::attrs::Stage1PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                privileged: 0,
+                unprivileged: None,
+                gcs_implemented: false,
+            },
+        ),
+        overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays {
+            privileged: None,
+            unprivileged: None,
         },
-        unprivileged: None,
-        gcs_implemented: false,
-    });
+    };
     result(
         (d128_stage1_resolve(&config, d128_stage1_permissions(DataAccess::ReadWrite))
             != Err(AttrError::PermissionCombinationNotConfigured)) as u64,
@@ -923,17 +975,22 @@ pub fn d128_stage1_missing_combination() -> TestResult {
 }
 
 pub fn d128_stage1_duplicate_selection() -> TestResult {
-    use aarch64_vmsa::attrs::{Stage1PermissionRegisterPair, Stage1PermissionRegisters};
+    use aarch64_vmsa::attrs::Stage1PermissionRegisters;
     use aarch64_vmsa::low_level::raw::{FourBit, PermissionIndices};
     let mut config = config();
-    config.stage1_permissions = Some(Stage1PermissionRegisters {
-        privileged: Stage1PermissionRegisterPair {
-            base: 0x1111_1111_1111_1111,
-            overlay: None,
+    config.stage1_permissions = aarch64_vmsa::attrs::Stage1PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                privileged: 0x1111_1111_1111_1111,
+                unprivileged: None,
+                gcs_implemented: false,
+            },
+        ),
+        overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays {
+            privileged: None,
+            unprivileged: None,
         },
-        unprivileged: None,
-        gcs_implemented: false,
-    });
+    };
     let selected = d128_stage1_resolve(&config, d128_stage1_permissions(DataAccess::ReadOnly))
         .map(|raw| raw.permissions);
     result(
@@ -946,7 +1003,7 @@ pub fn d128_stage1_duplicate_selection() -> TestResult {
 }
 
 pub fn d128_stage1_conflicting_permissions() -> TestResult {
-    use aarch64_vmsa::attrs::{Stage1PermissionRegisterPair, Stage1PermissionRegisters};
+    use aarch64_vmsa::attrs::Stage1PermissionRegisters;
     use aarch64_vmsa::config::format::Vmsa128;
     let no_access = aarch64_vmsa::attrs::Stage1EffectivePermissions {
         privileged_data: DataAccess::None,
@@ -957,27 +1014,34 @@ pub fn d128_stage1_conflicting_permissions() -> TestResult {
         unprivileged_gcs: false,
     };
     let mut template_config = config();
-    template_config.stage1_permissions = Some(Stage1PermissionRegisters {
-        privileged: Stage1PermissionRegisterPair {
-            base: 0,
-            overlay: None,
+    template_config.stage1_permissions = aarch64_vmsa::attrs::Stage1PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                privileged: 0,
+                unprivileged: None,
+                gcs_implemented: false,
+            },
+        ),
+        overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays {
+            privileged: None,
+            unprivileged: None,
         },
-        unprivileged: None,
-        gcs_implemented: false,
-    });
+    };
     let template = d128_stage1_resolve(&template_config, no_access);
     let mut conflicting = config();
-    conflicting.stage1_permissions = Some(Stage1PermissionRegisters {
-        privileged: Stage1PermissionRegisterPair {
-            base: 0xeeee_eeee_eeee_eeee,
-            overlay: None,
+    conflicting.stage1_permissions = aarch64_vmsa::attrs::Stage1PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                privileged: 0xeeee_eeee_eeee_eeee,
+                unprivileged: Some(0xeeee_eeee_eeee_eeee),
+                gcs_implemented: false,
+            },
+        ),
+        overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays {
+            privileged: None,
+            unprivileged: None,
         },
-        unprivileged: Some(Stage1PermissionRegisterPair {
-            base: 0xeeee_eeee_eeee_eeee,
-            overlay: None,
-        }),
-        gcs_implemented: false,
-    });
+    };
     let decoded = template.and_then(|raw| {
         <Vmsa128 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
             &conflicting,
@@ -1034,10 +1098,12 @@ pub fn d128_stage2_indirection_unavailable() -> TestResult {
 pub fn d128_stage2_missing_combination() -> TestResult {
     use aarch64_vmsa::attrs::{Stage2Permission, Stage2PermissionRegisters};
     let mut missing = config();
-    missing.stage2_permissions = Some(Stage2PermissionRegisters {
-        s2pir_el2: 0,
+    missing.stage2_permissions = aarch64_vmsa::attrs::Stage2PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage2PermissionRegisters { s2pir_el2: 0 },
+        ),
         s2por_el1: None,
-    });
+    };
     result(
         (d128_stage2_resolve(&missing, Stage2Permission::WriteOnly)
             != Err(AttrError::PermissionCombinationNotConfigured)) as u64,
@@ -1048,10 +1114,14 @@ pub fn d128_stage2_duplicate_selection() -> TestResult {
     use aarch64_vmsa::attrs::{Stage2Permission, Stage2PermissionRegisters};
     use aarch64_vmsa::low_level::raw::{FourBit, PermissionIndices};
     let mut duplicate = config();
-    duplicate.stage2_permissions = Some(Stage2PermissionRegisters {
-        s2pir_el2: 0x8888_8888_8888_8888,
+    duplicate.stage2_permissions = aarch64_vmsa::attrs::Stage2PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage2PermissionRegisters {
+                s2pir_el2: 0x8888_8888_8888_8888,
+            },
+        ),
         s2por_el1: Some(0x8888_8888_8888_8888),
-    });
+    };
     let wanted = Stage2Permission::ReadOnly {
         privileged_execute: false,
         unprivileged_execute: false,
@@ -1070,10 +1140,12 @@ pub fn invalid_fixed_output_address_space() -> TestResult {
     use aarch64_vmsa::attrs::{Stage2Permission, Stage2PermissionRegisters};
     use aarch64_vmsa::config::format::Vmsa128;
     let mut config = config();
-    config.stage2_permissions = Some(Stage2PermissionRegisters {
-        s2pir_el2: 0,
+    config.stage2_permissions = aarch64_vmsa::attrs::Stage2PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage2PermissionRegisters { s2pir_el2: 0 },
+        ),
         s2por_el1: None,
-    });
+    };
     let raw = d128_stage2_resolve(&config, Stage2Permission::NoAccess).map(|mut raw| {
         raw.ns = true;
         raw
@@ -1088,18 +1160,23 @@ pub fn invalid_fixed_output_address_space() -> TestResult {
 }
 
 pub fn invalid_d128_alias() -> TestResult {
-    use aarch64_vmsa::attrs::{Stage1PermissionRegisterPair, Stage1PermissionRegisters};
+    use aarch64_vmsa::attrs::Stage1PermissionRegisters;
     use aarch64_vmsa::config::format::Vmsa128;
     let mut config = config();
     config.d128_stage1_alias = D128Stage1AliasKind::NonSecureExtension;
-    config.stage1_permissions = Some(Stage1PermissionRegisters {
-        privileged: Stage1PermissionRegisterPair {
-            base: 0,
-            overlay: None,
+    config.stage1_permissions = aarch64_vmsa::attrs::Stage1PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                privileged: 0,
+                unprivileged: None,
+                gcs_implemented: false,
+            },
+        ),
+        overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays {
+            privileged: None,
+            unprivileged: None,
         },
-        unprivileged: None,
-        gcs_implemented: false,
-    });
+    };
     let resolved = <Vmsa128 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::encode_leaf(
         &config,
         Level::L3,
@@ -1109,16 +1186,21 @@ pub fn invalid_d128_alias() -> TestResult {
 }
 
 pub fn invalid_d128_final_level_nt() -> TestResult {
-    use aarch64_vmsa::attrs::{Stage1PermissionRegisterPair, Stage1PermissionRegisters};
+    use aarch64_vmsa::attrs::Stage1PermissionRegisters;
     let mut config = config();
-    config.stage1_permissions = Some(Stage1PermissionRegisters {
-        privileged: Stage1PermissionRegisterPair {
-            base: 0,
-            overlay: None,
+    config.stage1_permissions = aarch64_vmsa::attrs::Stage1PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                privileged: 0,
+                unprivileged: None,
+                gcs_implemented: false,
+            },
+        ),
+        overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays {
+            privileged: None,
+            unprivileged: None,
         },
-        unprivileged: None,
-        gcs_implemented: false,
-    });
+    };
     let mut leaf = d128_stage1_leaf(d128_stage1_permissions(DataAccess::None));
     leaf.controls.bbm_nt = true;
     let resolved = <aarch64_vmsa::config::format::Vmsa128 as AttributeCodec<
@@ -1131,9 +1213,13 @@ pub fn invalid_d128_final_level_nt() -> TestResult {
 
 pub fn conflicting_stage1_semantics() -> TestResult {
     let config = config();
-    let mut leaf = single_leaf(SinglePrivilegeLeafPermissions {
-        data: DataAccess::ReadOnly,
-        execute: false,
+    let mut leaf = single_leaf(aarch64_vmsa::attrs::Stage1EffectivePermissions {
+        privileged_data: DataAccess::ReadOnly,
+        unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
+        privileged_execute: false,
+        unprivileged_execute: false,
+        privileged_gcs: false,
+        unprivileged_gcs: false,
     });
     leaf.controls.global = false;
     let resolved = <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
@@ -1309,12 +1395,269 @@ impl Stage1Bits {
     }
 }
 
+pub fn vmsa64_aie_round_trip() -> TestResult {
+    let mut config = config();
+    config.mair2 = Some(0x44);
+    let mut leaf = single_leaf(Stage1EffectivePermissions {
+        privileged_data: DataAccess::ReadOnly,
+        unprivileged_data: DataAccess::None,
+        privileged_execute: false,
+        unprivileged_execute: false,
+        privileged_gcs: false,
+        unprivileged_gcs: false,
+    });
+    leaf.memory = MemoryAttributes::Normal {
+        inner: aarch64_vmsa::attrs::Cacheability::NonCacheable,
+        outer: aarch64_vmsa::attrs::Cacheability::NonCacheable,
+    };
+    let round_trip = <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
+        &config,
+        Level::L3,
+        leaf,
+    )
+    .and_then(|raw| {
+        if raw.attr_index.bits() != 8 {
+            return Err(AttrError::RawFieldOutOfRange);
+        }
+        <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
+            &config,
+            Level::L3,
+            raw,
+        )
+    });
+    result((round_trip != Ok(leaf)) as u64)
+}
+
+pub fn vmsa64_stage1_permission_extensions() -> TestResult {
+    use aarch64_vmsa::attrs::{
+        DirtyControl, DirtyState, Stage1BasePermissions, Stage1PermissionOverlays,
+        Stage1PermissionRegisters, Stage1PermissionSettings,
+    };
+
+    let read_only = Stage1EffectivePermissions {
+        privileged_data: DataAccess::ReadOnly,
+        unprivileged_data: DataAccess::None,
+        privileged_execute: false,
+        unprivileged_execute: false,
+        privileged_gcs: false,
+        unprivileged_gcs: false,
+    };
+    let mut stage1 = config();
+    stage1.stage1_permissions = Stage1PermissionSettings {
+        base: Stage1BasePermissions::Indirect(Stage1PermissionRegisters {
+            privileged: 0x8888_8888_8888_8888,
+            unprivileged: None,
+            gcs_implemented: false,
+        }),
+        overlays: Stage1PermissionOverlays::default(),
+    };
+    let mut stage1_leaf = single_leaf(read_only);
+    stage1_leaf.controls.dirty = DirtyControl::Indirect(DirtyState::Clean);
+    let stage1_ok = <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
+        &stage1,
+        Level::L3,
+        stage1_leaf,
+    )
+    .and_then(|raw| {
+        <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
+            &stage1,
+            Level::L3,
+            raw,
+        )
+    }) == Ok(stage1_leaf);
+
+    let mut stage1_direct_overlay = config();
+    stage1_direct_overlay.stage1_permissions = Stage1PermissionSettings {
+        base: Stage1BasePermissions::Direct,
+        overlays: Stage1PermissionOverlays {
+            privileged: Some(0x1111_1111_1111_1111),
+            unprivileged: None,
+        },
+    };
+    let stage1_direct_overlay_leaf = single_leaf(read_only);
+    let stage1_direct_overlay_ok =
+        <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_leaf(
+            &stage1_direct_overlay,
+            Level::L3,
+            stage1_direct_overlay_leaf,
+        )
+        .and_then(|raw| {
+            <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_leaf(
+                &stage1_direct_overlay,
+                Level::L3,
+                raw,
+            )
+        }) == Ok(stage1_direct_overlay_leaf);
+
+    let both_read_only = Stage1EffectivePermissions {
+        unprivileged_data: DataAccess::ReadOnly,
+        ..read_only
+    };
+    stage1.stage1_permissions = Stage1PermissionSettings {
+        base: Stage1BasePermissions::Indirect(Stage1PermissionRegisters {
+            privileged: 0x1111_1111_1111_1111,
+            unprivileged: Some(0x1111_1111_1111_1111),
+            gcs_implemented: false,
+        }),
+        overlays: Stage1PermissionOverlays {
+            privileged: Some(0x1111_1111_1111_1111),
+            unprivileged: Some(0x1111_1111_1111_1111),
+        },
+    };
+    let mut stage1_overlay_leaf = two_privilege_leaf(both_read_only);
+    stage1_overlay_leaf.controls.dirty = DirtyControl::Indirect(DirtyState::Dirty);
+    let stage1_overlay_ok =
+        <Vmsa64 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::encode_leaf(
+            &stage1,
+            Level::L3,
+            stage1_overlay_leaf,
+        )
+        .and_then(|raw| {
+            <Vmsa64 as AttributeCodec<NonSecureEl1Stage1, Granule4KiB, _>>::decode_leaf(
+                &stage1,
+                Level::L3,
+                raw,
+            )
+        }) == Ok(stage1_overlay_leaf);
+
+    result((!stage1_ok) as u64 + (!stage1_direct_overlay_ok) as u64 + (!stage1_overlay_ok) as u64)
+}
+
+pub fn vmsa64_stage2_permission_extensions() -> TestResult {
+    use aarch64_vmsa::attrs::{
+        DirtyControl, DirtyState, Stage2BasePermissions, Stage2PermissionRegisters,
+        Stage2PermissionSettings,
+    };
+
+    let wanted_stage2 = Stage2Permission::ReadOnly {
+        privileged_execute: false,
+        unprivileged_execute: false,
+    };
+    let mut stage2_indirect = config();
+    stage2_indirect.stage2_permissions = Stage2PermissionSettings {
+        base: Stage2BasePermissions::Indirect(Stage2PermissionRegisters {
+            s2pir_el2: 0x8888_8888_8888_8888,
+        }),
+        s2por_el1: None,
+    };
+    let mut stage2_indirect_leaf = stage2_leaf(wanted_stage2);
+    stage2_indirect_leaf.controls.dirty = DirtyControl::Indirect(DirtyState::Clean);
+    let stage2_indirect_ok = <Vmsa64 as AttributeCodec<
+        NonSecureEl2Stage2<Stage2Permissions>,
+        Granule4KiB,
+        _,
+    >>::encode_leaf(&stage2_indirect, Level::L3, stage2_indirect_leaf)
+    .and_then(|raw| {
+        <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>, Granule4KiB, _>>::decode_leaf(
+            &stage2_indirect,
+            Level::L3,
+            raw,
+        )
+    }) == Ok(stage2_indirect_leaf);
+
+    let mut stage2_direct_overlay = config();
+    stage2_direct_overlay.stage2_permissions = Stage2PermissionSettings {
+        base: Stage2BasePermissions::Direct,
+        s2por_el1: Some(0x8888_8888_8888_8888),
+    };
+    let stage2_direct_overlay_leaf = stage2_leaf(wanted_stage2);
+    let stage2_direct_overlay_ok = <Vmsa64 as AttributeCodec<
+        NonSecureEl2Stage2<Stage2Permissions>,
+        Granule4KiB,
+        _,
+    >>::encode_leaf(
+        &stage2_direct_overlay,
+        Level::L3,
+        stage2_direct_overlay_leaf,
+    )
+    .and_then(|raw| {
+        <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>, Granule4KiB, _>>::decode_leaf(
+            &stage2_direct_overlay,
+            Level::L3,
+            raw,
+        )
+    }) == Ok(stage2_direct_overlay_leaf);
+
+    let mut stage2 = config();
+    stage2.stage2_permissions = Stage2PermissionSettings {
+        base: Stage2BasePermissions::Indirect(Stage2PermissionRegisters {
+            s2pir_el2: 0x8888_8888_8888_8888,
+        }),
+        s2por_el1: Some(0x8888_8888_8888_8888),
+    };
+    let mut stage2_leaf = stage2_leaf(wanted_stage2);
+    stage2_leaf.controls.dirty = DirtyControl::Indirect(DirtyState::Dirty);
+    let stage2_ok = <Vmsa64 as AttributeCodec<
+        NonSecureEl2Stage2<Stage2Permissions>,
+        Granule4KiB,
+        _,
+    >>::encode_leaf(&stage2, Level::L3, stage2_leaf)
+    .and_then(|raw| {
+        <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>, Granule4KiB, _>>::decode_leaf(
+            &stage2,
+            Level::L3,
+            raw,
+        )
+    }) == Ok(stage2_leaf);
+
+    result((!stage2_indirect_ok) as u64 + (!stage2_direct_overlay_ok) as u64 + (!stage2_ok) as u64)
+}
+
+pub fn vmsa64_stage1_haft_round_trip() -> TestResult {
+    let config = config();
+    let stage1 = SemanticStage1TableAttrs {
+        permission_limits: SinglePrivilegeTablePermissionLimits {
+            data_limit: DataAccess::ReadWrite,
+            execute_limit: true,
+        },
+        pas: (),
+        controls: SemanticVmsa64Stage1TableControls {
+            access_flag: true,
+            software: SoftwareMetadata::new(0),
+        },
+    };
+    let stage1_ok = <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::encode_table(
+        &config,
+        Level::L1,
+        stage1,
+    )
+    .and_then(|raw| {
+        <Vmsa64 as AttributeCodec<NonSecureEl2Stage1, Granule4KiB, _>>::decode_table(
+            &config,
+            Level::L1,
+            raw,
+        )
+    }) == Ok(stage1);
+    result((!stage1_ok) as u64)
+}
+
+pub fn vmsa64_stage2_haft_round_trip() -> TestResult {
+    let config = config();
+    let stage2 = SemanticVmsa64Stage2TableAttrs {
+        access_flag: true,
+        software: SoftwareMetadata::new(0),
+    };
+    let stage2_ok = <Vmsa64 as AttributeCodec<
+        NonSecureEl2Stage2<Stage2Permissions>,
+        Granule4KiB,
+        _,
+    >>::encode_table(&config, Level::L1, stage2)
+    .and_then(|raw| {
+        <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>, Granule4KiB, _>>::decode_table(
+            &config,
+            Level::L1,
+            raw,
+        )
+    }) == Ok(stage2);
+    result((!stage2_ok) as u64)
+}
+
 fn config() -> LiveVmsaConfig {
     LiveVmsaConfig {
         mair: 0,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
         shareability: Shareability::InnerShareable,
@@ -1333,7 +1676,7 @@ fn stage1_controls() -> SemanticVmsa64Stage1LeafControls {
         shareability: Shareability::InnerShareable,
         access_flag: true,
         global: true,
-        dirty_management: DirtyBitManagement::SoftwareManaged,
+        dirty: aarch64_vmsa::attrs::DirtyControl::Direct(DirtyBitManagement::SoftwareManaged),
         contiguous: false,
         guarded: false,
         software: SoftwareMetadata::new(0),
@@ -1341,8 +1684,8 @@ fn stage1_controls() -> SemanticVmsa64Stage1LeafControls {
 }
 
 fn single_leaf(
-    permissions: SinglePrivilegeLeafPermissions,
-) -> SemanticStage1LeafAttrs<SinglePrivilegeLeafPermissions, (), SemanticVmsa64Stage1LeafControls> {
+    permissions: Stage1EffectivePermissions,
+) -> SemanticStage1LeafAttrs<Stage1EffectivePermissions, (), SemanticVmsa64Stage1LeafControls> {
     SemanticStage1LeafAttrs {
         memory: memory(),
         permissions,
@@ -1352,8 +1695,8 @@ fn single_leaf(
 }
 
 fn two_privilege_leaf(
-    permissions: TwoPrivilegeLeafPermissions,
-) -> SemanticStage1LeafAttrs<TwoPrivilegeLeafPermissions, (), SemanticVmsa64Stage1LeafControls> {
+    permissions: Stage1EffectivePermissions,
+) -> SemanticStage1LeafAttrs<Stage1EffectivePermissions, (), SemanticVmsa64Stage1LeafControls> {
     SemanticStage1LeafAttrs {
         memory: memory(),
         permissions,
@@ -1363,8 +1706,8 @@ fn two_privilege_leaf(
 }
 
 fn stage2_leaf(
-    permissions: Stage2LeafPermissions,
-) -> SemanticStage2LeafAttrs<Stage2LeafPermissions, (), SemanticVmsa64Stage2LeafControls> {
+    permissions: Stage2Permission,
+) -> SemanticStage2LeafAttrs<Stage2Permission, (), SemanticVmsa64Stage2LeafControls> {
     SemanticStage2LeafAttrs {
         memory: Stage2MemoryAttributes::Combined(memory()),
         permissions,
@@ -1372,7 +1715,7 @@ fn stage2_leaf(
         controls: SemanticVmsa64Stage2LeafControls {
             shareability: Shareability::InnerShareable,
             access_flag: true,
-            dirty_management: DirtyBitManagement::SoftwareManaged,
+            dirty: aarch64_vmsa::attrs::DirtyControl::Direct(DirtyBitManagement::SoftwareManaged),
             contiguous: false,
             software: SoftwareMetadata::new(0),
         },
@@ -1381,7 +1724,7 @@ fn stage2_leaf(
 
 fn stage2_resolve_direct(
     config: &LiveVmsaConfig,
-    permissions: Stage2LeafPermissions,
+    permissions: Stage2Permission,
 ) -> Result<aarch64_vmsa::low_level::raw::RawVmsa64Stage2LeafAttrs, AttrError> {
     <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>, Granule4KiB, _>>::encode_leaf(
         config,
@@ -1392,7 +1735,7 @@ fn stage2_resolve_direct(
 
 fn stage2_resolve_xnx(
     config: &LiveVmsaConfig,
-    permissions: Stage2LeafPermissions,
+    permissions: Stage2Permission,
 ) -> Result<aarch64_vmsa::low_level::raw::RawVmsa64Stage2LeafAttrs, AttrError> {
     <Vmsa64 as AttributeCodec<NonSecureEl2Stage2<Stage2XnxPermissions>,
         Granule4KiB,
@@ -1400,7 +1743,7 @@ fn stage2_resolve_xnx(
     >>::encode_leaf(config, Level::L3, stage2_leaf(permissions))
 }
 
-fn stage2_round_trip_direct(config: &LiveVmsaConfig, permissions: Stage2LeafPermissions) -> bool {
+fn stage2_round_trip_direct(config: &LiveVmsaConfig, permissions: Stage2Permission) -> bool {
     let leaf = stage2_leaf(permissions);
     stage2_resolve_direct(config, permissions)
         .and_then(|raw| {
@@ -1412,7 +1755,7 @@ fn stage2_round_trip_direct(config: &LiveVmsaConfig, permissions: Stage2LeafPerm
         .is_ok_and(|decoded| decoded == leaf)
 }
 
-fn stage2_round_trip_xnx(config: &LiveVmsaConfig, permissions: Stage2LeafPermissions) -> bool {
+fn stage2_round_trip_xnx(config: &LiveVmsaConfig, permissions: Stage2Permission) -> bool {
     let leaf = stage2_leaf(permissions);
     stage2_resolve_xnx(config, permissions)
         .and_then(|raw| {

@@ -77,33 +77,31 @@ pub fn descriptor_errors() -> TestResult {
     use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout};
     use aarch64_vmsa::low_level::raw::{
-        FourBit, LeafAp, RawShareability, RawVmsa64Stage1LeafAttrs, RawVmsa64Stage1TableAttrs,
-        TableAp, ThreeBit,
+        FourBit, RawShareability, RawVmsa64PermissionFields, RawVmsa64Stage1LeafAttrs,
+        RawVmsa64Stage1TableAttrs, TableAp, ThreeBit,
     };
     use aarch64_vmsa::table::{TableShape, TableTransition};
     use aarch64_vmsa::translation::Stage1;
 
     type Layout = <Vmsa64 as HasLayout<Stage1, Granule4KiB>>::Layout;
     let leaf = RawVmsa64Stage1LeafAttrs {
-        attr_index: ThreeBit::new(0).map_err(|_| HarnessError::CrateBehavior {
+        attr_index: FourBit::new(0).map_err(|_| HarnessError::CrateBehavior {
             expected: 1,
             actual: 0,
         })?,
         ns: false,
-        ap: LeafAp::from_bits(0).map_err(|_| HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        })?,
+        permissions: RawVmsa64PermissionFields {
+            primary: FourBit::ZERO,
+            dirty: false,
+            overlay: ThreeBit::ZERO,
+        },
         shareability: RawShareability::from_bits(0).map_err(|_| HarnessError::CrateBehavior {
             expected: 1,
             actual: 0,
         })?,
         access_flag: true,
         alias_bit: false,
-        dirty_bit_modifier: false,
         contiguous: false,
-        privileged_execute_never: false,
-        unprivileged_execute_never: false,
         guarded: false,
         software: FourBit::ZERO,
     };
@@ -137,6 +135,7 @@ pub fn descriptor_errors() -> TestResult {
             actual: 0,
         })?;
     let table = RawVmsa64Stage1TableAttrs {
+        access_flag: false,
         privileged_execute_never_limit: false,
         unprivileged_execute_never_limit: false,
         ap_table: TableAp::from_bits(0).map_err(|_| HarnessError::CrateBehavior {

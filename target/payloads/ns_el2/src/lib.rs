@@ -177,6 +177,21 @@ fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> Test
 fn raw_field_bounds(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     descriptors::raw_field_bounds()
 }
+fn vmsa64_aie(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    permissions::vmsa64_aie_round_trip()
+}
+fn vmsa64_stage1_pie_poe(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    permissions::vmsa64_stage1_permission_extensions()
+}
+fn vmsa64_stage2_pie_poe(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    permissions::vmsa64_stage2_permission_extensions()
+}
+fn vmsa64_stage1_haft(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    permissions::vmsa64_stage1_haft_round_trip()
+}
+fn vmsa64_stage2_haft(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    permissions::vmsa64_stage2_haft_round_trip()
+}
 fn descriptor_errors(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     descriptors::descriptor_errors()
 }

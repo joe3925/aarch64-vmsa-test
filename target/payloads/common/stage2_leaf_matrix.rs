@@ -81,7 +81,7 @@ fn active_standard_leaf_case<F, G, R>(
     input_hint: u64,
     controls: vmsa_test_harness::TranslationControls,
     observation: Observation,
-    permissions: aarch64_vmsa::attrs::Stage2LeafPermissions,
+    permissions: aarch64_vmsa::attrs::Stage2Permission,
     operation: ActivePermissionOperation,
 ) -> TestResult
 where
@@ -105,7 +105,7 @@ where
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
-                aarch64_vmsa::attrs::Stage2LeafPermissions,
+                aarch64_vmsa::attrs::Stage2Permission,
                 crate::Stage2Pas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
             >,
@@ -192,8 +192,8 @@ where
     let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
         mair: 0,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
@@ -307,7 +307,9 @@ where
                 controls: aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls {
                     shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
                     access_flag: true,
-                    dirty_management: aarch64_vmsa::attrs::DirtyBitManagement::SoftwareManaged,
+                    dirty: aarch64_vmsa::attrs::DirtyControl::Direct(
+                        aarch64_vmsa::attrs::DirtyBitManagement::SoftwareManaged,
+                    ),
                     contiguous: false,
                     software: aarch64_vmsa::attrs::SoftwareMetadata::new(0),
                 },
@@ -466,19 +468,48 @@ where
     match observation {
         Observation::Access => match operation {
             ActivePermissionOperation::Read
-                if permissions.data != aarch64_vmsa::attrs::DataAccess::None =>
+                if matches!(
+                    permissions,
+                    aarch64_vmsa::attrs::Stage2Permission::ReadOnly { .. }
+                        | aarch64_vmsa::attrs::Stage2Permission::ReadWrite { .. }
+                ) =>
             {
                 vmsa_test_harness::expect_value(combined.read_u64(VA_BASE + 8), VALUE)
             }
             ActivePermissionOperation::Write
-                if permissions.data == aarch64_vmsa::attrs::DataAccess::ReadWrite =>
+                if matches!(
+                    permissions,
+                    aarch64_vmsa::attrs::Stage2Permission::ReadWrite { .. }
+                ) =>
             {
                 vmsa_test_harness::expect_completed(combined.write_u64(VA_BASE + 8, VALUE + 1))
             }
-            ActivePermissionOperation::Execute if permissions.privileged_execute => {
+            ActivePermissionOperation::Execute
+                if matches!(
+                    permissions,
+                    aarch64_vmsa::attrs::Stage2Permission::ReadOnly {
+                        privileged_execute: true,
+                        ..
+                    } | aarch64_vmsa::attrs::Stage2Permission::ReadWrite {
+                        privileged_execute: true,
+                        ..
+                    }
+                ) =>
+            {
                 vmsa_test_harness::expect_value(combined.execute(VA_BASE + 8), 1)
             }
-            ActivePermissionOperation::ExecuteEl0 if permissions.unprivileged_execute => {
+            ActivePermissionOperation::ExecuteEl0
+                if matches!(
+                    permissions,
+                    aarch64_vmsa::attrs::Stage2Permission::ReadOnly {
+                        unprivileged_execute: true,
+                        ..
+                    } | aarch64_vmsa::attrs::Stage2Permission::ReadWrite {
+                        unprivileged_execute: true,
+                        ..
+                    }
+                ) =>
+            {
                 vmsa_test_harness::expect_value(combined.el0_execute(VA_BASE + 8), 1)
             }
             ActivePermissionOperation::Read => vmsa_test_harness::expect_matching_fault(
@@ -583,7 +614,7 @@ where
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
-                aarch64_vmsa::attrs::Stage2LeafPermissions,
+                aarch64_vmsa::attrs::Stage2Permission,
                 crate::Stage2Pas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
             >,
@@ -603,10 +634,22 @@ where
         input_hint,
         controls,
         observation,
-        aarch64_vmsa::attrs::Stage2LeafPermissions {
-            data: aarch64_vmsa::attrs::DataAccess::ReadWrite,
-            privileged_execute: false,
-            unprivileged_execute: false,
+        match aarch64_vmsa::attrs::DataAccess::ReadWrite {
+            aarch64_vmsa::attrs::DataAccess::None => {
+                aarch64_vmsa::attrs::Stage2Permission::NoAccess
+            }
+            aarch64_vmsa::attrs::DataAccess::ReadOnly => {
+                aarch64_vmsa::attrs::Stage2Permission::ReadOnly {
+                    privileged_execute: false,
+                    unprivileged_execute: false,
+                }
+            }
+            aarch64_vmsa::attrs::DataAccess::ReadWrite => {
+                aarch64_vmsa::attrs::Stage2Permission::ReadWrite {
+                    privileged_execute: false,
+                    unprivileged_execute: false,
+                }
+            }
         },
         ActivePermissionOperation::Read,
     )
@@ -674,11 +717,7 @@ fn vmsa64_permission_case(
         1u64 << 42,
         controls,
         Observation::Access,
-        aarch64_vmsa::attrs::Stage2LeafPermissions {
-            data,
-            privileged_execute: execute,
-            unprivileged_execute: execute,
-        },
+        aarch64_vmsa::attrs::Stage2Permission::direct(data, execute, execute),
         operation,
     )
 }
@@ -741,11 +780,11 @@ fn vmsa64_xnx_permission_case(
         1u64 << 42,
         controls,
         Observation::Access,
-        aarch64_vmsa::attrs::Stage2LeafPermissions {
-            data: aarch64_vmsa::attrs::DataAccess::ReadOnly,
+        aarch64_vmsa::attrs::Stage2Permission::direct(
+            aarch64_vmsa::attrs::DataAccess::ReadOnly,
             privileged_execute,
             unprivileged_execute,
-        },
+        ),
         operation,
     )
 }
@@ -1210,11 +1249,15 @@ where
     let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
         mair: 0,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: Some(aarch64_vmsa::attrs::Stage2PermissionRegisters {
-            s2pir_el2: 0x0000_0000_0000_fb8c,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings {
+            base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
+                aarch64_vmsa::attrs::Stage2PermissionRegisters {
+                    s2pir_el2: 0x0000_0000_0000_fb8c,
+                },
+            ),
             s2por_el1: None,
-        }),
+        },
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
@@ -1748,11 +1791,7 @@ fn alternate_vmsa64_permission_case(
         1u64 << 42,
         controls,
         Observation::Access,
-        aarch64_vmsa::attrs::Stage2LeafPermissions {
-            data,
-            privileged_execute: execute,
-            unprivileged_execute: execute,
-        },
+        aarch64_vmsa::attrs::Stage2Permission::direct(data, execute, execute),
         operation,
     )
 }
@@ -1815,11 +1854,11 @@ fn alternate_vmsa64_xnx_permission_case(
         1u64 << 42,
         controls,
         Observation::Access,
-        aarch64_vmsa::attrs::Stage2LeafPermissions {
-            data: aarch64_vmsa::attrs::DataAccess::ReadOnly,
+        aarch64_vmsa::attrs::Stage2Permission::direct(
+            aarch64_vmsa::attrs::DataAccess::ReadOnly,
             privileged_execute,
             unprivileged_execute,
-        },
+        ),
         operation,
     )
 }

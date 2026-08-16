@@ -14,28 +14,34 @@ fn result(failed: bool) -> TestResult {
 }
 
 fn config(alias: aarch64_vmsa::attrs::D128Stage1AliasKind) -> aarch64_vmsa::attrs::LiveVmsaConfig {
-    use aarch64_vmsa::attrs::{
-        LiveVmsaConfig, Shareability, Stage1PermissionRegisterPair, Stage1PermissionRegisters,
-        Stage2MemoryMode,
-    };
-    let pair = Stage1PermissionRegisterPair {
-        base: 0xcccc_cccc_cccc_ccca,
-        overlay: None,
-    };
+    use aarch64_vmsa::attrs::{LiveVmsaConfig, Shareability, Stage2MemoryMode};
     LiveVmsaConfig {
         mair: 0x44,
         mair2: None,
-        stage1_permissions: Some(Stage1PermissionRegisters {
-            privileged: pair,
-            unprivileged: Some(pair),
-            gcs_implemented: false,
-        }),
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: alias,
         shareability: Shareability::InnerShareable,
         output_pas: (),
     }
+}
+
+fn d128_config(
+    alias: aarch64_vmsa::attrs::D128Stage1AliasKind,
+) -> aarch64_vmsa::attrs::LiveVmsaConfig {
+    let mut config = config(alias);
+    config.stage1_permissions = aarch64_vmsa::attrs::Stage1PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                privileged: 0xcccc_cccc_cccc_ccca,
+                unprivileged: Some(0xcccc_cccc_cccc_ccca),
+                gcs_implemented: false,
+            },
+        ),
+        overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays::default(),
+    };
+    config
 }
 
 fn vmsa64_controls(global: bool) -> aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls {
@@ -46,7 +52,7 @@ fn vmsa64_controls(global: bool) -> aarch64_vmsa::attrs::SemanticVmsa64Stage1Lea
         shareability: Shareability::InnerShareable,
         access_flag: true,
         global,
-        dirty_management: DirtyBitManagement::SoftwareManaged,
+        dirty: aarch64_vmsa::attrs::DirtyControl::Direct(DirtyBitManagement::SoftwareManaged),
         contiguous: false,
         guarded: false,
         software: SoftwareMetadata::new(0),
@@ -63,7 +69,7 @@ fn memory() -> aarch64_vmsa::attrs::MemoryAttributes {
 fn vmsa64_two_privilege(global: bool) -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        AttributeCodec, DataAccess, SemanticStage1LeafAttrs, TwoPrivilegeLeafPermissions,
+        AttributeCodec, DataAccess, SemanticStage1LeafAttrs, Stage1EffectivePermissions,
     };
     use aarch64_vmsa::config::format::Vmsa64;
     use aarch64_vmsa::config::granule::Granule4KiB;
@@ -71,11 +77,13 @@ fn vmsa64_two_privilege(global: bool) -> TestResult {
     let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
-        permissions: TwoPrivilegeLeafPermissions {
+        permissions: Stage1EffectivePermissions {
             privileged_data: DataAccess::ReadWrite,
             unprivileged_data: DataAccess::ReadWrite,
             privileged_execute: false,
             unprivileged_execute: false,
+            privileged_gcs: false,
+            unprivileged_gcs: false,
         },
         pas: (),
         controls: vmsa64_controls(global),
@@ -111,8 +119,7 @@ pub(super) fn vmsa64_single_non_global_conflict(
 ) -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        AttrError, AttributeCodec, DataAccess, SemanticStage1LeafAttrs,
-        SinglePrivilegeLeafPermissions,
+        AttrError, AttributeCodec, DataAccess, SemanticStage1LeafAttrs, Stage1EffectivePermissions,
     };
     use aarch64_vmsa::config::format::Vmsa64;
     use aarch64_vmsa::config::granule::Granule4KiB;
@@ -120,9 +127,13 @@ pub(super) fn vmsa64_single_non_global_conflict(
     let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
-        permissions: SinglePrivilegeLeafPermissions {
-            data: DataAccess::ReadOnly,
-            execute: false,
+        permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions {
+            privileged_data: DataAccess::ReadOnly,
+            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
+            privileged_execute: false,
+            unprivileged_execute: false,
+            privileged_gcs: false,
+            unprivileged_gcs: false,
         },
         pas: (),
         controls: vmsa64_controls(false),
@@ -149,7 +160,7 @@ fn root_pas_bits(pas: aarch64_vmsa::attrs::RootExtendedPa) -> (bool, bool) {
 fn vmsa64_root_pas(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        AttributeCodec, DataAccess, SemanticStage1LeafAttrs, SinglePrivilegeLeafPermissions,
+        AttributeCodec, DataAccess, SemanticStage1LeafAttrs, Stage1EffectivePermissions,
     };
     use aarch64_vmsa::config::format::Vmsa64;
     use aarch64_vmsa::config::granule::Granule4KiB;
@@ -157,9 +168,13 @@ fn vmsa64_root_pas(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
     let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonSecureExtension);
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
-        permissions: SinglePrivilegeLeafPermissions {
-            data: DataAccess::ReadOnly,
-            execute: false,
+        permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions {
+            privileged_data: DataAccess::ReadOnly,
+            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
+            privileged_execute: false,
+            unprivileged_execute: false,
+            privileged_gcs: false,
+            unprivileged_gcs: false,
         },
         pas,
         controls: vmsa64_controls(true),
@@ -243,7 +258,7 @@ fn d128_two_privilege(global: bool) -> TestResult {
     use aarch64_vmsa::config::format::Vmsa128;
     use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
-    let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
+    let config = d128_config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
         permissions: effective_permissions(),
@@ -284,7 +299,7 @@ pub(super) fn d128_wrong_non_secure_extension_mode(
     use aarch64_vmsa::config::format::Vmsa128;
     use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
-    let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonSecureExtension);
+    let config = d128_config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonSecureExtension);
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
         permissions: effective_permissions(),
@@ -306,15 +321,20 @@ fn d128_root_pas(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
     use aarch64_vmsa::config::format::Vmsa128;
     use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::config::regime::RootEl3Stage1;
-    let mut config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonSecureExtension);
-    config.stage1_permissions = Some(aarch64_vmsa::attrs::Stage1PermissionRegisters {
-        privileged: aarch64_vmsa::attrs::Stage1PermissionRegisterPair {
-            base: 0x5555_5555_5555_5555,
-            overlay: Some(0x1111_1111_1111_1111),
+    let mut config = d128_config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonSecureExtension);
+    config.stage1_permissions = aarch64_vmsa::attrs::Stage1PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                privileged: 0x5555_5555_5555_5555,
+                unprivileged: None,
+                gcs_implemented: false,
+            },
+        ),
+        overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays {
+            privileged: Some(0x1111_1111_1111_1111),
+            unprivileged: None,
         },
-        unprivileged: None,
-        gcs_implemented: false,
-    });
+    };
     let permissions = aarch64_vmsa::attrs::Stage1EffectivePermissions {
         privileged_data: aarch64_vmsa::attrs::DataAccess::ReadOnly,
         unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
@@ -366,15 +386,20 @@ pub(super) fn d128_root_wrong_non_global_mode(
     use aarch64_vmsa::config::format::Vmsa128;
     use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::config::regime::RootEl3Stage1;
-    let mut config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
-    config.stage1_permissions = Some(aarch64_vmsa::attrs::Stage1PermissionRegisters {
-        privileged: aarch64_vmsa::attrs::Stage1PermissionRegisterPair {
-            base: 0x5555_5555_5555_5555,
-            overlay: Some(0x1111_1111_1111_1111),
+    let mut config = d128_config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
+    config.stage1_permissions = aarch64_vmsa::attrs::Stage1PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                privileged: 0x5555_5555_5555_5555,
+                unprivileged: None,
+                gcs_implemented: false,
+            },
+        ),
+        overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays {
+            privileged: Some(0x1111_1111_1111_1111),
+            unprivileged: None,
         },
-        unprivileged: None,
-        gcs_implemented: false,
-    });
+    };
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
         permissions: Stage1EffectivePermissions {
@@ -407,15 +432,20 @@ pub(super) fn d128_root_non_global_conflict(
     use aarch64_vmsa::config::format::Vmsa128;
     use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::config::regime::RootEl3Stage1;
-    let mut config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonSecureExtension);
-    config.stage1_permissions = Some(aarch64_vmsa::attrs::Stage1PermissionRegisters {
-        privileged: aarch64_vmsa::attrs::Stage1PermissionRegisterPair {
-            base: 0x5555_5555_5555_5555,
-            overlay: Some(0x1111_1111_1111_1111),
+    let mut config = d128_config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonSecureExtension);
+    config.stage1_permissions = aarch64_vmsa::attrs::Stage1PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                privileged: 0x5555_5555_5555_5555,
+                unprivileged: None,
+                gcs_implemented: false,
+            },
+        ),
+        overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays {
+            privileged: Some(0x1111_1111_1111_1111),
+            unprivileged: None,
         },
-        unprivileged: None,
-        gcs_implemented: false,
-    });
+    };
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
         permissions: Stage1EffectivePermissions {
@@ -447,7 +477,7 @@ enum Vmsa64LeafControl {
 fn vmsa64_leaf_control(control: Vmsa64LeafControl) -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        AttributeCodec, DataAccess, SemanticStage1LeafAttrs, SinglePrivilegeLeafPermissions,
+        AttributeCodec, DataAccess, SemanticStage1LeafAttrs, Stage1EffectivePermissions,
     };
     use aarch64_vmsa::config::format::Vmsa64;
     use aarch64_vmsa::config::granule::Granule4KiB;
@@ -460,9 +490,13 @@ fn vmsa64_leaf_control(control: Vmsa64LeafControl) -> TestResult {
     }
     let leaf = SemanticStage1LeafAttrs {
         memory: memory(),
-        permissions: SinglePrivilegeLeafPermissions {
-            data: DataAccess::ReadOnly,
-            execute: false,
+        permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions {
+            privileged_data: DataAccess::ReadOnly,
+            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
+            privileged_execute: false,
+            unprivileged_execute: false,
+            privileged_gcs: false,
+            unprivileged_gcs: false,
         },
         pas: (),
         controls,
@@ -511,7 +545,7 @@ fn d128_leaf_control(control: D128LeafControl) -> TestResult {
     use aarch64_vmsa::config::format::Vmsa128;
     use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::config::regime::NonSecureEl1Stage1;
-    let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
+    let config = d128_config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
     let mut controls = d128_controls(true);
     match control {
         D128LeafControl::BbmNt => controls.bbm_nt = true,
@@ -584,7 +618,7 @@ fn d128_table_control(control: D128TableControl) -> TestResult {
     use aarch64_vmsa::descriptor::{DescriptorLayout, HasLayout};
     use aarch64_vmsa::table::{TableShape, TableTransition};
     use aarch64_vmsa::translation::Stage1;
-    let config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
+    let config = d128_config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
     let table = SemanticVmsa128Stage1TableAttrs {
         table_nt: matches!(control, D128TableControl::TableNt),
         access_flag: matches!(control, D128TableControl::AccessFlag),
@@ -651,11 +685,15 @@ d128_table_control_cases!(
 );
 
 fn d128_stage2_config() -> aarch64_vmsa::attrs::LiveVmsaConfig {
-    let mut config = config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
-    config.stage2_permissions = Some(aarch64_vmsa::attrs::Stage2PermissionRegisters {
-        s2pir_el2: 0x0000_0000_0000_fb8c,
+    let mut config = d128_config(aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal);
+    config.stage2_permissions = aarch64_vmsa::attrs::Stage2PermissionSettings {
+        base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
+            aarch64_vmsa::attrs::Stage2PermissionRegisters {
+                s2pir_el2: 0x0000_0000_0000_fb8c,
+            },
+        ),
         s2por_el1: None,
-    });
+    };
     config
 }
 

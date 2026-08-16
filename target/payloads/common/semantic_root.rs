@@ -7,7 +7,7 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
         MemoryAttributes, RootExtendedPa, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
-        SinglePrivilegeLeafPermissions, SinglePrivilegeTablePermissionLimits, SoftwareMetadata,
+        SinglePrivilegeTablePermissionLimits, SoftwareMetadata, Stage1EffectivePermissions,
         Stage2MemoryMode,
     };
     use aarch64_vmsa::config::format::Vmsa64Lpa2;
@@ -33,8 +33,8 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
     let config = LiveVmsaConfig {
         mair: 0x44,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonSecureExtension,
         shareability: Shareability::InnerShareable,
@@ -45,16 +45,20 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
             inner: Cacheability::NonCacheable,
             outer: Cacheability::NonCacheable,
         },
-        permissions: SinglePrivilegeLeafPermissions {
-            data: DataAccess::ReadWrite,
-            execute: false,
+        permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions {
+            privileged_data: DataAccess::ReadWrite,
+            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
+            privileged_execute: false,
+            unprivileged_execute: false,
+            privileged_gcs: false,
+            unprivileged_gcs: false,
         },
         pas: RootExtendedPa::Root,
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,
             access_flag: true,
             global: true,
-            dirty_management: DirtyBitManagement::SoftwareManaged,
+            dirty: aarch64_vmsa::attrs::DirtyControl::Direct(DirtyBitManagement::SoftwareManaged),
             contiguous: false,
             guarded: false,
             software: SoftwareMetadata::new(0),

@@ -17,8 +17,8 @@ fn vmsa64_update_case(
         AllocationHints, CachePolicy, Cacheability, D128Stage1AliasKind, DataAccess,
         DirtyBitManagement, LiveVmsaConfig, MemoryAttributes, MemoryTransience,
         SemanticStage1LeafAttrs, SemanticStage1TableAttrs, SemanticVmsa64Stage1LeafControls,
-        SemanticVmsa64Stage1TableControls, Shareability, SinglePrivilegeLeafPermissions,
-        SinglePrivilegeTablePermissionLimits, SoftwareMetadata, Stage2MemoryMode,
+        SemanticVmsa64Stage1TableControls, Shareability, SinglePrivilegeTablePermissionLimits,
+        SoftwareMetadata, Stage1EffectivePermissions, Stage2MemoryMode,
     };
     use vmsa_test_harness::{
         AccessKind, AddressBits, ExpectedFault, FaultClass, FaultMatcher, FaultStage, FaultStatus,
@@ -39,8 +39,8 @@ fn vmsa64_update_case(
     let config = LiveVmsaConfig {
         mair: 0x0000_00ff,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
         shareability: Shareability::InnerShareable,
@@ -59,24 +59,28 @@ fn vmsa64_update_case(
                 allocation: AllocationHints::ReadWriteAllocate,
             },
         },
-        permissions: SinglePrivilegeLeafPermissions {
-            data: if dirty_managed {
+        permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions {
+            privileged_data: if dirty_managed {
                 DataAccess::ReadOnly
             } else {
                 DataAccess::ReadWrite
             },
-            execute: false,
+            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
+            privileged_execute: false,
+            unprivileged_execute: false,
+            privileged_gcs: false,
+            unprivileged_gcs: false,
         },
         pas: crate::current_pas(),
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,
             access_flag,
             global: true,
-            dirty_management: if dirty_managed {
+            dirty: aarch64_vmsa::attrs::DirtyControl::Direct(if dirty_managed {
                 DirtyBitManagement::HardwareManaged
             } else {
                 DirtyBitManagement::SoftwareManaged
-            },
+            }),
             contiguous: false,
             guarded: false,
             software: SoftwareMetadata::new(0),
@@ -200,7 +204,7 @@ fn vmsa64_update_case(
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-            if after.permissions.data == DataAccess::ReadOnly {
+            if after.permissions.privileged_data == DataAccess::ReadOnly {
                 TestResult::Pass
             } else {
                 vmsa_test_harness::HarnessError::CrateBehavior {
@@ -224,7 +228,7 @@ fn vmsa64_update_case(
                     _,
                 >(ADDRESS, &config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-            if after.permissions.data == DataAccess::ReadWrite {
+            if after.permissions.privileged_data == DataAccess::ReadWrite {
                 TestResult::Pass
             } else {
                 vmsa_test_harness::HarnessError::CrateBehavior {
@@ -250,8 +254,9 @@ fn d128_update_case(
         AllocationHints, CachePolicy, Cacheability, D128Stage1AliasKind, DataAccess, DirtyState,
         LiveVmsaConfig, MemoryAttributes, MemoryTransience, SemanticStage1LeafAttrs,
         SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs, Shareability,
-        SoftwareMetadata, Stage1EffectivePermissions, Stage1PermissionRegisterPair,
-        Stage1PermissionRegisters, Stage2MemoryMode,
+        SoftwareMetadata, Stage1BasePermissions, Stage1EffectivePermissions,
+        Stage1PermissionOverlays, Stage1PermissionRegisters, Stage1PermissionSettings,
+        Stage2MemoryMode,
     };
     use vmsa_test_harness::{
         AccessKind, AddressBits, ExpectedFault, FaultClass, FaultMatcher, FaultStage, FaultStatus,
@@ -265,19 +270,18 @@ fn d128_update_case(
         observation,
         UpdateObservation::AccessFlagDisabled | UpdateObservation::AccessFlagEnabled
     );
-    let permission_pair = Stage1PermissionRegisterPair {
-        base: 0xcccc_cccc_cccc_ccca,
-        overlay: None,
-    };
     let config = LiveVmsaConfig {
         mair: 0x0000_00ff,
         mair2: None,
-        stage1_permissions: Some(Stage1PermissionRegisters {
-            privileged: permission_pair,
-            unprivileged: Some(permission_pair),
-            gcs_implemented: false,
-        }),
-        stage2_permissions: None,
+        stage1_permissions: Stage1PermissionSettings {
+            base: Stage1BasePermissions::Indirect(Stage1PermissionRegisters {
+                privileged: 0xcccc_cccc_cccc_ccca,
+                unprivileged: Some(0xcccc_cccc_cccc_ccca),
+                gcs_implemented: false,
+            }),
+            overlays: Stage1PermissionOverlays::default(),
+        },
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
         shareability: Shareability::NonShareable,
@@ -522,11 +526,15 @@ fn d128_stage2_update_case(
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: Some(Stage2PermissionRegisters {
-            s2pir_el2: 0x0000_0000_0000_fb8c,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings {
+            base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
+                aarch64_vmsa::attrs::Stage2PermissionRegisters {
+                    s2pir_el2: 0x0000_0000_0000_fb8c,
+                },
+            ),
             s2por_el1: None,
-        }),
+        },
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
         shareability: Shareability::InnerShareable,

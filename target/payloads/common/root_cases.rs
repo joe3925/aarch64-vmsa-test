@@ -81,8 +81,7 @@ where
         Cacheability, D128Stage1AliasKind, DataAccess, DirtyState, LiveVmsaConfig,
         MemoryAttributes, RootExtendedPa, SemanticStage1LeafAttrs,
         SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs, Shareability,
-        SoftwareMetadata, Stage1EffectivePermissions, Stage1PermissionRegisterPair,
-        Stage1PermissionRegisters, Stage2MemoryMode,
+        SoftwareMetadata, Stage1EffectivePermissions, Stage1PermissionRegisters, Stage2MemoryMode,
     };
     let permissions = Stage1EffectivePermissions {
         privileged_data: DataAccess::ReadOnly,
@@ -95,15 +94,20 @@ where
     let config = LiveVmsaConfig {
         mair: 0x0000_0000_0000_0044,
         mair2: None,
-        stage1_permissions: Some(Stage1PermissionRegisters {
-            privileged: Stage1PermissionRegisterPair {
-                base: 0x5555_5555_5555_5555,
-                overlay: Some(0x1111_1111_1111_1111),
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings {
+            base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+                aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                    privileged: 0x5555_5555_5555_5555,
+                    unprivileged: None,
+                    gcs_implemented: false,
+                },
+            ),
+            overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays {
+                privileged: Some(0x1111_1111_1111_1111),
+                unprivileged: None,
             },
-            unprivileged: None,
-            gcs_implemented: false,
-        }),
-        stage2_permissions: None,
+        },
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonSecureExtension,
         shareability: Shareability::InnerShareable,

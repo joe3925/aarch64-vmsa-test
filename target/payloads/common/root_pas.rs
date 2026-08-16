@@ -15,8 +15,8 @@ fn config() -> aarch64_vmsa::attrs::LiveVmsaConfig<()> {
     LiveVmsaConfig {
         mair: 0x44,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonSecureExtension,
         shareability: Shareability::InnerShareable,
@@ -27,26 +27,30 @@ fn config() -> aarch64_vmsa::attrs::LiveVmsaConfig<()> {
 fn leaf(
     pas: aarch64_vmsa::attrs::RootExtendedPa,
 ) -> aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
-    aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions,
+    aarch64_vmsa::attrs::Stage1EffectivePermissions,
     aarch64_vmsa::attrs::RootExtendedPa,
     aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
 > {
     use aarch64_vmsa::attrs::{
         DataAccess, DirtyBitManagement, SemanticStage1LeafAttrs, SemanticVmsa64Stage1LeafControls,
-        Shareability, SinglePrivilegeLeafPermissions, SoftwareMetadata,
+        Shareability, SoftwareMetadata, Stage1EffectivePermissions,
     };
     SemanticStage1LeafAttrs {
         memory: memory(),
-        permissions: SinglePrivilegeLeafPermissions {
-            data: DataAccess::ReadWrite,
-            execute: false,
+        permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions {
+            privileged_data: DataAccess::ReadWrite,
+            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
+            privileged_execute: false,
+            unprivileged_execute: false,
+            privileged_gcs: false,
+            unprivileged_gcs: false,
         },
         pas,
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,
             access_flag: true,
             global: true,
-            dirty_management: DirtyBitManagement::SoftwareManaged,
+            dirty: aarch64_vmsa::attrs::DirtyControl::Direct(DirtyBitManagement::SoftwareManaged),
             contiguous: false,
             guarded: false,
             software: SoftwareMetadata::new(0),

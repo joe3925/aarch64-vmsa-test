@@ -1,0 +1,24 @@
+diff --git a/tftf/framework/aarch64/entrypoint.S b/tftf/framework/aarch64/entrypoint.S
+index 34c03125..05494118 100644
+--- a/tftf/framework/aarch64/entrypoint.S
++++ b/tftf/framework/aarch64/entrypoint.S
+@@ -187,7 +187,8 @@ func arch_init
+ 
+ el2_setup:
+ 	/* Set the exception vectors. */
+-	adr	x0, tftf_vector
++	adrp	x0, tftf_vector
++	add	x0, x0, :lo12:tftf_vector
+ 	msr	vbar_el2, x0
+ 
+ 	/* Enable the instruction cache and alignment checks. */
+@@ -199,7 +200,8 @@ el2_setup:
+ 
+ el1_setup:
+ 	/* Set the exception vectors. */
+-	adr	x0, tftf_vector
++	adrp	x0, tftf_vector
++	add	x0, x0, :lo12:tftf_vector
+ 	msr	vbar_el1, x0
+ 
+ 	/* Enable the instruction cache and stack pointer alignment checks. */

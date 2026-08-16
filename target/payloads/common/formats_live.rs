@@ -105,7 +105,7 @@ where
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
-                aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions,
+                aarch64_vmsa::attrs::Stage1EffectivePermissions,
                 crate::CurrentPas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
@@ -134,8 +134,8 @@ where
     let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
         mair: 0x0000_ff44,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
@@ -324,8 +324,8 @@ where
         .inspect_semantic_for::<CurrentRegime, F, G, _>(access_address, &semantic_config)?
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if live_semantic != offline_semantic
-        || live_semantic.permissions.data != aarch64_vmsa::attrs::DataAccess::ReadWrite
-        || live_semantic.permissions.execute
+        || live_semantic.permissions.privileged_data != aarch64_vmsa::attrs::DataAccess::ReadWrite
+        || live_semantic.permissions.privileged_execute
         || !live_semantic.controls.access_flag
     {
         return vmsa_test_harness::HarnessError::CrateBehavior {
@@ -410,7 +410,7 @@ where
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
-                aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions,
+                aarch64_vmsa::attrs::Stage1EffectivePermissions,
                 crate::CurrentPas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
@@ -447,8 +447,8 @@ where
     let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
         mair: 0x0000_ff44,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
@@ -456,16 +456,22 @@ where
     };
     let semantic_leaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs {
         memory,
-        permissions: aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions {
-            data: aarch64_vmsa::attrs::DataAccess::ReadWrite,
-            execute: false,
+        permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions {
+            privileged_data: aarch64_vmsa::attrs::DataAccess::ReadWrite,
+            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
+            privileged_execute: false,
+            unprivileged_execute: false,
+            privileged_gcs: false,
+            unprivileged_gcs: false,
         },
         pas: crate::current_pas(),
         controls: aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls {
             shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
             access_flag: true,
             global: true,
-            dirty_management: aarch64_vmsa::attrs::DirtyBitManagement::SoftwareManaged,
+            dirty: aarch64_vmsa::attrs::DirtyControl::Direct(
+                aarch64_vmsa::attrs::DirtyBitManagement::SoftwareManaged,
+            ),
             contiguous: false,
             guarded: false,
             software: aarch64_vmsa::attrs::SoftwareMetadata::new(0),
@@ -636,7 +642,7 @@ where
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     if semantic != offline_semantic
         || semantic.memory != memory
-        || semantic.permissions.data != aarch64_vmsa::attrs::DataAccess::ReadWrite
+        || semantic.permissions.privileged_data != aarch64_vmsa::attrs::DataAccess::ReadWrite
     {
         return vmsa_test_harness::HarnessError::CrateBehavior {
             expected: 1,
@@ -796,7 +802,7 @@ where
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
-                aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions,
+                aarch64_vmsa::attrs::Stage1EffectivePermissions,
                 crate::CurrentPas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
@@ -997,7 +1003,7 @@ where
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
-                aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions,
+                aarch64_vmsa::attrs::Stage1EffectivePermissions,
                 crate::CurrentPas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
@@ -1170,19 +1176,20 @@ where
         .into();
     }
     let bits = AddressBits::new(52).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let permission_pair = aarch64_vmsa::attrs::Stage1PermissionRegisterPair {
-        base: 0xcccc_cccc_cccc_ccca,
-        overlay: None,
-    };
     let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
         mair: 0x44,
         mair2: Some(0),
-        stage1_permissions: Some(aarch64_vmsa::attrs::Stage1PermissionRegisters {
-            privileged: permission_pair,
-            unprivileged: Some(permission_pair),
-            gcs_implemented: false,
-        }),
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings {
+            base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+                aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                    privileged: 0xcccc_cccc_cccc_ccca,
+                    unprivileged: Some(0xcccc_cccc_cccc_ccca),
+                    gcs_implemented: false,
+                },
+            ),
+            overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays::default(),
+        },
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::NonShareable,
@@ -1592,10 +1599,6 @@ pub(super) fn active_d128(context: &mut TestContext<'_, CurrentEnvironment>) -> 
     if !matches!(write, vmsa_test_harness::AccessResult::Completed { .. }) {
         return vmsa_test_harness::expect_completed(write);
     }
-    let d128_permissions = aarch64_vmsa::attrs::Stage1PermissionRegisterPair {
-        base: 0xcccc_cccc_cccc_ccca,
-        overlay: None,
-    };
     let mair2_memory = aarch64_vmsa::attrs::MemoryAttributes::Normal {
         inner: aarch64_vmsa::attrs::Cacheability::NonCacheable,
         outer: aarch64_vmsa::attrs::Cacheability::NonCacheable,
@@ -1603,12 +1606,17 @@ pub(super) fn active_d128(context: &mut TestContext<'_, CurrentEnvironment>) -> 
     let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
         mair: 0x0000_00ff,
         mair2: Some(0x44),
-        stage1_permissions: Some(aarch64_vmsa::attrs::Stage1PermissionRegisters {
-            privileged: d128_permissions,
-            unprivileged: Some(d128_permissions),
-            gcs_implemented: false,
-        }),
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings {
+            base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
+                aarch64_vmsa::attrs::Stage1PermissionRegisters {
+                    privileged: 0xcccc_cccc_cccc_ccca,
+                    unprivileged: Some(0xcccc_cccc_cccc_ccca),
+                    gcs_implemented: false,
+                },
+            ),
+            overlays: aarch64_vmsa::attrs::Stage1PermissionOverlays::default(),
+        },
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::NonShareable,
@@ -1850,11 +1858,15 @@ pub(super) fn active_d128_stage2(context: &mut TestContext<'_, CurrentEnvironmen
     let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
         mair: 0,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: Some(aarch64_vmsa::attrs::Stage2PermissionRegisters {
-            s2pir_el2: 0x0000_0000_0000_fb8c,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings {
+            base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
+                aarch64_vmsa::attrs::Stage2PermissionRegisters {
+                    s2pir_el2: 0x0000_0000_0000_fb8c,
+                },
+            ),
             s2por_el1: None,
-        }),
+        },
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
         shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,

@@ -147,8 +147,7 @@ fn take_external_fault() -> Option<vmsa_test_architecture::exception::RawFault> 
 #[unsafe(no_mangle)]
 pub extern "C" fn vmsa_test_realm_stage2_plan() -> u64 {
     use aarch64_vmsa::attrs::{
-        D128Stage1AliasKind, DataAccess, LiveVmsaConfig, RealmOrNonSecurePa, Shareability,
-        Stage2MemoryMode,
+        D128Stage1AliasKind, LiveVmsaConfig, RealmOrNonSecurePa, Shareability, Stage2MemoryMode,
     };
     use aarch64_vmsa::mapper::decode_semantic_leaf;
     use vmsa_test_harness::MappingAttributes;
@@ -163,8 +162,8 @@ pub extern "C" fn vmsa_test_realm_stage2_plan() -> u64 {
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
         shareability: Shareability::InnerShareable,
@@ -182,14 +181,18 @@ pub extern "C" fn vmsa_test_realm_stage2_plan() -> u64 {
     if semantic.output_address_space == RealmOrNonSecurePa::Realm {
         checks |= 1 << 2;
     }
-    if semantic.permissions.data == DataAccess::ReadWrite {
+    if let aarch64_vmsa::attrs::Stage2Permission::ReadWrite {
+        privileged_execute,
+        unprivileged_execute,
+    } = semantic.permissions
+    {
         checks |= 1 << 3;
-    }
-    if !semantic.permissions.privileged_execute {
-        checks |= 1 << 4;
-    }
-    if !semantic.permissions.unprivileged_execute {
-        checks |= 1 << 5;
+        if !privileged_execute {
+            checks |= 1 << 4;
+        }
+        if !unprivileged_execute {
+            checks |= 1 << 5;
+        }
     }
     checks
 }
@@ -371,15 +374,15 @@ fn fixed_realm_ipa_stage1_semantic_access(
     use aarch64_vmsa::attrs::{
         AttributeCodec, Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement,
         LiveVmsaConfig, MemoryAttributes, SemanticStage1LeafAttrs,
-        SemanticVmsa64Stage1LeafControls, Shareability, SoftwareMetadata, Stage2MemoryMode,
-        TwoPrivilegeLeafPermissions,
+        SemanticVmsa64Stage1LeafControls, Shareability, SoftwareMetadata,
+        Stage1EffectivePermissions, Stage2MemoryMode,
     };
     use aarch64_vmsa::config::granule::Granule4KiB;
     let config = LiveVmsaConfig {
         mair: 0x44,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
         shareability: Shareability::InnerShareable,
@@ -390,18 +393,20 @@ fn fixed_realm_ipa_stage1_semantic_access(
             inner: Cacheability::NonCacheable,
             outer: Cacheability::NonCacheable,
         },
-        permissions: TwoPrivilegeLeafPermissions {
+        permissions: Stage1EffectivePermissions {
             privileged_data: DataAccess::ReadWrite,
             unprivileged_data: DataAccess::ReadWrite,
             privileged_execute: false,
             unprivileged_execute: false,
+            privileged_gcs: false,
+            unprivileged_gcs: false,
         },
         pas: (),
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,
             access_flag: true,
             global: true,
-            dirty_management: DirtyBitManagement::SoftwareManaged,
+            dirty: aarch64_vmsa::attrs::DirtyControl::Direct(DirtyBitManagement::SoftwareManaged),
             contiguous: false,
             guarded: false,
             software: SoftwareMetadata::new(0),

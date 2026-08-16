@@ -280,7 +280,7 @@ where
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
-                aarch64_vmsa::attrs::SinglePrivilegeLeafPermissions,
+                aarch64_vmsa::attrs::Stage1EffectivePermissions,
                 crate::CurrentPas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,

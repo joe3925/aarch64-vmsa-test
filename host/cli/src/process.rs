@@ -166,7 +166,7 @@ impl SupervisorLimits {
             },
             suite: SUITE_TIMEOUT,
             test: TEST_TIMEOUT,
-            shutdown: crate::settings::SHUTDOWN_TIMEOUT,
+            shutdown: crate::settings::CONTAINER_EXIT_TIMEOUT,
         }
     }
 
@@ -549,6 +549,9 @@ fn run_with_limits(
     );
     let stdout_join = stdout_thread.join();
     let stderr_join = stderr_thread.join();
+    if matches!(child.try_wait(), Ok(Some(_))) {
+        container.active = false;
+    }
     let cleanup = container.cleanup();
 
     let mut result = result;

@@ -18,7 +18,7 @@ fn single_privilege_case(
         Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
-        SinglePrivilegeLeafPermissions, SinglePrivilegeTablePermissionLimits, SoftwareMetadata,
+        SinglePrivilegeTablePermissionLimits, SoftwareMetadata, Stage1EffectivePermissions,
         Stage2MemoryMode,
     };
     use vmsa_test_harness::{
@@ -48,20 +48,24 @@ fn single_privilege_case(
     let config = LiveVmsaConfig {
         mair: 0x0000_ff44,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
         shareability: Shareability::InnerShareable,
         output_pas: (),
     };
-    let permissions = SinglePrivilegeLeafPermissions {
-        data: if writable {
+    let permissions = aarch64_vmsa::attrs::Stage1EffectivePermissions {
+        privileged_data: if writable {
             DataAccess::ReadWrite
         } else {
             DataAccess::ReadOnly
         },
-        execute: executable,
+        unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
+        privileged_execute: executable,
+        unprivileged_execute: false,
+        privileged_gcs: false,
+        unprivileged_gcs: false,
     };
     let leaf = SemanticStage1LeafAttrs {
         memory: MemoryAttributes::Normal {
@@ -74,7 +78,7 @@ fn single_privilege_case(
             shareability: Shareability::InnerShareable,
             access_flag: true,
             global: true,
-            dirty_management: DirtyBitManagement::SoftwareManaged,
+            dirty: aarch64_vmsa::attrs::DirtyControl::Direct(DirtyBitManagement::SoftwareManaged),
             contiguous: false,
             guarded: false,
             software: SoftwareMetadata::new(0),
@@ -239,7 +243,7 @@ fn two_privilege_case(
         Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
-        SoftwareMetadata, Stage2MemoryMode, TwoPrivilegeLeafPermissions,
+        SoftwareMetadata, Stage1EffectivePermissions, Stage2MemoryMode,
         TwoPrivilegeTablePermissionLimits,
     };
     use vmsa_test_harness::{
@@ -277,18 +281,20 @@ fn two_privilege_case(
     let config = LiveVmsaConfig {
         mair: 0x0000_ff44,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
         shareability: Shareability::InnerShareable,
         output_pas: (),
     };
-    let permissions = TwoPrivilegeLeafPermissions {
+    let permissions = Stage1EffectivePermissions {
         privileged_data,
         unprivileged_data,
         privileged_execute,
         unprivileged_execute,
+        privileged_gcs: false,
+        unprivileged_gcs: false,
     };
     let leaf = SemanticStage1LeafAttrs {
         memory: MemoryAttributes::Normal {
@@ -301,7 +307,7 @@ fn two_privilege_case(
             shareability: Shareability::InnerShareable,
             access_flag: true,
             global: true,
-            dirty_management: DirtyBitManagement::SoftwareManaged,
+            dirty: aarch64_vmsa::attrs::DirtyControl::Direct(DirtyBitManagement::SoftwareManaged),
             contiguous: false,
             guarded: false,
             software: SoftwareMetadata::new(0),

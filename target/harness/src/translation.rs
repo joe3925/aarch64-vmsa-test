@@ -16,6 +16,7 @@ pub enum AttributeError {
     MtePermissionUnavailable,
     PermissionIndirectionUnavailable,
     PermissionCombinationNotConfigured,
+    PermissionModeMismatch,
     InvalidD128Alias,
     InvalidD128Configuration,
     ConflictingSemanticAttributes,
@@ -43,6 +44,7 @@ impl AttributeError {
             Self::InvalidD128Alias => 14,
             Self::InvalidD128Configuration => 15,
             Self::ConflictingSemanticAttributes => 16,
+            Self::PermissionModeMismatch => 17,
         }
     }
 }
@@ -70,6 +72,7 @@ pub(crate) fn normalize_attribute_error(error: aarch64_vmsa::attrs::AttrError) -
         AttrError::PermissionCombinationNotConfigured => {
             AttributeError::PermissionCombinationNotConfigured
         }
+        AttrError::PermissionModeMismatch => AttributeError::PermissionModeMismatch,
         AttrError::InvalidD128Alias => AttributeError::InvalidD128Alias,
         AttrError::InvalidD128Configuration => AttributeError::InvalidD128Configuration,
         AttrError::ConflictingSemanticAttributes => AttributeError::ConflictingSemanticAttributes,
@@ -909,10 +912,10 @@ use aarch64_vmsa::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
 use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
 use aarch64_vmsa::descriptor::{DescriptorFormat, DescriptorLayout, HasLayout};
 use aarch64_vmsa::low_level::raw::{
-    FourBit, LeafAp, PermissionIndices, RawShareability, RawVmsa64Stage1LeafAttrs,
-    RawVmsa64Stage1TableAttrs, RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs,
-    RawVmsa128Stage1LeafAttrs, RawVmsa128Stage1TableAttrs, RawVmsa128Stage2LeafAttrs,
-    RawVmsa128Stage2TableAttrs, Stage1NotDirty, Stage2Ap, Stage2Dirty, Stage2ExecuteNever, TableAp,
+    FourBit, PermissionIndices, RawShareability, RawVmsa64PermissionFields,
+    RawVmsa64Stage1LeafAttrs, RawVmsa64Stage1TableAttrs, RawVmsa64Stage2LeafAttrs,
+    RawVmsa64Stage2TableAttrs, RawVmsa128Stage1LeafAttrs, RawVmsa128Stage1TableAttrs,
+    RawVmsa128Stage2LeafAttrs, RawVmsa128Stage2TableAttrs, Stage1NotDirty, Stage2Dirty, TableAp,
     TenBit, ThreeBit,
 };
 use aarch64_vmsa::mapper::{Mapper, Offline};
@@ -1115,17 +1118,21 @@ macro_rules! stage1_test_regime_for_granule {
                 }
                 let ap_bits = if attributes.writable { 0b01 } else { 0b11 };
                 Ok(RawVmsa64Stage1LeafAttrs {
-                    attr_index: ThreeBit::new(0).map_err(|_| HarnessError::InvalidState)?,
+                    attr_index: FourBit::new(0).map_err(|_| HarnessError::InvalidState)?,
                     ns: false,
-                    ap: LeafAp::from_bits(ap_bits).map_err(|_| HarnessError::InvalidState)?,
+                    permissions: RawVmsa64PermissionFields {
+                        primary: FourBit::new(
+                            (ap_bits & 1) | (u8::from(!attributes.executable) << 3),
+                        )
+                        .map_err(|_| HarnessError::InvalidState)?,
+                        dirty: ap_bits & 2 != 0,
+                        overlay: ThreeBit::new(0).map_err(|_| HarnessError::InvalidState)?,
+                    },
                     shareability: RawShareability::from_bits(0b11)
                         .map_err(|_| HarnessError::InvalidState)?,
                     access_flag: true,
                     alias_bit: $alias_bit,
-                    dirty_bit_modifier: false,
                     contiguous: false,
-                    privileged_execute_never: false,
-                    unprivileged_execute_never: !attributes.executable,
                     guarded: false,
                     software: FourBit::new(0).map_err(|_| HarnessError::InvalidState)?,
                 })
@@ -1145,6 +1152,7 @@ macro_rules! stage1_test_regime_for_granule {
 
             fn raw_table() -> Result<TableFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
                 Ok(RawVmsa64Stage1TableAttrs {
+                    access_flag: false,
                     privileged_execute_never_limit: false,
                     unprivileged_execute_never_limit: false,
                     ap_table: TableAp::from_bits(0).map_err(|_| HarnessError::InvalidState)?,
@@ -1160,7 +1168,10 @@ macro_rules! stage1_test_regime_for_granule {
             ) -> Result<LeafFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
                 let mut fields = <Self as TestRegimeFor<$granule>>::raw_leaf(attributes.mapping)?;
                 fields.access_flag = attributes.access_flag;
-                fields.dirty_bit_modifier = attributes.dirty_modifier;
+                let primary = fields.permissions.primary.bits();
+                fields.permissions.primary =
+                    FourBit::new((primary & !0b10) | (u8::from(attributes.dirty_modifier) << 1))
+                        .map_err(|_| HarnessError::InvalidState)?;
                 Ok(fields)
             }
 
@@ -1169,8 +1180,10 @@ macro_rules! stage1_test_regime_for_granule {
             ) -> HardwareUpdateInspection {
                 HardwareUpdateInspection {
                     access_flag: fields.access_flag,
-                    writable: fields.ap.bits() == 0b01,
-                    dirty_modifier: fields.dirty_bit_modifier,
+                    writable: (fields.permissions.primary.bits() & 1)
+                        | (u8::from(fields.permissions.dirty) << 1)
+                        == 0b01,
+                    dirty_modifier: fields.permissions.primary.bits() & 0b10 != 0,
                 }
             }
         }
@@ -1234,17 +1247,23 @@ macro_rules! two_privilege_test_regime_for_granule {
                     (true, false) => 0b11,
                 };
                 Ok(RawVmsa64Stage1LeafAttrs {
-                    attr_index: ThreeBit::new(0).map_err(|_| HarnessError::InvalidState)?,
+                    attr_index: FourBit::new(0).map_err(|_| HarnessError::InvalidState)?,
                     ns: false,
-                    ap: LeafAp::from_bits(ap_bits).map_err(|_| HarnessError::InvalidState)?,
+                    permissions: RawVmsa64PermissionFields {
+                        primary: FourBit::new(
+                            (ap_bits & 1)
+                                | (u8::from(!attributes.executable) << 2)
+                                | (u8::from(!attributes.executable) << 3),
+                        )
+                        .map_err(|_| HarnessError::InvalidState)?,
+                        dirty: ap_bits & 2 != 0,
+                        overlay: ThreeBit::new(0).map_err(|_| HarnessError::InvalidState)?,
+                    },
                     shareability: RawShareability::from_bits(0b11)
                         .map_err(|_| HarnessError::InvalidState)?,
                     access_flag: true,
                     alias_bit: false,
-                    dirty_bit_modifier: false,
                     contiguous: false,
-                    privileged_execute_never: !attributes.executable,
-                    unprivileged_execute_never: !attributes.executable,
                     guarded: false,
                     software: FourBit::new(0).map_err(|_| HarnessError::InvalidState)?,
                 })
@@ -1264,6 +1283,7 @@ macro_rules! two_privilege_test_regime_for_granule {
 
             fn raw_table() -> Result<TableFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
                 Ok(RawVmsa64Stage1TableAttrs {
+                    access_flag: false,
                     privileged_execute_never_limit: false,
                     unprivileged_execute_never_limit: false,
                     ap_table: TableAp::from_bits(0).map_err(|_| HarnessError::InvalidState)?,
@@ -1279,7 +1299,10 @@ macro_rules! two_privilege_test_regime_for_granule {
             ) -> Result<LeafFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
                 let mut fields = <Self as TestRegimeFor<$granule>>::raw_leaf(attributes.mapping)?;
                 fields.access_flag = attributes.access_flag;
-                fields.dirty_bit_modifier = attributes.dirty_modifier;
+                let primary = fields.permissions.primary.bits();
+                fields.permissions.primary =
+                    FourBit::new((primary & !0b10) | (u8::from(attributes.dirty_modifier) << 1))
+                        .map_err(|_| HarnessError::InvalidState)?;
                 Ok(fields)
             }
 
@@ -1288,8 +1311,12 @@ macro_rules! two_privilege_test_regime_for_granule {
             ) -> HardwareUpdateInspection {
                 HardwareUpdateInspection {
                     access_flag: fields.access_flag,
-                    writable: matches!(fields.ap.bits(), 0b00 | 0b01),
-                    dirty_modifier: fields.dirty_bit_modifier,
+                    writable: matches!(
+                        (fields.permissions.primary.bits() & 1)
+                            | (u8::from(fields.permissions.dirty) << 1),
+                        0b00 | 0b01
+                    ),
+                    dirty_modifier: fields.permissions.primary.bits() & 0b10 != 0,
                 }
             }
         }
@@ -1325,20 +1352,19 @@ macro_rules! stage2_test_regime_for_granule {
                 attributes: MappingAttributes,
             ) -> Result<LeafFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
                 let access = if attributes.writable { 0b11 } else { 0b01 };
+                let xn = if attributes.executable { 0 } else { 0b10 };
                 Ok(RawVmsa64Stage2LeafAttrs {
                     mem_attr: FourBit::new(0xf).map_err(|_| HarnessError::InvalidState)?,
-                    access: Stage2Ap::from_bits(access).map_err(|_| HarnessError::InvalidState)?,
+                    permissions: RawVmsa64PermissionFields {
+                        primary: FourBit::new((access & 1) | (xn << 2))
+                            .map_err(|_| HarnessError::InvalidState)?,
+                        dirty: access & 2 != 0,
+                        overlay: ThreeBit::new(0).map_err(|_| HarnessError::InvalidState)?,
+                    },
                     shareability: RawShareability::from_bits(0b11)
                         .map_err(|_| HarnessError::InvalidState)?,
                     access_flag: true,
-                    dirty_bit_modifier: false,
                     contiguous: false,
-                    execute_never: Stage2ExecuteNever::from_bits(if attributes.executable {
-                        0
-                    } else {
-                        0b10
-                    })
-                    .map_err(|_| HarnessError::InvalidState)?,
                     software: FourBit::new(0).map_err(|_| HarnessError::InvalidState)?,
                 })
             }
@@ -1357,6 +1383,7 @@ macro_rules! stage2_test_regime_for_granule {
 
             fn raw_table() -> Result<TableFieldsOf<Vmsa64, Self, $granule>, HarnessError> {
                 Ok(RawVmsa64Stage2TableAttrs {
+                    access_flag: false,
                     software: FourBit::new(0).map_err(|_| HarnessError::InvalidState)?,
                 })
             }

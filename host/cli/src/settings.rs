@@ -15,6 +15,7 @@ pub const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 pub const REALM_STAGE2_STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 pub const SUITE_TIMEOUT: Duration = Duration::from_secs(300);
 pub const TEST_TIMEOUT: Duration = Duration::from_secs(15);
+pub const CONTAINER_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 pub const RESULT_PREFIX: &str = "@@VMSA";
 pub const PROTOCOL_VERSION: u32 = 1;

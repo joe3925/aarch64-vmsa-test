@@ -219,8 +219,8 @@ pub(super) fn combined_stage1_stage2(
             let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
                 mair: 0x0000_ff44,
                 mair2: None,
-                stage1_permissions: None,
-                stage2_permissions: None,
+                stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+                stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
                 stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
                 d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
                 shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
@@ -235,9 +235,11 @@ pub(super) fn combined_stage1_stage2(
                     _,
                 >(target_ipa, &semantic_config)?
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-            if semantic.permissions.data != aarch64_vmsa::attrs::DataAccess::ReadWrite
-                || semantic.controls.shareability
-                    != aarch64_vmsa::attrs::Shareability::InnerShareable
+            if !matches!(
+                semantic.permissions,
+                aarch64_vmsa::attrs::Stage2Permission::ReadWrite { .. }
+            ) || semantic.controls.shareability
+                != aarch64_vmsa::attrs::Shareability::InnerShareable
                 || !semantic.controls.access_flag
             {
                 return vmsa_test_harness::HarnessError::CrateBehavior {

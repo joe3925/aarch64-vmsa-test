@@ -21,7 +21,7 @@ where
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<P>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
-                aarch64_vmsa::attrs::TwoPrivilegeLeafPermissions,
+                aarch64_vmsa::attrs::Stage1EffectivePermissions,
                 P,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
@@ -38,7 +38,7 @@ where
         Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
-        SoftwareMetadata, Stage2MemoryMode, TwoPrivilegeLeafPermissions,
+        SoftwareMetadata, Stage1EffectivePermissions, Stage2MemoryMode,
         TwoPrivilegeTablePermissionLimits,
     };
     use aarch64_vmsa::config::format::Vmsa64;
@@ -82,18 +82,20 @@ where
     let config = LiveVmsaConfig {
         mair: 0x44,
         mair2: None,
-        stage1_permissions: None,
-        stage2_permissions: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
         shareability: Shareability::InnerShareable,
         output_pas: pas,
     };
-    let permissions = TwoPrivilegeLeafPermissions {
+    let permissions = Stage1EffectivePermissions {
         privileged_data: DataAccess::ReadWrite,
         unprivileged_data: DataAccess::ReadWrite,
         privileged_execute: false,
         unprivileged_execute: false,
+        privileged_gcs: false,
+        unprivileged_gcs: false,
     };
     let leaf = SemanticStage1LeafAttrs {
         memory: MemoryAttributes::Normal {
@@ -106,7 +108,7 @@ where
             shareability: Shareability::InnerShareable,
             access_flag: true,
             global: false,
-            dirty_management: DirtyBitManagement::SoftwareManaged,
+            dirty: aarch64_vmsa::attrs::DirtyControl::Direct(DirtyBitManagement::SoftwareManaged),
             contiguous: false,
             guarded: false,
             software: SoftwareMetadata::new(0),

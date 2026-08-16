@@ -46,9 +46,9 @@ fn current_stage1_case(
     use aarch64_vmsa::attrs::{
         Cacheability, DataAccess, DirtyState, LiveVmsaConfig, MemoryAttributes,
         SemanticStage1LeafAttrs, SemanticVmsa128Stage1LeafControls,
-        SemanticVmsa128Stage1TableAttrs, Shareability, SoftwareMetadata,
-        Stage1EffectivePermissions, Stage1PermissionRegisterPair, Stage1PermissionRegisters,
-        Stage2MemoryMode,
+        SemanticVmsa128Stage1TableAttrs, Shareability, SoftwareMetadata, Stage1BasePermissions,
+        Stage1EffectivePermissions, Stage1PermissionOverlays, Stage1PermissionRegisters,
+        Stage1PermissionSettings, Stage2MemoryMode,
     };
     use aarch64_vmsa::config::format::Vmsa128;
     use aarch64_vmsa::config::granule::Granule4KiB;
@@ -69,19 +69,18 @@ fn current_stage1_case(
     if !matches!(seeded, vmsa_test_harness::AccessResult::Completed { .. }) {
         return vmsa_test_harness::expect_completed(seeded);
     }
-    let permission_pair = Stage1PermissionRegisterPair {
-        base: 0xcccc_cccc_cccc_ccca,
-        overlay: None,
-    };
     let config = LiveVmsaConfig {
         mair: 0x44,
         mair2: None,
-        stage1_permissions: Some(Stage1PermissionRegisters {
-            privileged: permission_pair,
-            unprivileged: None,
-            gcs_implemented: false,
-        }),
-        stage2_permissions: None,
+        stage1_permissions: Stage1PermissionSettings {
+            base: Stage1BasePermissions::Indirect(Stage1PermissionRegisters {
+                privileged: 0xcccc_cccc_cccc_ccca,
+                unprivileged: None,
+                gcs_implemented: false,
+            }),
+            overlays: Stage1PermissionOverlays::default(),
+        },
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: crate::current_d128_alias(),
         shareability: Shareability::InnerShareable,

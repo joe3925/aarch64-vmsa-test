@@ -10,6 +10,11 @@
 macro_rules! for_each_registered_test {
     ($consumer:ident) => {
         $consumer! {
+            Vmsa64Aie, "extensions.vmsa64.aie", entry(NORMAL, Requirements::NONE), (vmsa64_aie), (none), (none), (none), (none);
+            Vmsa64Stage1PiePoe, "extensions.vmsa64.stage1-pie-poe", entry(NORMAL, Requirements::NONE), (vmsa64_stage1_pie_poe), (none), (none), (none), (none);
+            Vmsa64Stage2PiePoe, "extensions.vmsa64.stage2-pie-poe", entry(NORMAL, Requirements::NONE), (vmsa64_stage2_pie_poe), (none), (none), (none), (none);
+            Vmsa64Stage1Haft, "extensions.vmsa64.stage1-haft", entry(NORMAL, Requirements::NONE), (vmsa64_stage1_haft), (none), (none), (none), (none);
+            Vmsa64Stage2Haft, "extensions.vmsa64.stage2-haft", entry(NORMAL, Requirements::NONE), (vmsa64_stage2_haft), (none), (none), (none), (none);
             FeatureSnapshotAgreement, "features.live-snapshot-agreement", entry(ALL_ENVIRONMENTS, Requirements::NONE), (feature_snapshot_agreement), (feature_snapshot_agreement), (feature_snapshot_agreement), (feature_snapshot_agreement), (feature_snapshot_agreement);
             SecurityStateMembership, "features.security-state-membership", entry(NORMAL_SECURE_REALM, Requirements::NONE), (security_state_membership), (security_state_membership), (security_state_membership), (security_state_membership), (none);
             RootSecurityStateMembership, "features.root-security-state-membership", entry(SecurityEnvironments::ROOT, Requirements::RME), (none), (none), (none), (none), (security_state_membership);
