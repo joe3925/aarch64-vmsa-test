@@ -925,7 +925,7 @@ use aarch64_vmsa::table::{
     TableAllocLayout, TableFrameProvider, TableShape, TableTransition,
 };
 use aarch64_vmsa::translation::walk::{WalkEntry, WalkInputAddr, Walker};
-use aarch64_vmsa::translation::{Stage1, Stage2};
+use aarch64_vmsa::translation::{Stage1, Stage2, WalkOutputAddr};
 
 type StageOf<R> = <R as TranslationRegime>::Stage;
 type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeLeafFields<F, R, G>;
@@ -2044,7 +2044,7 @@ where
     let old_output = removed.old().output_base();
     let old_level = removed.old().level();
     let old_fields = *removed.old().fields();
-    let replacement_output = PhysAddr(output.unwrap_or(old_output.0));
+    let replacement_output = WalkOutputAddr::new(output.unwrap_or(old_output.raw()));
 
     if mapper
         .map_leaf(
@@ -2072,7 +2072,7 @@ where
     }
 
     Ok(MappingInspection {
-        output: replacement_output.0,
+        output: replacement_output.raw(),
         level: LookupLevel::new(old_level.as_i8())
             .expect("mapper returned an architectural lookup level"),
     })
@@ -2461,7 +2461,7 @@ where
             if let Some(mapping) = mapper.translate(WalkInputAddr::new(address)).map_err(|_| {
                 HarnessError::TransitionPreparation(TransitionPreparationError::RecoveryInspection)
             })? {
-                if mapping.output().0 != address
+                if mapping.output().raw() != address
                     || mapping.level() != Level::L3
                     || *mapping.fields() != data_fields
                 {
@@ -2473,7 +2473,7 @@ where
                 mapper
                     .map_leaf(
                         WalkInputAddr::new(address),
-                        PhysAddr(address),
+                        WalkOutputAddr::new(address),
                         Level::L3,
                         data_fields,
                         table_fields,
@@ -2501,14 +2501,14 @@ where
                     return Err(HarnessError::InvalidState);
                 }
 
-                if mapping.output().0 != output || *mapping.fields() != fields {
+                if mapping.output().raw() != output || *mapping.fields() != fields {
                     unsafe { mapper.unmap(WalkInputAddr::new(input)) }
                         .map_err(|_| HarnessError::InvalidState)?;
 
                     mapper
                         .map_leaf(
                             WalkInputAddr::new(input),
-                            PhysAddr(output),
+                            WalkOutputAddr::new(output),
                             Level::L3,
                             fields,
                             table_fields,
@@ -2519,7 +2519,7 @@ where
                 mapper
                     .map_leaf(
                         WalkInputAddr::new(input),
-                        PhysAddr(output),
+                        WalkOutputAddr::new(output),
                         Level::L3,
                         fields,
                         table_fields,
@@ -2552,7 +2552,7 @@ where
                         )
                     })?
                 {
-                    if mapping.output().0 != address
+                    if mapping.output().raw() != address
                         || mapping.level() != Level::L3
                         || *mapping.fields() != code_fields
                     {
@@ -2564,7 +2564,7 @@ where
                     mapper
                         .map_leaf(
                             WalkInputAddr::new(address),
-                            PhysAddr(address),
+                            WalkOutputAddr::new(address),
                             Level::L3,
                             code_fields,
                             table_fields,
@@ -2798,7 +2798,7 @@ where
                 mapper
                     .map_leaf(
                         WalkInputAddr::new(address),
-                        PhysAddr(address),
+                        WalkOutputAddr::new(address),
                         Level::L3,
                         code_fields,
                         table_fields,
@@ -2812,7 +2812,7 @@ where
         mapper
             .map_leaf(
                 WalkInputAddr::new(stack_page),
-                PhysAddr(stack_page),
+                WalkOutputAddr::new(stack_page),
                 Level::L3,
                 data_fields,
                 table_fields,
@@ -2823,7 +2823,7 @@ where
         mapper
             .map_leaf(
                 WalkInputAddr::new(exception_stack_page),
-                PhysAddr(exception_stack_page),
+                WalkOutputAddr::new(exception_stack_page),
                 Level::L3,
                 data_fields,
                 table_fields,
@@ -2840,7 +2840,7 @@ where
             mapper
                 .map_leaf(
                     WalkInputAddr::new(page),
-                    PhysAddr(page),
+                    WalkOutputAddr::new(page),
                     Level::L3,
                     data_fields,
                     table_fields,
@@ -2855,7 +2855,7 @@ where
             mapper
                 .map_leaf(
                     WalkInputAddr::new(address),
-                    PhysAddr(address),
+                    WalkOutputAddr::new(address),
                     Level::L3,
                     data_fields,
                     table_fields,
@@ -2879,7 +2879,7 @@ where
             mapper
                 .map_leaf(
                     WalkInputAddr::new(uart_page),
-                    PhysAddr(uart_page),
+                    WalkOutputAddr::new(uart_page),
                     Level::L3,
                     data_fields,
                     table_fields,
@@ -3092,16 +3092,32 @@ pub(crate) fn verify_mapper_provider_probe(
             Err(MapperError::Access(ProbeAccessError::Read))
         ),
         MapperProviderProbe::DescriptorWrite => {
-            mapper.map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
-                == Err(MapperError::Access(ProbeAccessError::Write))
+            mapper.map_leaf(
+                WalkInputAddr::new(0),
+                WalkOutputAddr::new(0),
+                Level::L3,
+                leaf,
+                table,
+            ) == Err(MapperError::Access(ProbeAccessError::Write))
         }
         MapperProviderProbe::FrameAllocate => {
-            mapper.map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
-                == Err(MapperError::Frame(ProbeFrameError::Allocate))
+            mapper.map_leaf(
+                WalkInputAddr::new(0),
+                WalkOutputAddr::new(0),
+                Level::L3,
+                leaf,
+                table,
+            ) == Err(MapperError::Frame(ProbeFrameError::Allocate))
         }
         MapperProviderProbe::FrameFree => {
             if mapper
-                .map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
+                .map_leaf(
+                    WalkInputAddr::new(0),
+                    WalkOutputAddr::new(0),
+                    Level::L3,
+                    leaf,
+                    table,
+                )
                 .is_err()
             {
                 return false;
@@ -3279,7 +3295,7 @@ fn normalize_mapper_operation_error(
         },
         MapperError::OutputAddressOverflow { base, offset } => {
             MapperOperationError::OutputAddressOverflow {
-                base: base.0,
+                base: base.raw(),
                 offset,
             }
         }
@@ -3287,7 +3303,7 @@ fn normalize_mapper_operation_error(
             addr,
             output_address_bits,
         } => MapperOperationError::OutputAddressOutOfRange {
-            address: addr.0,
+            address: addr.raw(),
             output_address_bits,
         },
         MapperError::TableAddressOutOfRange {
@@ -3302,7 +3318,7 @@ fn normalize_mapper_operation_error(
             align,
         },
         MapperError::UnalignedOutput { addr, align } => MapperOperationError::UnalignedOutput {
-            address: addr.0,
+            address: addr.raw(),
             align,
         },
         MapperError::InputNotLeafBase {
@@ -3388,7 +3404,7 @@ where
             .map_semantic_leaf::<Cfg>(
                 config,
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::new(level.get()),
                 leaf,
                 table,
@@ -3611,7 +3627,7 @@ where
                     output: Some(
                         walk.output(&leaf)
                             .map_err(|_| HarnessError::InvalidState)?
-                            .0,
+                            .raw(),
                     ),
                 })?;
                 return Ok(inspection);
@@ -3803,7 +3819,7 @@ where
                     addr,
                     output_address_bits,
                 } => MapperConstructionError::RootAddressOutOfRange {
-                    address: addr.0,
+                    address: addr.raw(),
                     output_address_bits,
                 },
                 aarch64_vmsa::mapper::MapperError::TableAddressOutOfRange {
@@ -3843,7 +3859,7 @@ where
             .translate(WalkInputAddr::new(input))
             .map(|mapping| {
                 mapping.map(|mapping| MappingInspection {
-                    output: mapping.output().0,
+                    output: mapping.output().raw(),
                     level: LookupLevel::new(mapping.level().as_i8())
                         .expect("a mapper result always has an architectural lookup level"),
                 })
@@ -3887,7 +3903,7 @@ where
             .translate(WalkInputAddr::new(input))
             .map(|mapping| {
                 mapping.is_some_and(|mapping| {
-                    mapping.output().0 == output
+                    mapping.output().raw() == output
                         && mapping.level() == Level::L3
                         && *mapping.fields() == expected
                 })
@@ -3919,7 +3935,13 @@ where
             return false;
         };
         if mapper
-            .map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
+            .map_leaf(
+                WalkInputAddr::new(0),
+                WalkOutputAddr::new(0),
+                Level::L3,
+                leaf,
+                table,
+            )
             .is_err()
         {
             return false;
@@ -3931,7 +3953,13 @@ where
         };
         if unsafe { mapper.unmap(WalkInputAddr::new(0)) }.is_err()
             || mapper
-                .map_leaf(WalkInputAddr::new(0), PhysAddr(0), Level::L3, leaf, table)
+                .map_leaf(
+                    WalkInputAddr::new(0),
+                    WalkOutputAddr::new(0),
+                    Level::L3,
+                    leaf,
+                    table,
+                )
                 .is_err()
         {
             return false;
@@ -4284,7 +4312,7 @@ where
                 // same runtime-data page. Accept only the exact identity leaf
                 // with the attributes required here; any other overlap is a
                 // genuine candidate-construction conflict.
-                if mapping.output().0 != address
+                if mapping.output().raw() != address
                     || mapping.level() != Level::L3
                     || *mapping.fields() != expected_fields
                 {
@@ -4310,7 +4338,7 @@ where
                 .translate(WalkInputAddr::new(input))
                 .map_err(|_| HarnessError::InvalidState)?
             {
-                if mapping.output().0 != output || mapping.level() != Level::L3 {
+                if mapping.output().raw() != output || mapping.level() != Level::L3 {
                     return Err(HarnessError::InvalidState);
                 }
             } else {
@@ -4369,14 +4397,14 @@ where
                     .translate(WalkInputAddr::new(virtual_address))
                     .map_err(|_| HarnessError::InvalidState)?
                 {
-                    if mapping.output().0 != physical_address || mapping.level() != Level::L3 {
+                    if mapping.output().raw() != physical_address || mapping.level() != Level::L3 {
                         return Err(HarnessError::InvalidState);
                     }
                 } else {
                     self.inner
                         .map_leaf(
                             WalkInputAddr::new(virtual_address),
-                            PhysAddr(physical_address),
+                            WalkOutputAddr::new(physical_address),
                             Level::L3,
                             R::raw_leaf_for_format(MappingAttributes::READ_WRITE, F::FORMAT)?,
                             R::raw_table()?,
@@ -4430,7 +4458,7 @@ where
         self.inner
             .map_leaf(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::new(level.get()),
                 R::raw_leaf_for_format(attributes, F::FORMAT)?,
                 R::raw_table()?,
@@ -4451,7 +4479,7 @@ where
         self.inner
             .map_leaf(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::new(level),
                 leaf,
                 table,
@@ -4474,7 +4502,7 @@ where
     pub fn unmap_exact(&mut self, input: u64) -> Result<MappingInspection, MapperOperationError> {
         unsafe { self.inner.unmap(WalkInputAddr::new(input)) }
             .map(|outcome| MappingInspection {
-                output: outcome.old().output().0,
+                output: outcome.old().output().raw(),
                 level: LookupLevel::new(outcome.old().level().as_i8())
                     .expect("mapper leaf levels are architectural"),
             })
@@ -4485,7 +4513,7 @@ where
         unsafe { self.inner.unmap_reclaim(WalkInputAddr::new(input)) }
             .map(|outcome| UnmapResult {
                 mapping: MappingInspection {
-                    output: outcome.old().output().0,
+                    output: outcome.old().output().raw(),
                     level: LookupLevel::new(outcome.old().level().as_i8())
                         .expect("mapper leaf levels are architectural"),
                 },
@@ -4511,7 +4539,7 @@ where
         self.inner
             .map_leaf(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::L3,
                 <R as TestRegimeFor<G>>::raw_leaf(attributes)?,
                 <R as TestRegimeFor<G>>::raw_table()?,
@@ -4530,7 +4558,7 @@ where
         self.inner
             .map_leaf(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::new(level.get()),
                 <R as TestRegimeFor<G>>::raw_leaf(attributes)?,
                 <R as TestRegimeFor<G>>::raw_table()?,
@@ -4562,7 +4590,7 @@ where
         self.inner
             .map_leaf(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::L3,
                 <R as TestRegimeFor<G>>::raw_leaf(attributes)?,
                 <R as TestRegimeFor<G>>::raw_table()?,
@@ -4581,7 +4609,7 @@ where
         self.inner
             .map_leaf(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::new(level.get()),
                 <R as TestRegimeFor<G>>::raw_leaf(attributes)?,
                 <R as TestRegimeFor<G>>::raw_table()?,
@@ -4656,7 +4684,7 @@ where
             .translate(WalkInputAddr::new(input))
             .map_err(|_| HarnessError::InvalidState)?
         {
-            return if mapping.output().0 == output && mapping.level() == Level::L3 {
+            return if mapping.output().raw() == output && mapping.level() == Level::L3 {
                 Ok(())
             } else {
                 Err(HarnessError::InvalidState)
@@ -4666,7 +4694,7 @@ where
         self.inner
             .map_leaf(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::L3,
                 leaf,
                 table,
@@ -4826,7 +4854,7 @@ where
                 .translate(WalkInputAddr::new(input))
                 .map_err(|_| HarnessError::InvalidState)?
             {
-                if mapping.output().0 != output || mapping.level() != Level::L3 {
+                if mapping.output().raw() != output || mapping.level() != Level::L3 {
                     return Err(HarnessError::InvalidState);
                 }
             } else {
@@ -4870,7 +4898,7 @@ where
                     .translate(WalkInputAddr::new(input))
                     .map_err(|_| HarnessError::InvalidState)?
                 {
-                    if mapping.output().0 != output || mapping.level() != Level::L3 {
+                    if mapping.output().raw() != output || mapping.level() != Level::L3 {
                         return Err(HarnessError::InvalidState);
                     }
                 } else {
@@ -4908,7 +4936,7 @@ where
         self.inner
             .map_leaf(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::L3,
                 leaf,
                 table,
@@ -4941,7 +4969,7 @@ where
         self.inner
             .map_leaf_with_plan(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::new(level.get()),
                 leaf,
                 aarch64_vmsa::mapper::StepByOneTablePlan::new(table),
@@ -4962,7 +4990,7 @@ where
         self.inner
             .map_leaf_with_plan(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::new(level.get()),
                 leaf,
                 aarch64_vmsa::mapper::BoundedSklTablePlan::new(table, maximum_table_bytes),
@@ -4982,7 +5010,7 @@ where
         self.inner
             .map_leaf_with_plan(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::new(level.get()),
                 leaf,
                 aarch64_vmsa::mapper::MaxSklTablePlan::new(table),
@@ -5018,7 +5046,7 @@ where
         self.inner
             .map_leaf(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::new(level),
                 leaf,
                 table,
@@ -5084,7 +5112,7 @@ where
         self.inner
             .map_leaf(
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::new(level.get()),
                 leaf,
                 table,

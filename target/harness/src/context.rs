@@ -2533,7 +2533,7 @@ where
             mapper
                 .map_leaf(
                     aarch64_vmsa::translation::WalkInputAddr::new(input),
-                    aarch64_vmsa::address::PhysAddr(output),
+                    aarch64_vmsa::translation::WalkOutputAddr::new(output),
                     aarch64_vmsa::address::Level::new(level.get()),
                     <E::Regime as HardwareManagedStage1Regime<G>>::raw_hardware_leaf(attributes)?,
                     <E::Regime as TestRegimeFor<G>>::raw_table()?,
@@ -2580,7 +2580,7 @@ where
                 .translate(aarch64_vmsa::translation::WalkInputAddr::new(input))
                 .map(|mapping| {
                     mapping.map(|mapping| crate::MappingInspection {
-                        output: mapping.output().0,
+                        output: mapping.output().raw(),
                         level: LookupLevel::new(mapping.level().as_i8())
                             .expect("mapper returned an architectural lookup level"),
                     })
@@ -2638,7 +2638,7 @@ where
                 .translate(aarch64_vmsa::translation::WalkInputAddr::new(input))
                 .map(|mapping| {
                     mapping.map(|mapping| crate::MappingInspection {
-                        output: mapping.output().0,
+                        output: mapping.output().raw(),
                         level: LookupLevel::new(mapping.level().as_i8())
                             .expect("mapper returned an architectural lookup level"),
                     })
@@ -2714,7 +2714,7 @@ where
                 .map_semantic_leaf::<Cfg>(
                     config,
                     aarch64_vmsa::translation::WalkInputAddr::new(input),
-                    aarch64_vmsa::address::PhysAddr(output),
+                    aarch64_vmsa::translation::WalkOutputAddr::new(output),
                     aarch64_vmsa::address::Level::new(level.get()),
                     leaf,
                     table,
@@ -2763,7 +2763,7 @@ where
             mapper
                 .map_leaf(
                     aarch64_vmsa::translation::WalkInputAddr::new(input),
-                    aarch64_vmsa::address::PhysAddr(output),
+                    aarch64_vmsa::translation::WalkOutputAddr::new(output),
                     aarch64_vmsa::address::Level::new(level.get()),
                     <E::Regime as TestRegimeFor<G>>::raw_leaf(attributes)?,
                     <E::Regime as TestRegimeFor<G>>::raw_table()?,
@@ -2798,7 +2798,7 @@ where
             mapper
                 .map_leaf(
                     aarch64_vmsa::translation::WalkInputAddr::new(input),
-                    aarch64_vmsa::address::PhysAddr(output),
+                    aarch64_vmsa::translation::WalkOutputAddr::new(output),
                     aarch64_vmsa::address::Level::new(level.get()),
                     <R as TestRegimeFor<G>>::raw_leaf(attributes)?,
                     <R as TestRegimeFor<G>>::raw_table()?,
@@ -2852,7 +2852,7 @@ where
                 let outcome = mapper
                     .map_leaf(
                         aarch64_vmsa::translation::WalkInputAddr::new(current_input),
-                        aarch64_vmsa::address::PhysAddr(current_output),
+                        aarch64_vmsa::translation::WalkOutputAddr::new(current_output),
                         level,
                         leaf,
                         table,
@@ -2881,7 +2881,7 @@ where
         self.with_mapper::<F, G, _>(|mapper| {
             unsafe { mapper.unmap(aarch64_vmsa::translation::WalkInputAddr::new(input)) }
                 .map(|result| crate::MappingInspection {
-                    output: result.old().output().0,
+                    output: result.old().output().raw(),
                     level: LookupLevel::new(result.old().level().as_i8())
                         .expect("mapper returned an architectural lookup level"),
                 })
@@ -2903,7 +2903,7 @@ where
         self.with_mapper_for::<R, F, G, _>(|mapper| {
             unsafe { mapper.unmap(aarch64_vmsa::translation::WalkInputAddr::new(input)) }
                 .map(|result| crate::MappingInspection {
-                    output: result.old().output().0,
+                    output: result.old().output().raw(),
                     level: LookupLevel::new(result.old().level().as_i8())
                         .expect("mapper returned an architectural lookup level"),
                 })
@@ -2922,7 +2922,7 @@ where
             unsafe { mapper.unmap_reclaim(aarch64_vmsa::translation::WalkInputAddr::new(input)) }
                 .map(|result| crate::UnmapResult {
                     mapping: crate::MappingInspection {
-                        output: result.old().output().0,
+                        output: result.old().output().raw(),
                         level: LookupLevel::new(result.old().level().as_i8())
                             .expect("mapper returned an architectural lookup level"),
                     },
@@ -3223,7 +3223,7 @@ where
             mapper
                 .map_leaf(
                     aarch64_vmsa::translation::WalkInputAddr::new(input),
-                    aarch64_vmsa::address::PhysAddr(output),
+                    aarch64_vmsa::translation::WalkOutputAddr::new(output),
                     aarch64_vmsa::address::Level::L3,
                     <E::Regime as TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>>::raw_leaf(
                         attributes,
@@ -3235,7 +3235,7 @@ where
                 .translate(aarch64_vmsa::translation::WalkInputAddr::new(input))
                 .map_err(|_| HarnessError::InvalidState)?
                 .map(|mapping| crate::MappingInspection {
-                    output: mapping.output().0,
+                    output: mapping.output().raw(),
                     level: LookupLevel::new(mapping.level().as_i8())
                         .expect("mapper returned an architectural lookup level"),
                 })
