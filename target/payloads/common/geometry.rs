@@ -2,6 +2,38 @@ use vmsa_test_harness::{HarnessError, TestResult};
 
 struct RejectTableAccess;
 
+struct Compact16KiBRootAccess {
+    entries: [u64; 2],
+}
+
+unsafe impl
+    aarch64_vmsa::table::TableAccess<
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule16KiB,
+    > for Compact16KiBRootAccess
+{
+    type Error = ();
+
+    fn table_at<'a>(
+        &'a self,
+        location: aarch64_vmsa::table::TableAccessLocation<
+            'a,
+            aarch64_vmsa::config::format::Vmsa64,
+            aarch64_vmsa::config::granule::Granule16KiB,
+        >,
+    ) -> Result<
+        aarch64_vmsa::table::TranslationTable<
+            'a,
+            aarch64_vmsa::config::format::Vmsa64,
+            aarch64_vmsa::config::granule::Granule16KiB,
+        >,
+        Self::Error,
+    > {
+        aarch64_vmsa::table::TranslationTable::from_slice(&self.entries, location.shape())
+            .map_err(|_| ())
+    }
+}
+
 unsafe impl<F, G> aarch64_vmsa::table::TableAccess<F, G> for RejectTableAccess
 where
     F: aarch64_vmsa::descriptor::DescriptorFormat,
@@ -27,6 +59,51 @@ fn failures_result(failures: u64) -> TestResult {
             actual: failures,
         })
     }
+}
+
+pub fn compact_root_and_granule_levels() -> TestResult {
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::{Granule16KiB, Granule64KiB};
+    use aarch64_vmsa::table::{RootTable, RootTableGeometry, TableAddr, TableShape};
+    use aarch64_vmsa::translation::{WalkInputAddr, Walker};
+
+    let root_addr =
+        TableAddr::<Granule16KiB>::new(0x4000).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+    let root = RootTable::<Vmsa64, crate::CurrentRegime, Granule16KiB>::from_geometry(
+        RootTableGeometry::new_at_level(root_addr, Level::L0, 48, 48).map_err(|_| {
+            HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+        })?,
+    );
+    let access = Compact16KiBRootAccess { entries: [0; 2] };
+    let walker = Walker::new(root, access).map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
+    let compact_low = walker.translate(WalkInputAddr::new(0));
+    let compact_high = walker.translate(WalkInputAddr::new(1u64 << 47));
+
+    let root64 =
+        TableAddr::<Granule64KiB>::new(0x1_0000).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+    let invalid_geometry =
+        RootTableGeometry::<Vmsa64, Granule64KiB>::new_at_level(root64, Level::L0, 48, 48);
+    let invalid_shape = TableShape::<Vmsa64, Granule64KiB>::root(Level::L0);
+
+    failures_result(
+        u64::from(!matches!(compact_low, Ok(None)))
+            + u64::from(!matches!(compact_high, Ok(None)))
+            + u64::from(invalid_geometry.is_ok())
+            + u64::from(invalid_shape.is_ok()),
+    )
 }
 
 fn output_width_acceptance<F>(
@@ -163,6 +240,7 @@ fn root_address_bit_boundaries<F>(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
     root_level: aarch64_vmsa::address::Level,
     output_bits: u8,
+    maximum_input_bits: u8,
 ) -> TestResult
 where
     F: aarch64_vmsa::descriptor::DescriptorFormat
@@ -173,9 +251,10 @@ where
 {
     use aarch64_vmsa::table::TableGeometry;
     let root = context.allocate_root()?;
-    let max_addr_bits =
+    let max_addr_bits = maximum_input_bits.min(
         TableGeometry::<F, aarch64_vmsa::config::granule::Granule4KiB>::level_shift(root_level)
-            + TableGeometry::<F, aarch64_vmsa::config::granule::Granule4KiB>::index_bits();
+            + TableGeometry::<F, aarch64_vmsa::config::granule::Granule4KiB>::index_bits(),
+    );
     let validate = |bits| {
         context.validate_offline_mapper_geometry::<
             crate::CurrentRegime,
@@ -213,6 +292,7 @@ pub fn vmsa64_root_address_bit_boundaries(
         context,
         aarch64_vmsa::address::Level::NEG1,
         48,
+        52,
     )
 }
 
@@ -222,6 +302,7 @@ pub fn lpa2_root_address_bit_boundaries(
     root_address_bit_boundaries::<aarch64_vmsa::config::format::Vmsa64Lpa2>(
         context,
         aarch64_vmsa::address::Level::NEG1,
+        52,
         52,
     )
 }
@@ -233,6 +314,7 @@ pub fn d128_root_address_bit_boundaries(
         context,
         aarch64_vmsa::address::Level::NEG2,
         56,
+        56,
     )
 }
 
@@ -240,6 +322,7 @@ fn valid_root_levels<F>(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
     lowest: aarch64_vmsa::address::Level,
     output_bits: u8,
+    maximum_input_bits: u8,
 ) -> TestResult
 where
     F: aarch64_vmsa::descriptor::DescriptorFormat
@@ -253,9 +336,10 @@ where
     let mut level = lowest;
     let mut failures = 0;
     loop {
-        let input_bits =
+        let input_bits = maximum_input_bits.min(
             TableGeometry::<F, aarch64_vmsa::config::granule::Granule4KiB>::level_shift(level)
-                + TableGeometry::<F, aarch64_vmsa::config::granule::Granule4KiB>::index_bits();
+                + TableGeometry::<F, aarch64_vmsa::config::granule::Granule4KiB>::index_bits(),
+        );
         if context
             .validate_offline_mapper_geometry::<
                 crate::CurrentRegime,
@@ -314,6 +398,7 @@ pub fn vmsa64_valid_root_levels(
         context,
         aarch64_vmsa::address::Level::NEG1,
         48,
+        52,
     )
 }
 
@@ -324,6 +409,7 @@ pub fn lpa2_valid_root_levels(
         context,
         aarch64_vmsa::address::Level::NEG1,
         52,
+        52,
     )
 }
 
@@ -333,6 +419,7 @@ pub fn d128_valid_root_levels(
     valid_root_levels::<aarch64_vmsa::config::format::Vmsa128>(
         context,
         aarch64_vmsa::address::Level::NEG2,
+        56,
         56,
     )
 }
@@ -652,20 +739,20 @@ pub fn level_spans() -> TestResult {
         (Level::L2, Some(1u64 << 21)),
         (Level::L3, Some(1u64 << 12)),
     ]) + level_span_failures::<Vmsa64, Granule16KiB>(&[
-        (Level::NEG1, Some(1u64 << 58)),
+        (Level::NEG1, None),
         (Level::L0, Some(1u64 << 47)),
         (Level::L2, Some(1u64 << 25)),
         (Level::L3, Some(1u64 << 14)),
     ]) + level_span_failures::<Vmsa64, Granule64KiB>(&[
         (Level::NEG1, None),
-        (Level::L0, Some(1u64 << 55)),
+        (Level::L0, None),
         (Level::L2, Some(1u64 << 29)),
         (Level::L3, Some(1u64 << 16)),
     ]) + level_span_failures::<Vmsa64Lpa2, Granule4KiB>(&[
         (Level::NEG1, Some(1u64 << 48)),
         (Level::L3, Some(1u64 << 12)),
     ]) + level_span_failures::<Vmsa64Lpa2, Granule16KiB>(&[
-        (Level::NEG1, Some(1u64 << 58)),
+        (Level::NEG1, None),
         (Level::L3, Some(1u64 << 14)),
     ]) + level_span_failures::<Vmsa64Lpa2, Granule64KiB>(&[
         (Level::NEG1, None),
@@ -975,6 +1062,10 @@ where
     };
 
     let mut failures = 0;
+    let lowest_level = (F::EXTENDED_LOWEST_ROOT_LEVEL.as_i8()..=F::FINAL_LEVEL.as_i8())
+        .map(Level::new)
+        .find(|&level| TableShape::<F, G>::root(level).is_ok())
+        .expect("every format and granule has a valid table level");
     for stride in 1..=4 {
         let expected_entries = TableGeometry::<F, G>::checked_entries_for_stride_count(stride);
         if TableStrideCount::new::<F, G>(stride).map(|value| value.raw()) != Ok(stride)
@@ -1029,7 +1120,7 @@ where
     }
     if TableShape::<F, G>::new(Level::new(4), 1)
         != Err(AccessError::InvalidTableLevel {
-            root_level: F::EXTENDED_LOWEST_ROOT_LEVEL,
+            root_level: lowest_level,
             level: Level::new(4),
             final_level: F::FINAL_LEVEL,
         })
@@ -1037,7 +1128,7 @@ where
         failures += 1;
     }
 
-    for parent_raw in F::EXTENDED_LOWEST_ROOT_LEVEL.as_i8()..Level::L3.as_i8() {
+    for parent_raw in lowest_level.as_i8()..Level::L3.as_i8() {
         let parent_level = Level::new(parent_raw);
         let parent =
             TableShape::<F, G>::root(parent_level).expect("matrix uses valid table levels");
@@ -1087,12 +1178,12 @@ where
         }
     }
     let reverse_parent =
-        TableShape::<F, G>::root(Level::L1).expect("level 1 is a valid table level");
-    let reverse_child = TableShape::<F, G>::new(Level::L0, 1).unwrap();
+        TableShape::<F, G>::root(Level::L2).expect("level 2 is a valid table level");
+    let reverse_child = TableShape::<F, G>::new(Level::L1, 1).unwrap();
     if TableTransition::new(reverse_parent, reverse_child)
         != Err(AccessError::InvalidTableTransition {
-            parent_level: Level::L1,
-            child_level: Level::L0,
+            parent_level: Level::L2,
+            child_level: Level::L1,
             stride_count: 1,
         })
     {

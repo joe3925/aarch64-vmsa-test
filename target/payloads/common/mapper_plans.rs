@@ -247,7 +247,11 @@ where
     };
     let mut failures = 0;
 
-    for parent_raw in Level::NEG2.as_i8()..Level::L3.as_i8() {
+    let lowest_level = (Level::NEG2.as_i8()..=Level::L3.as_i8())
+        .map(Level::new)
+        .find(|&level| TableShape::<Vmsa128, G>::root(level).is_ok())
+        .expect("every D128 granule has a valid table level");
+    for parent_raw in lowest_level.as_i8()..Level::L3.as_i8() {
         let parent_level = Level::new(parent_raw);
         let parent = TableShape::<Vmsa128, G>::root(parent_level)
             .expect("matrix uses valid D128 table levels");

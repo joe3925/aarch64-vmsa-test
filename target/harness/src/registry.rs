@@ -21,7 +21,9 @@ macro_rules! for_each_registered_test {
             RegimeValidation, "features.regime-validation", entry(ALL_ENVIRONMENTS, Requirements::NONE), (regime_validation), (regime_validation), (regime_validation), (regime_validation), (regime_validation);
             RegimeFormatValidation, "features.regime-format-validation", entry(ALL_ENVIRONMENTS, Requirements::NONE), (regime_format_validation), (regime_format_validation), (regime_format_validation), (regime_format_validation), (regime_format_validation);
             RawFieldBounds, "descriptors.raw-field-bounds", entry(NORMAL, Requirements::NONE), (raw_field_bounds), (none), (none), (none), (none);
+            LevelSensitiveAddressDecoding, "descriptors.level-sensitive-address-decoding", entry(NORMAL, Requirements::NONE), (level_sensitive_address_decoding), (none), (none), (none), (none);
             GeometryValueBoundaries, "geometry.value-boundaries", entry(NORMAL, Requirements::NONE), (geometry_value_boundaries), (none), (none), (none), (none);
+            CompactRootAndGranuleLevels, "geometry.compact-root-and-granule-levels", entry(NORMAL, Requirements::NONE), (compact_root_and_granule_levels), (none), (none), (none), (none);
             GeometryLevelSpans, "geometry.level-spans", entry(NORMAL, Requirements::NONE), (geometry_level_spans), (none), (none), (none), (none);
             GeometryPathBoundaries, "geometry.path-boundaries", entry(NORMAL, Requirements::NONE), (geometry_path_boundaries), (none), (none), (none), (none);
             WalkCursorBoundaries, "walk.cursor-boundaries", entry(NORMAL, Requirements::NONE), (walk_cursor_boundaries), (none), (none), (none), (none);

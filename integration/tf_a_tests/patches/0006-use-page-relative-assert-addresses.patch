@@ -1,0 +1,29 @@
+diff --git a/include/common/aarch64/assert_macros.S b/include/common/aarch64/assert_macros.S
+--- a/include/common/aarch64/assert_macros.S
++++ b/include/common/aarch64/assert_macros.S
+@@ -23,6 +23,7 @@
+ .endif ;\
+ 	b._cc	300f ;\
+-	adr	x0, .L_assert_filename ;\
++	adrp	x0, .L_assert_filename ;\
++	add	x0, x0, :lo12:.L_assert_filename ;\
+ 	mov	x1, __LINE__ ;\
+ 	b	asm_assert ;\
+ 300:
+diff --git a/tftf/framework/aarch64/asm_debug.S b/tftf/framework/aarch64/asm_debug.S
+--- a/tftf/framework/aarch64/asm_debug.S
++++ b/tftf/framework/aarch64/asm_debug.S
+@@ -59,9 +59,11 @@ func asm_assert
+ 	cbz	x0, _assert_loop
+ 	/* The console is initialized */
+-	adr	x4, assert_msg1
++	adrp	x4, assert_msg1
++	add	x4, x4, :lo12:assert_msg1
+ 	bl	asm_print_str
+ 	mov	x4, x5
+ 	bl	asm_print_str
+-	adr	x4, assert_msg2
++	adrp	x4, assert_msg2
++	add	x4, x4, :lo12:assert_msg2
+ 	bl	asm_print_str
+ 	/* Check if line number higher than max permitted */
