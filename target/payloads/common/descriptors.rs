@@ -106,7 +106,7 @@ pub fn descriptor_errors() -> TestResult {
         software: FourBit::ZERO,
     };
     if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::leaf_descriptor(
-        PhysAddr(0),
+        PhysAddr(0).into(),
         Level::L0,
         leaf,
     ) != Err(DescriptorError::InvalidLeafLevel { level: Level::L0 })
@@ -234,7 +234,7 @@ pub fn d128_stage1_final_bbm_nt_error() -> TestResult {
     use aarch64_vmsa::translation::Stage1;
     type Layout = <Vmsa128 as HasLayout<Stage1, Granule4KiB>>::Layout;
     if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::leaf_descriptor(
-        PhysAddr(0),
+        PhysAddr(0).into(),
         Level::L3,
         d128_stage1_leaf(true)?,
     ) == Err(DescriptorError::InvalidNtBbmCombination { level: Level::L3 })
@@ -257,7 +257,7 @@ pub fn d128_stage2_final_bbm_nt_error() -> TestResult {
     use aarch64_vmsa::translation::Stage2;
     type Layout = <Vmsa128 as HasLayout<Stage2, Granule4KiB>>::Layout;
     if <Layout as DescriptorLayout<Stage2, Granule4KiB>>::leaf_descriptor(
-        PhysAddr(0),
+        PhysAddr(0).into(),
         Level::L3,
         d128_stage2_leaf(true)?,
     ) == Err(DescriptorError::InvalidNtBbmCombination { level: Level::L3 })

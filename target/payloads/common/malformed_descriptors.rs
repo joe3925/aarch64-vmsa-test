@@ -255,10 +255,10 @@ where
     CurrentRegime: vmsa_test_harness::adapter::TestRegimeFor<G>,
     aarch64_vmsa::config::format::Vmsa64:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>,
-    aarch64_vmsa::config::format::Vmsa64Lpa2:
-        aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>,
-    <aarch64_vmsa::config::format::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
-        aarch64_vmsa::translation::Stage1,
+    aarch64_vmsa::config::format::Vmsa64Lpa2: aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>
+        + aarch64_vmsa::regime::HasRegimeLayout<CurrentRegime, G>,
+    <aarch64_vmsa::config::format::Vmsa64Lpa2 as aarch64_vmsa::regime::HasRegimeLayout<
+        CurrentRegime,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
             aarch64_vmsa::translation::Stage1,

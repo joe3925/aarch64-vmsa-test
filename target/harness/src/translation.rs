@@ -20,6 +20,7 @@ pub enum AttributeError {
     InvalidD128Alias,
     InvalidD128Configuration,
     ConflictingSemanticAttributes,
+    InvalidSmmuV2AllocationHint,
 }
 
 impl AttributeError {
@@ -45,6 +46,7 @@ impl AttributeError {
             Self::InvalidD128Configuration => 15,
             Self::ConflictingSemanticAttributes => 16,
             Self::PermissionModeMismatch => 17,
+            Self::InvalidSmmuV2AllocationHint => 18,
         }
     }
 }
@@ -76,6 +78,7 @@ pub(crate) fn normalize_attribute_error(error: aarch64_vmsa::attrs::AttrError) -
         AttrError::InvalidD128Alias => AttributeError::InvalidD128Alias,
         AttrError::InvalidD128Configuration => AttributeError::InvalidD128Configuration,
         AttrError::ConflictingSemanticAttributes => AttributeError::ConflictingSemanticAttributes,
+        AttrError::InvalidSmmuV2AllocationHint => AttributeError::InvalidSmmuV2AllocationHint,
     }
 }
 
@@ -919,7 +922,7 @@ use aarch64_vmsa::low_level::raw::{
     TenBit, ThreeBit,
 };
 use aarch64_vmsa::mapper::{Mapper, Offline};
-use aarch64_vmsa::regime::TranslationRegime;
+use aarch64_vmsa::regime::{PeTranslationRegime, TranslationRegime};
 use aarch64_vmsa::table::{
     OffsetTableAccess, RecursiveTableAccess, RootTable, TableAccess, TableAccessMut, TableAddr,
     TableAllocLayout, TableFrameProvider, TableShape, TableTransition,
@@ -928,8 +931,8 @@ use aarch64_vmsa::translation::walk::{WalkEntry, WalkInputAddr, Walker};
 use aarch64_vmsa::translation::{Stage1, Stage2, WalkOutputAddr};
 
 type StageOf<R> = <R as TranslationRegime>::Stage;
-type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeLeafFields<F, R, G>;
-type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeTableFields<F, R, G>;
+type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedLeafFields<F, R, G>;
+type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedTableFields<F, R, G>;
 
 fn arena_table_access(memory: NonNull<TestMemory>) -> OffsetTableAccess {
     // SAFETY: TestMemory owns one stable, contiguous direct-map region for its
@@ -949,7 +952,7 @@ fn arena_table_access(memory: NonNull<TestMemory>) -> OffsetTableAccess {
 /// semantic attribute families as the source of truth.
 pub trait AttributeCodecCompat<R, G, Cfg>: aarch64_vmsa::attrs::AttributeCodec<R, G, Cfg>
 where
-    R: TranslationRegime,
+    R: PeTranslationRegime,
     G: aarch64_vmsa::address::TranslationGranule,
     Self: aarch64_vmsa::attrs::SemanticAttributeTypes<
             R::Stage,
@@ -977,14 +980,16 @@ where
 
 impl<F, R, G, Cfg> AttributeCodecCompat<R, G, Cfg> for F
 where
-    R: TranslationRegime,
+    R: PeTranslationRegime,
     G: aarch64_vmsa::address::TranslationGranule,
-    F: aarch64_vmsa::attrs::AttributeCodec<R, G, Cfg>,
+    F: aarch64_vmsa::attrs::AttributeCodec<R, G, Cfg>
+        + aarch64_vmsa::regime::HasRegimeLayout<R, G>
+        + HasLayout<R::Stage, G>,
 {
     type SemanticLeaf = aarch64_vmsa::attrs::SemanticLeafAttrs<F, R>;
     type SemanticTable = aarch64_vmsa::attrs::SemanticTableAttrs<F, R>;
-    type RawLeaf = LeafFieldsOf<F, R, G>;
-    type RawTable = TableFieldsOf<F, R, G>;
+    type RawLeaf = aarch64_vmsa::regime::InterpretedLeafFields<F, R, G>;
+    type RawTable = aarch64_vmsa::regime::InterpretedTableFields<F, R, G>;
 
     fn encode_leaf(
         config: &Cfg,
@@ -1007,14 +1012,14 @@ trait RootTableCompat<F, R, G> {
     fn new(addr: TableAddr<G>, level: Level, addr_bits: u8, output_addr_bits: u8) -> Self
     where
         F: DescriptorFormat,
-        R: TranslationRegime,
+        R: PeTranslationRegime,
         G: aarch64_vmsa::address::TranslationGranule;
 }
 
 impl<F, R, G> RootTableCompat<F, R, G> for RootTable<F, R, G>
 where
     F: DescriptorFormat,
-    R: TranslationRegime,
+    R: PeTranslationRegime,
     G: aarch64_vmsa::address::TranslationGranule,
 {
     fn new(addr: TableAddr<G>, level: Level, addr_bits: u8, output_addr_bits: u8) -> Self {
@@ -1069,7 +1074,7 @@ pub struct HardwareUpdateInspection {
     pub dirty_modifier: bool,
 }
 
-pub trait TestRegime: TranslationRegime {
+pub trait TestRegime: aarch64_vmsa::regime::PeTranslationRegime {
     const MUTABLE_FIRMWARE_CODE: bool;
     const CURRENT_STACK_WINDOW: u64;
     fn default_input_bits(capabilities: crate::Capabilities) -> u8;
@@ -1950,7 +1955,12 @@ where
     }
     // SAFETY: The installed root is an arena-owned 4 KiB VMSA64 table, and the
     // checked index selects one of its 512 u64 descriptors.
-    unsafe { Vmsa64::write_descriptor(root_virtual.add(recursive_index), descriptor) };
+    unsafe {
+        <Vmsa64 as DescriptorFormat>::write_descriptor(
+            root_virtual.add(recursive_index),
+            descriptor,
+        )
+    };
     vmsa_test_architecture::barriers::dsb_ishst();
     if !vmsa_test_architecture::barriers::invalidate_current_stage1_all() {
         return Err(HarnessError::InvalidState);
@@ -1991,8 +2001,8 @@ pub(crate) fn live_mapper<F, R, G>(
     lower_stage1: bool,
 ) -> Result<LiveTestMapper<F, R, G>, HarnessError>
 where
-    F: TestFormat + HasLayout<StageOf<R>, G>,
-    R: TranslationRegime,
+    F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
+    R: PeTranslationRegime,
     G: TestGranule,
 {
     if setup.format != F::FORMAT || setup.granule != G::GRANULE {
@@ -2033,8 +2043,8 @@ pub(crate) fn replace_live_mapping<F, R, G>(
     table_fields: TableFieldsOf<F, R, G>,
 ) -> Result<MappingInspection, HarnessError>
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
-    R: TranslationRegime,
+    F: DescriptorFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
+    R: PeTranslationRegime,
     G: TestGranule,
     LeafFieldsOf<F, R, G>: Copy,
     TableFieldsOf<F, R, G>: Copy,
@@ -2085,10 +2095,10 @@ pub(crate) fn replace_live_d128_stage1_mapping<R>(
     permissions: D128MappingPermissions,
 ) -> Result<MappingInspection, HarnessError>
 where
-    R: TranslationRegime,
+    R: PeTranslationRegime,
     R: aarch64_vmsa::regime::TranslationRegime<Stage = Stage1>,
     Vmsa128: HasLayout<Stage1, Granule4KiB>,
-    <Vmsa128 as HasLayout<Stage1, Granule4KiB>>::Layout: DescriptorLayout<
+    <Vmsa128 as aarch64_vmsa::regime::HasRegimeLayout<R, Granule4KiB>>::Layout: DescriptorLayout<
             Stage1,
             Granule4KiB,
             LeafFields = RawVmsa128Stage1LeafAttrs,
@@ -2177,10 +2187,10 @@ pub(crate) fn replace_live_d128_stage2_mapping<R>(
     attributes: MappingAttributes,
 ) -> Result<MappingInspection, HarnessError>
 where
-    R: TranslationRegime,
+    R: PeTranslationRegime,
     R: aarch64_vmsa::regime::TranslationRegime<Stage = Stage2>,
     Vmsa128: HasLayout<Stage2, Granule4KiB>,
-    <Vmsa128 as HasLayout<Stage2, Granule4KiB>>::Layout: DescriptorLayout<
+    <Vmsa128 as aarch64_vmsa::regime::HasRegimeLayout<R, Granule4KiB>>::Layout: DescriptorLayout<
             Stage2,
             Granule4KiB,
             LeafFields = RawVmsa128Stage2LeafAttrs,
@@ -2322,8 +2332,8 @@ where
     R: TestRegimeFor<G>,
     G: TestGranule,
     Vmsa64: HasLayout<StageOf<R>, G>,
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
-    <F as HasLayout<StageOf<R>, G>>::Layout: DescriptorLayout<
+    F: DescriptorFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
+    <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout: DescriptorLayout<
             StageOf<R>,
             G,
             LeafFields = LeafFieldsOf<Vmsa64, R, G>,
@@ -2689,10 +2699,11 @@ pub fn prepare_lower_runtime_d128<R, G>(
     lower_runtime_state: u64,
 ) -> Result<(), HarnessError>
 where
-    R: TranslationRegime,
+    R: PeTranslationRegime,
     G: TestGranule,
     Vmsa128: HasLayout<StageOf<R>, G>,
-    <Vmsa128 as HasLayout<StageOf<R>, G>>::Layout: DescriptorLayout<
+    Vmsa128: aarch64_vmsa::regime::HasRegimeLayout<R, G>,
+    <Vmsa128 as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout: DescriptorLayout<
             StageOf<R>,
             G,
             LeafFields = RawVmsa128Stage1LeafAttrs,
@@ -2898,7 +2909,7 @@ where
 }
 
 pub struct TestMapper<
-    R: TranslationRegime,
+    R: PeTranslationRegime,
     G: TestGranule = Granule4KiB,
     F: DescriptorFormat = Vmsa64,
 > where
@@ -3364,18 +3375,18 @@ pub struct MapLeafResult {
 /// frame allocation, installed register state, or cleanup operations.
 pub struct IsolatedMalformedTable<'a, R, G, F>
 where
-    R: TranslationRegime,
+    R: PeTranslationRegime,
     G: TestGranule,
-    F: TestFormat + HasLayout<StageOf<R>, G>,
+    F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
 {
     mapper: &'a mut TestMapper<R, G, F>,
 }
 
 impl<R, G, F> TestMapper<R, G, F>
 where
-    R: TranslationRegime,
+    R: PeTranslationRegime,
     G: TestGranule,
-    F: TestFormat + HasLayout<StageOf<R>, G>,
+    F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
 {
     pub fn table_geometry(&self) -> aarch64_vmsa::table::TableGeometry<F, G> {
         self.inner.table_geometry()
@@ -3461,9 +3472,9 @@ where
 
 impl<R, G, F> IsolatedMalformedTable<'_, R, G, F>
 where
-    R: TranslationRegime,
+    R: PeTranslationRegime,
     G: TestGranule,
-    F: TestFormat + HasLayout<StageOf<R>, G>,
+    F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
 {
     pub fn replace_terminal_descriptor(
         &mut self,
@@ -3583,9 +3594,9 @@ pub(crate) fn inspect_walk_with_access<R, G, F, A>(
     input: u64,
 ) -> Result<WalkInspection, HarnessError>
 where
-    R: TranslationRegime,
+    R: PeTranslationRegime,
     G: TestGranule,
-    F: TestFormat + HasLayout<StageOf<R>, G>,
+    F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
     A: TableAccess<F, G>,
 {
     let walker = Walker::<F, R, G, _>::new(root, access).map_err(|_| HarnessError::InvalidState)?;
@@ -3663,7 +3674,7 @@ pub struct UnmapResult {
     pub root_now_empty: bool,
 }
 
-impl<R: TranslationRegime, G: TestGranule, F: DescriptorFormat> TestMapper<R, G, F>
+impl<R: PeTranslationRegime, G: TestGranule, F: DescriptorFormat> TestMapper<R, G, F>
 where
     F: HasLayout<StageOf<R>, G>,
 {
@@ -3869,7 +3880,7 @@ where
 
     pub fn inspect_walk(&self, input: u64) -> Result<WalkInspection, HarnessError>
     where
-        F: TestFormat + HasLayout<StageOf<R>, G>,
+        F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
     {
         inspect_walk_with_access::<R, G, F, _>(self.inner.root(), self.inner.access(), input)
     }
@@ -3879,9 +3890,9 @@ impl<R, G, F> TestMapper<R, G, F>
 where
     R: TestRegimeFor<G>,
     G: TestGranule,
-    F: TestFormat + HasLayout<StageOf<R>, G>,
+    F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
     Vmsa64: HasLayout<StageOf<R>, G>,
-    <F as HasLayout<StageOf<R>, G>>::Layout: DescriptorLayout<
+    <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout: DescriptorLayout<
             StageOf<R>,
             G,
             LeafFields = LeafFieldsOf<Vmsa64, R, G>,
@@ -4622,7 +4633,8 @@ where
 impl<R: TestRegime, G: TestGranule> TestMapper<R, G, Vmsa128>
 where
     Vmsa128: HasLayout<StageOf<R>, G>,
-    <Vmsa128 as HasLayout<StageOf<R>, G>>::Layout: DescriptorLayout<
+    Vmsa128: aarch64_vmsa::regime::HasRegimeLayout<R, G>,
+    <Vmsa128 as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout: DescriptorLayout<
             StageOf<R>,
             G,
             LeafFields = RawVmsa128Stage1LeafAttrs,
@@ -5071,7 +5083,7 @@ impl<R: TestRegime, G: TestGranule> TestMapper<R, G, Vmsa128>
 where
     R: aarch64_vmsa::regime::TranslationRegime<Stage = Stage2>,
     Vmsa128: HasLayout<Stage2, G>,
-    <Vmsa128 as HasLayout<Stage2, G>>::Layout: DescriptorLayout<
+    <Vmsa128 as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout: DescriptorLayout<
             Stage2,
             G,
             LeafFields = RawVmsa128Stage2LeafAttrs,

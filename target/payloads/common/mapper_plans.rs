@@ -247,7 +247,11 @@ where
     };
     let mut failures = 0;
 
-    for parent_raw in Level::NEG2.as_i8()..Level::L3.as_i8() {
+    let lowest_level = (Level::NEG2.as_i8()..=Level::L3.as_i8())
+        .map(Level::new)
+        .find(|&level| TableShape::<Vmsa128, G>::root(level).is_ok())
+        .expect("every D128 granule has a valid table level");
+    for parent_raw in lowest_level.as_i8()..Level::L3.as_i8() {
         let parent_level = Level::new(parent_raw);
         let parent = TableShape::<Vmsa128, G>::root(parent_level)
             .expect("matrix uses valid D128 table levels");
@@ -562,10 +566,11 @@ fn offline_parts_case<R, G, F>(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult
 where
-    R: aarch64_vmsa::regime::TranslationRegime,
+    R: aarch64_vmsa::regime::PeTranslationRegime,
     G: vmsa_test_harness::TestGranule,
     F: aarch64_vmsa::descriptor::DescriptorFormat
-        + aarch64_vmsa::descriptor::HasLayout<crate::StageOf<R>, G>,
+        + aarch64_vmsa::descriptor::HasLayout<crate::StageOf<R>, G>
+        + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
 {
     let mut root = context.allocate_root_in(context.native_pas(), G::GRANULE)?;
     let mapper = context.offline_mapper_for_format_with_geometry::<R, G, F>(
@@ -589,11 +594,12 @@ fn live_parts_case<R, G, F>(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult
 where
-    R: aarch64_vmsa::regime::TranslationRegime,
+    R: aarch64_vmsa::regime::PeTranslationRegime,
     G: vmsa_test_harness::TestGranule,
     F: aarch64_vmsa::descriptor::DescriptorFormat
         + aarch64_vmsa::descriptor::SupportsLiveDescriptorIo
-        + aarch64_vmsa::descriptor::HasLayout<crate::StageOf<R>, G>,
+        + aarch64_vmsa::descriptor::HasLayout<crate::StageOf<R>, G>
+        + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
 {
     let mut root = context.allocate_root_in(context.native_pas(), G::GRANULE)?;
     let mapper = context.offline_mapper_for_format_with_geometry::<R, G, F>(

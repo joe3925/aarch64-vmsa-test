@@ -1,7 +1,7 @@
 #![no_std]
 pub type StageOf<R> = <R as aarch64_vmsa::regime::TranslationRegime>::Stage;
-pub type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeLeafFields<F, R, G>;
-pub type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeTableFields<F, R, G>;
+pub type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedLeafFields<F, R, G>;
+pub type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedTableFields<F, R, G>;
 #[path = "../../common/access.rs"]
 #[allow(dead_code)]
 mod access;

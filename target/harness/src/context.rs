@@ -17,8 +17,8 @@ use crate::{
 use vmsa_test_architecture::AccessWidth;
 
 type StageOf<R> = <R as aarch64_vmsa::regime::TranslationRegime>::Stage;
-type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeLeafFields<F, R, G>;
-type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeTableFields<F, R, G>;
+type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedLeafFields<F, R, G>;
+type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedTableFields<F, R, G>;
 
 trait RootTableCompat<F, R, G> {
     fn new(
@@ -29,14 +29,14 @@ trait RootTableCompat<F, R, G> {
     ) -> Self
     where
         F: aarch64_vmsa::descriptor::DescriptorFormat,
-        R: aarch64_vmsa::regime::TranslationRegime,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
         G: aarch64_vmsa::address::TranslationGranule;
 }
 
 impl<F, R, G> RootTableCompat<F, R, G> for aarch64_vmsa::table::RootTable<F, R, G>
 where
     F: aarch64_vmsa::descriptor::DescriptorFormat,
-    R: aarch64_vmsa::regime::TranslationRegime,
+    R: aarch64_vmsa::regime::PeTranslationRegime,
     G: aarch64_vmsa::address::TranslationGranule,
 {
     fn new(
@@ -1003,7 +1003,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         output_bits: u8,
     ) -> Result<TestMapper<R, G, F>, HarnessError>
     where
-        R: aarch64_vmsa::regime::TranslationRegime,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
         G: TestGranule,
         F: aarch64_vmsa::descriptor::DescriptorFormat
             + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
@@ -1027,7 +1027,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         output_bits: u8,
     ) -> Result<(), crate::MapperConstructionError>
     where
-        R: aarch64_vmsa::regime::TranslationRegime,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
         G: TestGranule,
         F: aarch64_vmsa::descriptor::DescriptorFormat
             + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
@@ -1051,7 +1051,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
         output_bits: u8,
     ) -> Result<(), crate::MapperConstructionError>
     where
-        R: aarch64_vmsa::regime::TranslationRegime,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
         G: TestGranule,
         F: aarch64_vmsa::descriptor::DescriptorFormat
             + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
@@ -1175,9 +1175,11 @@ impl<'a, E: Environment> TestContext<'a, E> {
         R: TestRegimeFor<G>,
         R: TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
         aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>>::Layout:
+        <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
                     StageOf<R>,
                     G,
@@ -2571,7 +2573,9 @@ where
         input: u64,
     ) -> Result<Option<crate::MappingInspection>, HarnessError>
     where
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>,
         G: TestGranule,
         LeafFieldsOf<F, E::Regime, G>: Copy,
     {
@@ -2591,7 +2595,9 @@ where
 
     pub fn inspect_walk<F, G>(&mut self, input: u64) -> Result<crate::WalkInspection, HarnessError>
     where
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>,
         G: TestGranule,
         LeafFieldsOf<F, E::Regime, G>: Copy,
     {
@@ -2609,8 +2615,10 @@ where
         input: u64,
     ) -> Result<crate::WalkInspection, HarnessError>
     where
-        R: aarch64_vmsa::regime::TranslationRegime,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
         G: TestGranule,
         LeafFieldsOf<F, R, G>: Copy,
     {
@@ -2628,8 +2636,10 @@ where
         input: u64,
     ) -> Result<Option<crate::MappingInspection>, HarnessError>
     where
-        R: aarch64_vmsa::regime::TranslationRegime,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
         G: TestGranule,
         LeafFieldsOf<F, R, G>: Copy,
     {
@@ -2653,8 +2663,10 @@ where
         config: &Cfg,
     ) -> Result<Option<<F as crate::AttributeCodecCompat<R, G, Cfg>>::SemanticLeaf>, HarnessError>
     where
-        R: aarch64_vmsa::regime::TranslationRegime,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
         G: TestGranule,
         F: crate::AttributeCodecCompat<
                 R,
@@ -2696,8 +2708,10 @@ where
         table: <F as crate::AttributeCodecCompat<R, G, Cfg>>::SemanticTable,
     ) -> Result<(), HarnessError>
     where
-        R: aarch64_vmsa::regime::TranslationRegime,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
         G: TestGranule,
         F: crate::AttributeCodecCompat<
                 R,
@@ -2746,10 +2760,12 @@ where
     where
         E::Regime: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>,
         aarch64_vmsa::config::format::Vmsa64:
             aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>>::Layout:
+        <F as aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
                     StageOf<E::Regime>,
                     G,
@@ -2783,9 +2799,11 @@ where
     where
         R: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
         aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>>::Layout:
+        <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
                     StageOf<R>,
                     G,
@@ -2819,10 +2837,12 @@ where
     where
         E::Regime: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>,
         aarch64_vmsa::config::format::Vmsa64:
             aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>>::Layout:
+        <F as aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
                     StageOf<E::Regime>,
                     G,
@@ -2873,7 +2893,9 @@ where
 
     pub fn unmap<F, G>(&mut self, input: u64) -> Result<crate::MappingInspection, HarnessError>
     where
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>,
         G: TestGranule,
         LeafFieldsOf<F, E::Regime, G>: Copy,
     {
@@ -2894,8 +2916,10 @@ where
         input: u64,
     ) -> Result<crate::MappingInspection, HarnessError>
     where
-        R: aarch64_vmsa::regime::TranslationRegime,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
         G: TestGranule,
         LeafFieldsOf<F, R, G>: Copy,
     {
@@ -2913,7 +2937,9 @@ where
 
     pub fn unmap_reclaim<F, G>(&mut self, input: u64) -> Result<crate::UnmapResult, HarnessError>
     where
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>,
         G: TestGranule,
         LeafFieldsOf<F, E::Regime, G>: Copy,
     {
@@ -2942,10 +2968,12 @@ where
     where
         E::Regime: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>,
         aarch64_vmsa::config::format::Vmsa64:
             aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>>::Layout:
+        <F as aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
                     StageOf<E::Regime>,
                     G,
@@ -2977,10 +3005,12 @@ where
     where
         E::Regime: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>,
         aarch64_vmsa::config::format::Vmsa64:
             aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>>::Layout:
+        <F as aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
                     StageOf<E::Regime>,
                     G,
@@ -3002,9 +3032,11 @@ where
     where
         R: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
         aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>>::Layout:
+        <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
                     StageOf<R>,
                     G,
@@ -3036,9 +3068,11 @@ where
     where
         R: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
         aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>>::Layout:
+        <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
                     StageOf<R>,
                     G,
@@ -3059,10 +3093,12 @@ where
     where
         E::Regime: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>,
         aarch64_vmsa::config::format::Vmsa64:
             aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>>::Layout:
+        <F as aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
                     StageOf<E::Regime>,
                     G,
@@ -3092,9 +3128,11 @@ where
     where
         R: TestRegimeFor<G>,
         G: TestGranule,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
         aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
-        <F as aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>>::Layout:
+        <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
             aarch64_vmsa::descriptor::DescriptorLayout<
                     StageOf<R>,
                     G,
@@ -3123,7 +3161,9 @@ where
         ) -> Result<T, HarnessError>,
     ) -> Result<T, HarnessError>
     where
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<E::Regime>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<E::Regime, G>,
         G: TestGranule,
         LeafFieldsOf<F, E::Regime, G>: Copy,
     {
@@ -3149,8 +3189,10 @@ where
         ) -> Result<T, HarnessError>,
     ) -> Result<T, HarnessError>
     where
-        R: aarch64_vmsa::regime::TranslationRegime,
-        F: TestFormat + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
+        F: TestFormat
+            + aarch64_vmsa::descriptor::HasLayout<StageOf<R>, G>
+            + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
         G: TestGranule,
     {
         let mut mapper =
@@ -3309,7 +3351,7 @@ impl<E: Environment> LiveTranslation<'_, E> {
     ) -> Result<crate::D128HardwareUpdateInspection, HarnessError>
     where
         E: TranslationRegimeEnvironment,
-        R: aarch64_vmsa::regime::TranslationRegime,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
         R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage1>,
         aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage1,
@@ -3350,7 +3392,7 @@ impl<E: Environment> LiveTranslation<'_, E> {
     ) -> Result<crate::MappingInspection, HarnessError>
     where
         E: TranslationRegimeEnvironment,
-        R: aarch64_vmsa::regime::TranslationRegime,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
         R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage1>,
         aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage1,
@@ -3389,7 +3431,7 @@ impl<E: Environment> LiveTranslation<'_, E> {
     ) -> Result<crate::MappingInspection, HarnessError>
     where
         E: TranslationRegimeEnvironment,
-        R: aarch64_vmsa::regime::TranslationRegime,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
         R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage1>,
         aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage1,
@@ -3429,7 +3471,7 @@ impl<E: Environment> LiveTranslation<'_, E> {
     ) -> Result<crate::MappingInspection, HarnessError>
     where
         E: TranslationRegimeEnvironment,
-        R: aarch64_vmsa::regime::TranslationRegime,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
         R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
         aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage2,
@@ -3468,7 +3510,7 @@ impl<E: Environment> LiveTranslation<'_, E> {
     ) -> Result<crate::MappingInspection, HarnessError>
     where
         E: TranslationRegimeEnvironment,
-        R: aarch64_vmsa::regime::TranslationRegime,
+        R: aarch64_vmsa::regime::PeTranslationRegime,
         R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
         aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
                 aarch64_vmsa::translation::Stage2,

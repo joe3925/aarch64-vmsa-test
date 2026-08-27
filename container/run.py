@@ -98,6 +98,7 @@ def fvp_command(images: build.FirmwareImages, target: str) -> list[str]:
         ])
     if target == "ns-el2":
         command.extend([
+            "-C", "pci.dma330x4.use_smmuv3testengine_not_dmacs=1",
             "-C", "cci550.addr_width=48",
             "-C", "cluster0.PA_SIZE=52",
             "-C", "cluster1.PA_SIZE=52",

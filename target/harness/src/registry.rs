@@ -21,6 +21,10 @@ macro_rules! for_each_registered_test {
             RegimeValidation, "features.regime-validation", entry(ALL_ENVIRONMENTS, Requirements::NONE), (regime_validation), (regime_validation), (regime_validation), (regime_validation), (regime_validation);
             RegimeFormatValidation, "features.regime-format-validation", entry(ALL_ENVIRONMENTS, Requirements::NONE), (regime_format_validation), (regime_format_validation), (regime_format_validation), (regime_format_validation), (regime_format_validation);
             RawFieldBounds, "descriptors.raw-field-bounds", entry(NORMAL, Requirements::NONE), (raw_field_bounds), (none), (none), (none), (none);
+            DescriptorEndianStorage, "smmu.descriptor-endian-storage", entry(NORMAL, Requirements::NONE), (descriptor_endian_storage), (none), (none), (none), (none);
+            SmmuV2Stage2ExactVector, "smmu.v2-stage2-exact-vector", entry(NORMAL, Requirements::NONE), (smmu_v2_stage2_exact_vector), (none), (none), (none), (none);
+            SmmuRegimeLayoutMatrix, "smmu.regime-layout-matrix", entry(NORMAL, Requirements::NONE), (smmu_regime_layout_matrix), (none), (none), (none), (none);
+            SmmuV3LiveStage2, "smmu.v3-live-stage2", isolated_profile_entry(NORMAL, BootProfiles::one(BootProfile::NsEl2), IsolationPolicy::SeparateBoot(SeparateBootReason::ExternalTranslationAgent), Requirements::STAGE2.union(Requirements::GRANULE_4K)), (smmu_v3_live_stage2), (none), (none), (none), (none);
             GeometryValueBoundaries, "geometry.value-boundaries", entry(NORMAL, Requirements::NONE), (geometry_value_boundaries), (none), (none), (none), (none);
             GeometryLevelSpans, "geometry.level-spans", entry(NORMAL, Requirements::NONE), (geometry_level_spans), (none), (none), (none), (none);
             GeometryPathBoundaries, "geometry.path-boundaries", entry(NORMAL, Requirements::NONE), (geometry_path_boundaries), (none), (none), (none), (none);

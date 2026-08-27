@@ -89,10 +89,11 @@ where
     R: vmsa_test_harness::adapter::TestRegimeFor<G>,
     R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
     F: vmsa_test_harness::adapter::TestFormat
-        + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
+        + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>
+        + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
     aarch64_vmsa::config::format::Vmsa64:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
-    <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>>::Layout:
+    <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
                 aarch64_vmsa::translation::Stage2,
                 G,
@@ -598,10 +599,11 @@ where
     R: vmsa_test_harness::adapter::TestRegimeFor<G>,
     R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
     F: vmsa_test_harness::adapter::TestFormat
-        + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
+        + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>
+        + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
     aarch64_vmsa::config::format::Vmsa64:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
-    <F as aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>>::Layout:
+    <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
                 aarch64_vmsa::translation::Stage2,
                 G,

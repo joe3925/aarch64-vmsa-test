@@ -1,8 +1,8 @@
 #![no_std]
 
 pub type StageOf<R> = <R as aarch64_vmsa::regime::TranslationRegime>::Stage;
-pub type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeLeafFields<F, R, G>;
-pub type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::RegimeTableFields<F, R, G>;
+pub type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedLeafFields<F, R, G>;
+pub type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedTableFields<F, R, G>;
 
 #[path = "../../common/access.rs"]
 mod access;
@@ -62,6 +62,8 @@ mod semantic_d128;
 mod semantic_host;
 #[path = "../../common/semantic_normal.rs"]
 mod semantic_normal;
+#[path = "../../common/smmu.rs"]
+mod smmu;
 #[path = "../../common/stage2_leaf_matrix.rs"]
 mod stage2_leaf_matrix;
 #[path = "../../common/table_live.rs"]
@@ -191,6 +193,18 @@ fn vmsa64_stage1_haft(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult
 }
 fn vmsa64_stage2_haft(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     permissions::vmsa64_stage2_haft_round_trip()
+}
+fn descriptor_endian_storage(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::descriptor_endian_storage()
+}
+fn smmu_v2_stage2_exact_vector(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_stage2_exact_vector()
+}
+fn smmu_regime_layout_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_regime_layout_matrix()
+}
+fn smmu_v3_live_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_stage2(context)
 }
 fn descriptor_errors(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     descriptors::descriptor_errors()

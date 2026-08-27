@@ -280,6 +280,7 @@ pub enum SeparateBootReason {
     MalformedActiveDescriptor,
     BootCriticalExceptionPath,
     FirmwareLifecycleBoundary,
+    ExternalTranslationAgent,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
