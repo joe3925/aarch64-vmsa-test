@@ -2,6 +2,38 @@ use vmsa_test_harness::{HarnessError, TestResult};
 
 struct RejectTableAccess;
 
+struct Compact16KiBRootAccess {
+    entries: [u64; 2],
+}
+
+unsafe impl
+    aarch64_vmsa::table::TableAccess<
+        aarch64_vmsa::config::format::Vmsa64,
+        aarch64_vmsa::config::granule::Granule16KiB,
+    > for Compact16KiBRootAccess
+{
+    type Error = ();
+
+    fn table_at<'a>(
+        &'a self,
+        location: aarch64_vmsa::table::TableAccessLocation<
+            'a,
+            aarch64_vmsa::config::format::Vmsa64,
+            aarch64_vmsa::config::granule::Granule16KiB,
+        >,
+    ) -> Result<
+        aarch64_vmsa::table::TranslationTable<
+            'a,
+            aarch64_vmsa::config::format::Vmsa64,
+            aarch64_vmsa::config::granule::Granule16KiB,
+        >,
+        Self::Error,
+    > {
+        aarch64_vmsa::table::TranslationTable::from_slice(&self.entries, location.shape())
+            .map_err(|_| ())
+    }
+}
+
 unsafe impl<F, G> aarch64_vmsa::table::TableAccess<F, G> for RejectTableAccess
 where
     F: aarch64_vmsa::descriptor::DescriptorFormat,
@@ -27,6 +59,51 @@ fn failures_result(failures: u64) -> TestResult {
             actual: failures,
         })
     }
+}
+
+pub fn compact_root_and_granule_levels() -> TestResult {
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::config::format::Vmsa64;
+    use aarch64_vmsa::config::granule::{Granule16KiB, Granule64KiB};
+    use aarch64_vmsa::table::{RootTable, RootTableGeometry, TableAddr, TableShape};
+    use aarch64_vmsa::translation::{WalkInputAddr, Walker};
+
+    let root_addr =
+        TableAddr::<Granule16KiB>::new(0x4000).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+    let root = RootTable::<Vmsa64, crate::CurrentRegime, Granule16KiB>::from_geometry(
+        RootTableGeometry::new_at_level(root_addr, Level::L0, 48, 48).map_err(|_| {
+            HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            }
+        })?,
+    );
+    let access = Compact16KiBRootAccess { entries: [0; 2] };
+    let walker = Walker::new(root, access).map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
+    let compact_low = walker.translate(WalkInputAddr::new(0));
+    let compact_high = walker.translate(WalkInputAddr::new(1u64 << 47));
+
+    let root64 =
+        TableAddr::<Granule64KiB>::new(0x1_0000).map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+    let invalid_geometry =
+        RootTableGeometry::<Vmsa64, Granule64KiB>::new_at_level(root64, Level::L0, 48, 48);
+    let invalid_shape = TableShape::<Vmsa64, Granule64KiB>::root(Level::L0);
+
+    failures_result(
+        u64::from(!matches!(compact_low, Ok(None)))
+            + u64::from(!matches!(compact_high, Ok(None)))
+            + u64::from(invalid_geometry.is_ok())
+            + u64::from(invalid_shape.is_ok()),
+    )
 }
 
 fn output_width_acceptance<F>(

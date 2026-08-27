@@ -70,6 +70,56 @@ pub fn raw_field_bounds() -> TestResult {
     TestResult::Pass
 }
 
+pub fn level_sensitive_address_decoding() -> TestResult {
+    use aarch64_vmsa::address::Level;
+    use aarch64_vmsa::config::format::{Vmsa64, Vmsa64Lpa2};
+    use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
+    use aarch64_vmsa::descriptor::{DescriptorLayout, HasLayout};
+    use aarch64_vmsa::translation::{Stage1, Stage2};
+
+    const BASE: u64 = 0x0000_1000_0000_0000;
+    let mut failures = 0u64;
+    macro_rules! check {
+        ($format:ty, $granule:ty, $stage:ty, $level:expr, $leaf_bit:expr, $table_bit:expr) => {{
+            type Layout = <$format as HasLayout<$stage, $granule>>::Layout;
+            let leaf_raw = BASE | (1u64 << $leaf_bit);
+            let table_raw = BASE | (1u64 << $table_bit);
+            failures += u64::from(
+                <Layout as DescriptorLayout<$stage, $granule>>::output_address(leaf_raw, $level).0
+                    != BASE,
+            );
+            failures += u64::from(
+                <Layout as DescriptorLayout<$stage, $granule>>::table_address(table_raw, $level)
+                    .raw()
+                    != BASE,
+            );
+        }};
+    }
+
+    check!(Vmsa64, Granule4KiB, Stage1, Level::L1, 12, 0);
+    check!(Vmsa64, Granule4KiB, Stage2, Level::L1, 12, 0);
+    check!(Vmsa64, Granule16KiB, Stage1, Level::L2, 14, 12);
+    check!(Vmsa64, Granule16KiB, Stage2, Level::L2, 14, 12);
+    check!(Vmsa64, Granule64KiB, Stage1, Level::L2, 16, 12);
+    check!(Vmsa64, Granule64KiB, Stage2, Level::L2, 16, 12);
+    check!(Vmsa64Lpa2, Granule4KiB, Stage1, Level::L1, 12, 0);
+    check!(Vmsa64Lpa2, Granule4KiB, Stage2, Level::L1, 12, 0);
+    check!(Vmsa64Lpa2, Granule16KiB, Stage1, Level::L1, 14, 12);
+    check!(Vmsa64Lpa2, Granule16KiB, Stage2, Level::L1, 14, 12);
+    check!(Vmsa64Lpa2, Granule64KiB, Stage1, Level::L1, 16, 0);
+    check!(Vmsa64Lpa2, Granule64KiB, Stage2, Level::L1, 16, 0);
+
+    if failures == 0 {
+        TestResult::Pass
+    } else {
+        TestResult::Fail(vmsa_test_harness::TestFailure {
+            kind: vmsa_test_harness::FailureKind::WrongValue,
+            expected: 0,
+            actual: failures,
+        })
+    }
+}
+
 pub fn descriptor_errors() -> TestResult {
     use aarch64_vmsa::address::{Level, PhysAddr};
     use aarch64_vmsa::attrs::AttrError;

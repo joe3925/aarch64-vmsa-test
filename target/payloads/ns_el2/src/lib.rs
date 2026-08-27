@@ -179,6 +179,9 @@ fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> Test
 fn raw_field_bounds(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     descriptors::raw_field_bounds()
 }
+fn level_sensitive_address_decoding(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    descriptors::level_sensitive_address_decoding()
+}
 fn vmsa64_aie(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     permissions::vmsa64_aie_round_trip()
 }
@@ -223,6 +226,9 @@ fn d128_stage2_table_nt_skl0_error(_: &mut TestContext<'_, CurrentEnvironment>) 
 }
 fn geometry_value_boundaries(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     geometry::value_boundaries()
+}
+fn compact_root_and_granule_levels(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    geometry::compact_root_and_granule_levels()
 }
 fn geometry_level_spans(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     geometry::level_spans()
