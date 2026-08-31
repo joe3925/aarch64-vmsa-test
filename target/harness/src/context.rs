@@ -1365,6 +1365,7 @@ impl<'a, E: Environment> TestContext<'a, E> {
                 entry,
                 vmsa_test_architecture::exception::vector_address(),
                 vmsa_test_architecture::exception::recovery_vector_address(),
+                vmsa_test_architecture::exception::fatal_handler_address(),
                 stack.phys_addr() + G::SIZE - 4096,
                 mailbox.phys_addr(),
             ] {

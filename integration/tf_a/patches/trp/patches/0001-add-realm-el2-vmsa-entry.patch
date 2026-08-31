@@ -53,3 +53,17 @@ index a80924c..87c14f4 100644
  		*(.data*)
  	} >RAM
  
+diff --git a/plat/arm/board/fvp/include/platform_def.h b/plat/arm/board/fvp/include/platform_def.h
+index 8e8c30d..13b90ef 100644
+--- a/plat/arm/board/fvp/include/platform_def.h
++++ b/plat/arm/board/fvp/include/platform_def.h
+@@ -205,6 +205,9 @@ defined(IMAGE_BL2) && MEASURED_BOOT
+ #   endif
+ #  endif
+ # endif
++#elif defined(IMAGE_RMM)
++# define PLAT_ARM_MMAP_ENTRIES		16
++# define MAX_XLAT_TABLES		16
+ #elif defined(IMAGE_BL32)
+ # if SPMC_AT_EL3
+ #  define PLAT_ARM_MMAP_ENTRIES		270

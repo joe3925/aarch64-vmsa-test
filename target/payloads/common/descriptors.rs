@@ -4,7 +4,7 @@ pub fn raw_field_bounds() -> TestResult {
     use aarch64_vmsa::attrs::AttrError;
     use aarch64_vmsa::low_level::raw::{
         FourBit, LeafAp, RawShareability, Stage1NotDirty, Stage2Ap, Stage2Dirty,
-        Stage2ExecuteNever, TableAp, TenBit, ThreeBit,
+        Stage2ExecuteNever, TableAp, TenBit, ThreeBit, TwoBit,
     };
 
     macro_rules! bounded {
@@ -31,6 +31,7 @@ pub fn raw_field_bounds() -> TestResult {
     }
 
     bounded!(FourBit::new, 0xf, 0x10);
+    bounded!(TwoBit::new, 0x3, 0x4);
     bounded!(ThreeBit::new, 0x7, 0x8);
     bounded!(TenBit::new, 0x3ff, 0x400);
     bounded!(LeafAp::from_bits, 0b11, 0b100);

@@ -67,11 +67,32 @@ def fvp_command(images: build.FirmwareImages, target: str) -> list[str]:
         "-C", "cluster1.restriction_on_speculative_execution=2",
         "-C", "cluster0.restriction_on_speculative_execution_aarch32=2",
         "-C", "cluster1.restriction_on_speculative_execution_aarch32=2",
+        # The SMMU capability registers are independently configurable from the
+        # PE granule controls. Enable every granule required by the live matrix.
+        # Use terminating fault handling so tests can observe architected event
+        # records without implementing a PRI stall-response agent.
+        "-C", "pci.pci_smmuv3.mmu.SMMU_AIDR=4",
+        "-C", "pci.pci_smmuv3.mmu.SMMU_IDR0=152037051",
+        "-C", "pci.pci_smmuv3.mmu.SMMU_IDR5=1277",
+        "-C", "pci.pci_smmuv3.mmu.SMMU_IDR1=209985542",
+        "-C", "pci.pci_smmuv3.mmu.SMMU_IDR3=14577428",
+        "-C", "pci.pci_smmuv3.mmu.all_error_messages_through_trace=0",
     ]
     if target == "secure-el2":
         command.extend(["-C", "bp.secure_memory=1"])
     if target == "secure-el2":
         command.extend([
+            "-C", "pci.dma330x4.use_smmuv3testengine_not_dmacs=1",
+            # Hafnium's SMMUv3 driver supports architecture revisions through
+            # v3.2 and deliberately rejects a newer AIDR during SPMC startup.
+            # Keep the shared non-secure model at v3.4, but present the secure
+            # firmware with the latest revision its IOMMU driver implements.
+            "-C", "pci.pci_smmuv3.mmu.SMMU_AIDR=2",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_IDR1=216481040",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_IDR3=30524",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_IDR5=1141",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_S_IDR0=152037055",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_S_IDR1=2684354566",
             "-C", "cluster0.has_secure_el2=1",
             "-C", "cluster1.has_secure_el2=1",
             "-C", "cci550.addr_width=48",
@@ -147,6 +168,19 @@ def fvp_command(images: build.FirmwareImages, target: str) -> list[str]:
         ])
     if target in {"realm-el2", "realm-stage2"}:
         command.extend([
+            "-C", "pci.dma330x4.use_smmuv3testengine_not_dmacs=1",
+            "-C", "pci.dma330x4.dmac0_2bit_ssd=3",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_AIDR=3",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_IDR0=1234122427",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_IDR1=216481040",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_IDR3=30524",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_IDR5=1141",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_S_IDR0=16777216",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_S_IDR1=2684354562",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_ROOT_IDR0=8388623",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_ROOT_IIDR=1083",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_R_IDR0=16851968",
+            "-C", "pci.pci_smmuv3.mmu.root_register_page_offset=131072",
             "-C", "bp.has_rme=1",
             "-C", "bp.secure_memory=0",
             "-C", "cci550.addr_width=48",
@@ -265,6 +299,7 @@ def run_fvp(images: build.FirmwareImages, target: str) -> None:
     stdout_thread.start()
     stderr_thread.start()
     saw_end = False
+    firmware_panic: str | None = None
     shutdown_deadline: float | None = None
     while stdout_thread.is_alive() or stderr_thread.is_alive() or not messages.empty():
         if shutdown_deadline is not None and time.monotonic() >= shutdown_deadline:
@@ -282,6 +317,21 @@ def run_fvp(images: build.FirmwareImages, target: str) -> None:
         if source == "uart.log" and line.startswith(("@@VMSA ", "VMSA-INFRA ")):
             sys.stdout.write(line)
             sys.stdout.flush()
+        if (
+            source == "uart.log"
+            and line.startswith("Panic:")
+            and not saw_end
+            and firmware_panic is None
+        ):
+            firmware_panic = line.strip()
+            print(
+                f"VMSA-INFRA HARNESS_FAILURE firmware-panic detail={firmware_panic}",
+                flush=True,
+            )
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         if source == "uart.log" and line.startswith("@@VMSA END ") and not saw_end:
             saw_end = True
             try:
@@ -289,6 +339,11 @@ def run_fvp(images: build.FirmwareImages, target: str) -> None:
             except ProcessLookupError:
                 pass
             shutdown_deadline = time.monotonic() + 1
+    if firmware_panic is not None:
+        process.wait()
+        stdout_thread.join(timeout=1)
+        stderr_thread.join(timeout=1)
+        raise RuntimeError(f"firmware panic before END: {firmware_panic}")
     if saw_end:
         try:
             os.killpg(process.pid, signal.SIGTERM)

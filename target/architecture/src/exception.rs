@@ -241,6 +241,15 @@ pub fn fatal_exception_kind() -> FatalExceptionKind {
     FatalExceptionKind::from_raw(runtime_state().fatal_kind.load(Ordering::Acquire))
 }
 
+/// Returns the currently installed fatal-report callback address.
+///
+/// Candidate translations must keep this code executable. The callback lives
+/// in the payload rather than the architecture runtime and can move outside
+/// the payload entry's bounded code window as the linked image grows.
+pub fn fatal_handler_address() -> u64 {
+    runtime_state().fatal_handler.load(Ordering::Acquire) as u64
+}
+
 pub struct VectorGuard {
     previous: u64,
     el: u8,

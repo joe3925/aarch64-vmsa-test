@@ -2700,6 +2700,27 @@ fn write_hex(callback: unsafe extern "C" fn(u8), value: u64) {
     }
 }
 
+/// Emits live architectural observations without interpreting them as test results.
+///
+/// The protocol parser deliberately treats `VMSA-INFRA CRUMB` lines as diagnostic
+/// evidence. Tests must still return an independently checked result.
+pub fn diagnostic_hex(label: &[u8], values: &[u64]) {
+    let callback = PANIC_CALLBACK.load(Ordering::Acquire);
+    if callback == 0 {
+        return;
+    }
+    // SAFETY: The callback was installed from the validated boot context and is
+    // synchronously invoked by the single-threaded test runner.
+    let callback: unsafe extern "C" fn(u8) = unsafe { core::mem::transmute(callback) };
+    write_bytes(callback, b"VMSA-INFRA CRUMB ");
+    write_bytes(callback, label);
+    for value in values {
+        write_bytes(callback, b" 0x");
+        write_hex(callback, *value);
+    }
+    write_bytes(callback, b"\n");
+}
+
 static PANIC_CALLBACK: AtomicUsize = AtomicUsize::new(0);
 
 pub fn handle_panic() -> ! {

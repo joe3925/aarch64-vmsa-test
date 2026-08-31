@@ -51,6 +51,10 @@ void trp_vmsa_test(void)
 			MT_RW_DATA | VMSA_R_EL2_PAS);
 	mmap_add_region(uart_page, uart_page, 0x1000U,
 			MT_DEVICE | MT_RW | VMSA_R_EL2_PAS);
+	mmap_add_region(0x2b400000U, 0x2b400000U, 0x60000U,
+			MT_DEVICE | MT_RW | VMSA_R_EL2_PAS);
+	mmap_add_region(0x2b500000U, 0x2b500000U, 0x20000U,
+			MT_DEVICE | MT_RW | VMSA_R_EL2_PAS);
 	init_xlat_tables();
 	enable_mmu_el2(0U);
 	if (trp_vmsa_entry_on_stack(&context) == 22U) {

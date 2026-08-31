@@ -206,8 +206,145 @@ fn smmu_v2_stage2_exact_vector(_: &mut TestContext<'_, CurrentEnvironment>) -> T
 fn smmu_regime_layout_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     smmu::smmu_regime_layout_matrix()
 }
+fn smmu_descriptor_interpretations(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_descriptor_interpretations()
+}
+fn smmu_regime_metadata(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_regime_metadata()
+}
+fn smmu_stage1_descriptor_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_stage1_descriptor_matrix()
+}
+fn smmu_v3_stage1_d128_semantic_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_stage1_d128_semantic_matrix()
+}
+fn smmu_vmsa64_stage1_semantic_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_vmsa64_stage1_semantic_matrix()
+}
+fn smmu_v3_stage1_d128_mapper_walker(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_stage1_d128_mapper_walker()
+}
+fn smmu_vmsa64_stage1_mapper_walker(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_vmsa64_stage1_mapper_walker()
+}
+fn smmu_v2_stage2_descriptor_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_stage2_descriptor_matrix()
+}
+fn smmu_v2_descriptor_field_mutations(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_descriptor_field_mutations()
+}
+fn smmu_v3_d128_descriptor_field_mutations(
+    _: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_d128_descriptor_field_mutations()
+}
+fn smmu_v3_vmsa64_descriptor_field_mutations(
+    _: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_vmsa64_descriptor_field_mutations()
+}
+fn smmu_v2_stage2_output_normalization(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_stage2_output_normalization()
+}
+fn smmu_v2_stage2_table_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_stage2_table_matrix()
+}
+fn smmu_v2_stage2_table_granules(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_stage2_table_granules()
+}
+fn smmu_v2_stage2_semantic_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_stage2_semantic_matrix()
+}
+fn smmu_v2_stage2_semantic_errors(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_stage2_semantic_errors()
+}
+fn smmu_v2_stage2_mapper_walker(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_stage2_mapper_walker()
+}
+fn smmu_v3_stage2_mapper_walker(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_stage2_mapper_walker()
+}
+fn smmu_v3_stage2_vmsa64_mapper_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_stage2_vmsa64_mapper_matrix()
+}
+macro_rules! d128_stage2_mapper_adapter {
+    ($name:ident) => {
+        fn $name(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+            smmu::$name()
+        }
+    };
+}
+d128_stage2_mapper_adapter!(smmu_v3_stage2_d128_mapper_native_4k);
+d128_stage2_mapper_adapter!(smmu_v3_stage2_d128_mapper_native_16k);
+d128_stage2_mapper_adapter!(smmu_v3_stage2_d128_mapper_native_64k);
+d128_stage2_mapper_adapter!(smmu_v3_stage2_d128_mapper_little_4k);
+d128_stage2_mapper_adapter!(smmu_v3_stage2_d128_mapper_little_16k);
+d128_stage2_mapper_adapter!(smmu_v3_stage2_d128_mapper_little_64k);
+d128_stage2_mapper_adapter!(smmu_v3_stage2_d128_mapper_big_4k);
+d128_stage2_mapper_adapter!(smmu_v3_stage2_d128_mapper_big_16k);
+d128_stage2_mapper_adapter!(smmu_v3_stage2_d128_mapper_big_64k);
+fn smmu_v3_stage2_semantic_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_stage2_semantic_matrix()
+}
+fn smmu_v3_stage2_d128_semantic_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_stage2_d128_semantic_matrix()
+}
 fn smmu_v3_live_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     smmu::smmu_v3_live_stage2(context)
+}
+fn smmu_v3_live_stage2_lpa2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_stage2_lpa2(context)
+}
+fn smmu_v3_live_stage2_d128(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_stage2_d128(context)
+}
+fn smmu_v3_live_stage2_16k(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_stage2_16k(context)
+}
+fn smmu_v3_live_stage2_64k(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_stage2_64k(context)
+}
+fn smmu_v3_live_stage2_big_endian(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_stage2_big_endian(context)
+}
+fn smmu_v3_live_stage2_permission_fault(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage2_permission_fault(context)
+}
+fn smmu_v3_live_stage2_table_access_flag(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage2_table_access_flag(context)
+}
+fn smmu_v3_live_stage2_translation_fault(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage2_translation_fault(context)
+}
+fn smmu_v3_live_stage2_address_size_fault(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage2_address_size_fault(context)
+}
+fn smmu_v3_live_stage2_access_fault(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage2_access_fault(context)
+}
+fn smmu_v3_live_stage2_stream_id_1(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage2_stream_id_1(context)
+}
+fn smmu_v3_live_stage2_block(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_stage2_block(context)
+}
+fn smmu_v3_live_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_stage1(context)
+}
+fn smmu_v3_live_capabilities(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_capabilities()
 }
 fn descriptor_errors(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     descriptors::descriptor_errors()

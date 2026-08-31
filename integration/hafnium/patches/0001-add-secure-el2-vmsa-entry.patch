@@ -80,13 +80,34 @@ index e753a76..cd4f33a 100644
  void one_time_init(void)
  {
  	struct string manifest_fname = STRING_INIT("manifest.dtb");
-@@ -74,6 +78,9 @@ void one_time_init(void)
- 	struct manifest *manifest;
+@@ -80,4 +84,18 @@ void one_time_init(void)
+ 	mpool_enable_locks();
  
- 	arch_one_time_init();
+-	mm_stage1_locked = mm_lock_stage1();
++	mm_stage1_locked = mm_lock_stage1();
++#if VMSA_SECURE_TEST
++	/* This harness executes in the SPMC before any SP is entered. */
++	if (mm_identity_map(mm_stage1_locked, pa_init(0x2b400000),
++			    pa_init(0x2b420000),
++			    MM_MODE_R | MM_MODE_W | MM_MODE_D, &ppool) == NULL ||
++	    mm_identity_map(mm_stage1_locked, pa_init(0x2b500000),
++			    pa_init(0x2b520000),
++			    MM_MODE_R | MM_MODE_W | MM_MODE_D, &ppool) == NULL ||
++	    mm_identity_map(mm_stage1_locked, pa_init(0x25100000),
++			    pa_init(0x25110000),
++			    MM_MODE_R | MM_MODE_W | MM_MODE_D, &ppool) == NULL) {
++		panic("Unable to map Secure SMMUv3 test interfaces.");
++	}
++#endif
+
+@@ -155,7 +172,10 @@ void one_time_init(void)
+ 	if (!plat_iommu_init(&fdt, mm_stage1_locked, &ppool)) {
+ 		panic("Could not initialize IOMMUs.");
+ 	}
+ 
 +#if VMSA_SECURE_TEST
 +	hafnium_vmsa_secure_test();
 +#endif
+ 	cpu_module_init(params->cpu_ids, params->cpu_count);
  
- 	/* Enable locks now that mm is initialised. */
- 	dlog_enable_lock();
+ 	if (!plat_interrupts_controller_driver_init(&fdt, mm_stage1_locked,

@@ -95,6 +95,8 @@ def restore_cached_build(target: str, expected_key: str | None = None) -> Firmwa
     bl1 = cached / "bl1.bin"
     fip = cached / "fip.bin"
     if not bl1.is_file() or not fip.is_file() or bl1.stat().st_size == 0 or fip.stat().st_size == 0:
+        if cached.exists():
+            shutil.rmtree(cached)
         return None
     try:
         validate_runtime_selector(fip)
@@ -871,10 +873,20 @@ def configure_fvp_spmc_manifest(tf_a: Path, hafnium: HafniumImage) -> None:
     updated_attribute = (
         attribute[:size.start()] + replacement + attribute[size.end():]
     )
-    manifest.write_text(
-        source[:attribute_start] + updated_attribute + source[attribute_end:],
-        encoding="utf-8",
+    source = source[:attribute_start] + updated_attribute + source[attribute_end:]
+    test_engine = (
+        "\t\t      <0x0 0x2b500000 0x0 0x20000>, /* SMMUv3TestEngine */"
     )
+    if test_engine not in source:
+        raise RuntimeError(f"FVP SPMC manifest has no SMMUv3TestEngine range: {manifest}")
+    source = source.replace(
+        test_engine,
+        test_engine
+        + "\n\t\t      <0x0 0x2b400000 0x0 0x20000>, /* SMMUv3 registers */"
+        + "\n\t\t      <0x0 0x25100000 0x0 0x10000>, /* privileged test engine */",
+        1,
+    )
+    manifest.write_text(source, encoding="utf-8")
     print(
         "VMSA-INFRA PHASE spmc-manifest-extent "
         f"load-base=0x{hafnium.load_base:x} binary-size=0x{hafnium.memory_bytes:x}",
@@ -899,6 +911,25 @@ def stage_secure_partitions(tf_a_tests: Path, tftf: Path) -> Path:
         source = manifests / name
         require_file(source)
         shutil.copy2(source, staging / name)
+    primary = staging / "cactus.dts"
+    primary_source = primary.read_text(encoding="utf-8")
+    marker = "\t\tsec_wdog {"
+    if marker not in primary_source:
+        raise RuntimeError(f"Cactus manifest has no secure watchdog marker: {primary}")
+    primary.write_text(
+        primary_source.replace(
+            marker,
+            "\t\tsmmuv3-registers {\n"
+            "\t\t\tdescription = \"SMMUv3 programming interface\";\n"
+            "\t\t\tbase-address = <0x00000000 0x2b400000>;\n"
+            "\t\t\tpages-count = <32>; /* Page 0 and Page 1 */\n"
+            "\t\t\tattributes = <0x3>; /* read-write */\n"
+            "\t\t};\n\n"
+            + marker,
+            1,
+        ),
+        encoding="utf-8",
+    )
     ivy = tf_a_tests / "spm" / "ivy" / "app" / "plat" / "arm" / "fvp" / "fdts" / "ivy-sel1.dts"
     require_file(ivy)
     shutil.copy2(ivy, staging / ivy.name)

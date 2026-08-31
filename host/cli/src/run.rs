@@ -304,6 +304,9 @@ fn run_targets(
             }
         };
         if plans.is_empty() {
+            if targets.len() > 1 {
+                continue;
+            }
             final_code = final_code.max(ExitCode::InvalidSetup);
             reports.push(failure_report(
                 target,
@@ -319,6 +322,16 @@ fn run_targets(
                 expects_termination: plan.expects_termination,
                 test_count: plan.test_count,
             });
+        }
+    }
+    if planned.is_empty() && final_code == ExitCode::Success {
+        final_code = ExitCode::InvalidSetup;
+        if let Some(&target) = targets.first() {
+            reports.push(failure_report(
+                target,
+                "invalid",
+                "the filter matched no registered adapter case".into(),
+            ));
         }
     }
     if final_code != ExitCode::Success {
@@ -447,6 +460,7 @@ fn run_targets(
                             Some(dashboard.as_ref()),
                             &fvp_version,
                             firmware_cache_key,
+                            worker_count,
                         )
                     };
                     completed.lock().expect("result lock poisoned")[index] = Some(result);
@@ -511,6 +525,7 @@ fn run_target(
     observer: Option<&dyn process::RunObserver>,
     fvp_version: &str,
     firmware_cache_key: &str,
+    parallelism: usize,
 ) -> (TargetReport, ExitCode) {
     let run_id = run_id(target);
     let directory = repository.join("output/runs").join(&run_id);
@@ -593,6 +608,7 @@ fn run_target(
             observer.is_none(),
             expects_termination.then_some(filter.unwrap_or_default()),
             observer,
+            parallelism,
         );
         if !matches!(result, Err(process::Failure::Startup(_)))
             || !transient_podman_ssh_failure(&directory)

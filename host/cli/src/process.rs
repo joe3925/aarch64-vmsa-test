@@ -170,6 +170,16 @@ impl SupervisorLimits {
         }
     }
 
+    fn production_for_parallelism(expected_target: &str, parallelism: usize) -> Self {
+        let mut limits = Self::production(expected_target);
+        // Several software FVPs share the same host CPUs. Preserve the strict
+        // single-model watchdog while allowing proportional wall-clock
+        // progress under intentional oversubscription.
+        let factor = parallelism.max(1).div_ceil(4).min(4) as u32;
+        limits.test *= factor;
+        limits
+    }
+
     const fn doctor() -> Self {
         let short = Duration::from_millis(300);
         Self {
@@ -192,6 +202,7 @@ pub fn run(
     stream_live: bool,
     expected_termination: Option<&str>,
     observer: Option<&dyn RunObserver>,
+    parallelism: usize,
 ) -> Result<Completed, Failure> {
     run_with_limits(
         command,
@@ -201,7 +212,7 @@ pub fn run(
         stream_live,
         expected_termination,
         observer,
-        SupervisorLimits::production(expected_target),
+        SupervisorLimits::production_for_parallelism(expected_target, parallelism),
     )
 }
 

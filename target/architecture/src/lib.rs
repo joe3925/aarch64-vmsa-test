@@ -96,12 +96,27 @@ pub fn trigger_unexpected_exception() {
 static DELIBERATE_UNEXPECTED_EXCEPTION: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
+/// Returns the address of state mutated by the fatal exception path.
+///
+/// Candidate translations must keep this state writable so reporting an
+/// unrelated fatal exception cannot recursively fault before diagnostics are
+/// emitted.
+#[doc(hidden)]
+pub fn fatal_control_state_address() -> u64 {
+    core::ptr::addr_of!(DELIBERATE_UNEXPECTED_EXCEPTION) as u64
+}
+
 /// Returns whether the fatal vector was reached from the harness's deliberately
 /// armed terminal exception. The flag is consumed so an unrelated later fault
 /// cannot inherit terminal authorization.
 #[doc(hidden)]
 pub fn take_deliberate_unexpected_exception() -> bool {
-    DELIBERATE_UNEXPECTED_EXCEPTION.swap(false, core::sync::atomic::Ordering::AcqRel)
+    // Most fatal exceptions are not deliberately armed. Avoid an unnecessary
+    // write in that path: a damaged candidate translation may have made this
+    // control page read-only, and diagnostics must remain able to report the
+    // original harness failure instead of recursively faulting here.
+    DELIBERATE_UNEXPECTED_EXCEPTION.load(core::sync::atomic::Ordering::Acquire)
+        && DELIBERATE_UNEXPECTED_EXCEPTION.swap(false, core::sync::atomic::Ordering::AcqRel)
 }
 
 pub fn guarded_read(address: u64, width: AccessWidth) -> Result<GuardedResult, GuardError> {

@@ -2416,6 +2416,10 @@ where
 
     let code_windows = [
         entry & !(code_window - 1),
+        // The transition resumes through harness code that can lie immediately
+        // before the test entry's linked window. Keep that caller executable
+        // without broadening the mapping across unrelated Root/Realm regions.
+        entry.saturating_sub(code_window) & !(code_window - 1),
         vmsa_test_architecture::exception::vector_address() & !(code_window - 1),
         vmsa_test_architecture::exception::recovery_vector_address() & !(code_window - 1),
         vmsa_test_architecture::exception::runtime_code_address() & !(code_window - 1),
@@ -2430,6 +2434,7 @@ where
     let state_pages = [
         G::align_down(vmsa_test_architecture::exception::runtime_state_address()),
         G::align_down(vmsa_test_architecture::transition::runtime_state_address()),
+        G::align_down(vmsa_test_architecture::fatal_control_state_address()),
     ];
 
     let linkage_page = G::align_down(vmsa_test_architecture::exception::linkage_data_address());
@@ -4020,10 +4025,12 @@ where
         };
         let runtime_code_addresses = [
             entry,
+            entry.saturating_sub(CODE_WINDOW),
             vmsa_test_architecture::exception::vector_address(),
             vmsa_test_architecture::exception::recovery_vector_address(),
             vmsa_test_architecture::exception::runtime_code_address(),
             vmsa_test_architecture::transition::runtime_code_address(),
+            vmsa_test_architecture::exception::fatal_handler_address(),
             payload_data[1],
             payload_data[3],
         ];
@@ -4735,14 +4742,17 @@ where
         let stack_end = stack.saturating_add(16 * PAGE_SIZE);
         let code_regions = [
             entry & !(CODE_WINDOW - 1),
+            entry.saturating_sub(CODE_WINDOW) & !(CODE_WINDOW - 1),
             vmsa_test_architecture::exception::vector_address() & !(CODE_WINDOW - 1),
             vmsa_test_architecture::exception::recovery_vector_address() & !(CODE_WINDOW - 1),
+            vmsa_test_architecture::exception::fatal_handler_address() & !(CODE_WINDOW - 1),
             payload_data[3] & !(CODE_WINDOW - 1),
         ];
         let data_pages = [
             payload_data[0] & !(PAGE_SIZE - 1),
             vmsa_test_architecture::exception::runtime_state_address() & !(PAGE_SIZE - 1),
             vmsa_test_architecture::transition::runtime_state_address() & !(PAGE_SIZE - 1),
+            vmsa_test_architecture::fatal_control_state_address() & !(PAGE_SIZE - 1),
             vmsa_test_architecture::exception::linkage_data_address() & !(PAGE_SIZE - 1),
             payload_data[1] & !(PAGE_SIZE - 1),
             payload_data[2] & !(PAGE_SIZE - 1),

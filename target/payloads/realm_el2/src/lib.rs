@@ -43,6 +43,9 @@ mod pas;
 #[path = "../../common/runtime_support.rs"]
 #[allow(dead_code)]
 mod runtime_support;
+#[path = "../../common/smmu.rs"]
+#[allow(dead_code)]
+mod smmu;
 #[path = "../../common/semantic_d128.rs"]
 mod semantic_d128;
 #[path = "../../common/semantic_extended.rs"]
@@ -205,6 +208,11 @@ fn live_break_before_make(context: &mut TestContext<'_, CurrentEnvironment>) -> 
 }
 fn translation_cycle(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     invalidation::stage1_translation_cycle(c, vmsa_test_harness::RegimeAttributes::Realm)
+}
+fn smmu_v3_live_realm_stage2(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_realm_stage2(context)
 }
 macro_rules! dispatch_handler {
     ($context:ident, (none)) => {
