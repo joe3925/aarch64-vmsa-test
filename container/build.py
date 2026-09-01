@@ -380,7 +380,8 @@ def validate_runtime_selector_image(image: bytes | bytearray) -> int:
     return marker
 
 
-def write_root_payload_header(worktree: Path) -> None:
+def write_root_payload_header(worktree: Path, layout: tuple[int, int, int, int, int, int]) -> None:
+    text_start, text_end, rodata_start, rodata_end, data_start, data_end = layout
     header = worktree / "vmsa_root_payload.h"
     header.write_text(
         "#ifndef VMSA_ROOT_PAYLOAD_H\n"
@@ -396,12 +397,18 @@ def write_root_payload_header(worktree: Path) -> None:
         f"#define VMSA_ROOT_PAYLOAD_DATA_VIRTUAL UINT64_C(0x{ROOT_PAYLOAD_DATA_VIRTUAL:x})\n"
         f"#define VMSA_ROOT_PAYLOAD_DATA_SOURCE_VIRTUAL UINT64_C(0x{ROOT_PAYLOAD_SOURCE_VIRTUAL + ROOT_PAYLOAD_CODE_BYTES:x})\n"
         f"#define VMSA_ROOT_PAYLOAD_DATA_BYTES UINT64_C(0x{ROOT_PAYLOAD_DATA_BYTES:x})\n"
+        f"#define VMSA_ROOT_PAYLOAD_TEXT_START UINT64_C(0x{text_start:x})\n"
+        f"#define VMSA_ROOT_PAYLOAD_TEXT_END UINT64_C(0x{text_end:x})\n"
+        f"#define VMSA_ROOT_PAYLOAD_RODATA_START UINT64_C(0x{rodata_start:x})\n"
+        f"#define VMSA_ROOT_PAYLOAD_RODATA_END UINT64_C(0x{rodata_end:x})\n"
+        f"#define VMSA_ROOT_PAYLOAD_DATA_START UINT64_C(0x{data_start:x})\n"
+        f"#define VMSA_ROOT_PAYLOAD_DATA_END UINT64_C(0x{data_end:x})\n"
         "#endif\n",
         encoding="utf-8",
     )
 
 
-def build_root_payload(payload: Path, log: Path) -> tuple[Path, Path]:
+def build_root_payload(payload: Path, log: Path) -> tuple[Path, Path, tuple[int, int, int, int, int, int]]:
     build_directory = OUTPUT / "root-payload"
     if build_directory.exists():
         shutil.rmtree(build_directory)
@@ -488,6 +495,7 @@ def build_root_payload(payload: Path, log: Path) -> tuple[Path, Path]:
         "SECTIONS\n"
         "{\n"
         f"\t. = 0x{ROOT_PAYLOAD_DATA_VIRTUAL:x};\n"
+        "\t__VMSA_DATA_START = .;\n"
         f"\t.data : AT(0x{ROOT_PAYLOAD_DATA_PHYSICAL:x})\n"
         "\t{\n"
         "\t\t*(.data .data.* .sdata .sdata.* .data.rel.ro .data.rel.ro.*)\n"
@@ -495,25 +503,31 @@ def build_root_payload(payload: Path, log: Path) -> tuple[Path, Path]:
         "\t\t*(.preinit_array .preinit_array.* .init_array .init_array.*)\n"
         "\t\t*(.fini_array .fini_array.* .ctors .ctors.* .dtors .dtors.* .jcr)\n"
         "\t} :data\n"
+        "\t__VMSA_DATA_INIT_END = .;\n"
         f"\t.bss (NOLOAD) : AT(0x{ROOT_PAYLOAD_DATA_PHYSICAL:x} + (ADDR(.bss) - 0x{ROOT_PAYLOAD_DATA_VIRTUAL:x}))\n"
         "\t{\n"
         "\t\t*(.bss .bss.* .sbss .sbss.* .tbss .tbss.*)\n"
         "\t\t*(COMMON)\n"
         "\t} :data\n"
+        "\t__VMSA_DATA_END = .;\n"
         "\t. = ALIGN(0x1000);\n"
         f"\tASSERT(. <= 0x{ROOT_PAYLOAD_DATA_LIMIT_VIRTUAL:x}, \"Root payload data exceeds its 256 KiB Root slot\")\n"
         f"\t. = 0x{ROOT_PAYLOAD_CODE_VIRTUAL:x};\n"
+        "\t__VMSA_TEXT_START = .;\n"
         f"\t.text : AT(0x{ROOT_PAYLOAD_CODE_PHYSICAL:x})\n"
         "\t{\n"
         "\t\tKEEP(*(.text.vmsa_root_payload_entry))\n"
         "\t\t*(.text .text.* .init .fini .plt .iplt)\n"
         "\t} :code\n"
+        "\t__VMSA_TEXT_END = .;\n"
+        "\t__VMSA_RODATA_START = .;\n"
         f"\t.rodata : AT(0x{ROOT_PAYLOAD_CODE_PHYSICAL:x} + (ADDR(.rodata) - 0x{ROOT_PAYLOAD_CODE_VIRTUAL:x}))\n"
         "\t{\n"
         "\t\t*(.rodata .rodata.* .srodata .srodata.*)\n"
         "\t\t*(.eh_frame_hdr .eh_frame .eh_frame.*)\n"
         "\t\t*(.gcc_except_table .gcc_except_table.*)\n"
         "\t} :code\n"
+        "\t__VMSA_RODATA_END = .;\n"
         f"\tASSERT(. <= 0x{ROOT_PAYLOAD_CODE_VIRTUAL + ROOT_PAYLOAD_CODE_BYTES:x}, \"Root payload code exceeds its 1 MiB Root slot\")\n"
         "\t/DISCARD/ : { *(.comment) *(.note*) *(.debug*) *(.ARM.attributes) *(.llvm_addrsig) }\n"
         "}\n",
@@ -598,7 +612,21 @@ def build_root_payload(payload: Path, log: Path) -> tuple[Path, Path]:
         f"memory-bytes={len(image)}",
         flush=True,
     )
-    return binary, bridge
+    symbols = {}
+    for line in subprocess.check_output(
+        ["aarch64-none-elf-nm", "-g", str(elf)], text=True
+    ).splitlines():
+        fields = line.split()
+        if len(fields) == 3 and fields[2].startswith("__VMSA_"):
+            symbols[fields[2]] = int(fields[0], 16)
+    names = (
+        "__VMSA_TEXT_START", "__VMSA_TEXT_END",
+        "__VMSA_RODATA_START", "__VMSA_RODATA_END",
+        "__VMSA_DATA_START", "__VMSA_DATA_INIT_END",
+    )
+    if any(name not in symbols for name in names):
+        raise RuntimeError("Root payload linker did not emit its dynamic layout symbols")
+    return binary, bridge, tuple(symbols[name] for name in names)
 
 
 def build_tftf(
@@ -680,9 +708,9 @@ def build_root_el3(repositories: dict[str, Path], log: Path) -> FirmwareImages:
     emit_build_step(1, 4, "rust-payload")
     payload_archive = build_rust("vmsa-test-root-el3", log)
     emit_build_step(2, 4, "root-bridge")
-    payload, bridge = build_root_payload(payload_archive, log)
+    payload, bridge, payload_layout = build_root_payload(payload_archive, log)
     write_filter_header(repositories["tf-a"])
-    write_root_payload_header(repositories["tf-a"])
+    write_root_payload_header(repositories["tf-a"], payload_layout)
     # The complete Root catalog is too large for RME's SRAM-resident BL31.
     # Keep only the EL3 bridge in BL31 and load the Rust image through BL33's
     # normal DRAM image slot; the bridge maps and invokes it while still at EL3.

@@ -15,6 +15,8 @@ static uint8_t vmsa_arena[VMSA_ARENA_BYTES] __attribute__((aligned(4096)));
 static uint8_t vmsa_lower_stack[VMSA_LOWER_STACK_BYTES] __attribute__((aligned(16)));
 
 extern uint32_t vmsa_test_ns_el2_entry(const vmsa_boot_context_t *context);
+extern char __TEXT_START__[], __TEXT_END__[], __RODATA_START__[], __RODATA_END__[];
+extern char __DATA_START__[], __DATA_END__[];
 extern void vmsa_lower_el_entry(void);
 
 static vmsa_secondary_entry_t vmsa_secondary_entry;
@@ -97,6 +99,12 @@ test_result_t test_vmsa_harness(void)
 		.filter = (const uint8_t *)VMSA_FILTER,
 		.filter_bytes = VMSA_FILTER_LENGTH,
 		.run_on_secondary = vmsa_run_on_secondary,
+		.payload_text_start = (uintptr_t)__TEXT_START__,
+		.payload_text_end = (uintptr_t)__TEXT_END__,
+		.payload_rodata_start = (uintptr_t)__RODATA_START__,
+		.payload_rodata_end = (uintptr_t)__RODATA_END__,
+		.payload_data_start = (uintptr_t)__DATA_START__,
+		.payload_data_end = (uintptr_t)__DATA_END__,
 	};
 
 	if (vmsa_test_ns_el2_entry(&context) == 22U) {

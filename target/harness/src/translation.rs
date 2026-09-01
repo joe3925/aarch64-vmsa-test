@@ -2210,7 +2210,7 @@ pub fn prepare_lower_runtime<R>(
     stack_physical_top: u64,
     exception_stack_top: u64,
     exception_stack_physical_top: u64,
-    runtime_data: [u64; 4],
+    runtime_data: [u64; 12],
 ) -> Result<(), HarnessError>
 where
     R: TestRegimeFor<Granule4KiB> + TestRegimeFor<Granule16KiB> + TestRegimeFor<Granule64KiB>,
@@ -2326,7 +2326,7 @@ fn prepare_lower_runtime_for<R, F, G>(
     stack_physical_top: u64,
     exception_stack_top: u64,
     exception_stack_physical_top: u64,
-    runtime_data: [u64; 4],
+    runtime_data: [u64; 12],
 ) -> Result<(), HarnessError>
 where
     R: TestRegimeFor<G>,
@@ -2380,11 +2380,6 @@ where
         HarnessError::TransitionPreparation(TransitionPreparationError::RecoveryRuntime)
     })?;
 
-    const LINKED_CODE_REGION: u64 = 1024 * 1024;
-    const RUNTIME_DATA_WINDOW: u64 = 64 * 1024;
-
-    let code_window = G::SIZE.max(LINKED_CODE_REGION);
-
     let code_fields = R::raw_leaf_for_format(
         MappingAttributes {
             writable: false,
@@ -2414,17 +2409,37 @@ where
 
     let table_fields = R::raw_table()?;
 
-    let code_windows = [
-        entry & !(code_window - 1),
-        // The transition resumes through harness code that can lie immediately
-        // before the test entry's linked window. Keep that caller executable
-        // without broadening the mapping across unrelated Root/Realm regions.
-        entry.saturating_sub(code_window) & !(code_window - 1),
-        vmsa_test_architecture::exception::vector_address() & !(code_window - 1),
-        vmsa_test_architecture::exception::recovery_vector_address() & !(code_window - 1),
-        vmsa_test_architecture::exception::runtime_code_address() & !(code_window - 1),
-        vmsa_test_architecture::transition::runtime_code_address() & !(code_window - 1),
+    let required_code = [
+        entry,
+        vmsa_test_architecture::exception::vector_address(),
+        vmsa_test_architecture::exception::recovery_vector_address(),
+        vmsa_test_architecture::exception::runtime_code_address(),
+        vmsa_test_architecture::transition::runtime_code_address(),
     ];
+    let code_start = G::align_down(runtime_data[4]);
+    let code_end = runtime_data[5]
+        .checked_add(G::SIZE - 1)
+        .map(G::align_down)
+        .ok_or(HarnessError::Memory)?;
+    let aux_code = (runtime_data[10] != 0).then(|| {
+        (
+            G::align_down(runtime_data[10]),
+            G::align_down(runtime_data[11].saturating_add(G::SIZE - 1)),
+        )
+    });
+    let contains_code = |address: u64| {
+        (runtime_data[4]..runtime_data[5]).contains(&address)
+            || aux_code.is_some_and(|_| (runtime_data[10]..runtime_data[11]).contains(&address))
+    };
+    if runtime_data[4] == 0
+        || runtime_data[4] >= runtime_data[5]
+        || required_code.iter()
+        .any(|address| !contains_code(*address))
+    {
+        return Err(HarnessError::TransitionPreparation(
+            TransitionPreparationError::RecoveryRuntime,
+        ));
+    }
 
     let stack_page = G::align_down(stack_top - 1);
     let stack_physical_page = G::align_down(stack_physical_top - 1);
@@ -2438,18 +2453,12 @@ where
     ];
 
     let linkage_page = G::align_down(vmsa_test_architecture::exception::linkage_data_address());
-
-    let data_windows = [
-        runtime_data[0] & !(RUNTIME_DATA_WINDOW - 1),
-        runtime_data[1] & !(RUNTIME_DATA_WINDOW - 1),
-    ];
+    let runtime_pages = [G::align_down(runtime_data[0]), G::align_down(runtime_data[1])];
 
     let is_state_page = |address: u64| state_pages.contains(&address);
 
     let is_data_window_page = |address: u64| {
-        data_windows
-            .iter()
-            .any(|start| (*start..start.saturating_add(RUNTIME_DATA_WINDOW)).contains(&address))
+        runtime_pages.contains(&address)
             || is_state_page(address)
             || address == linkage_page
     };
@@ -2462,9 +2471,8 @@ where
     let arena_last = G::align_down(arena_end.saturating_sub(1));
 
     let is_code_page = |address: u64| {
-        code_windows
-            .iter()
-            .any(|start| (*start..start.saturating_add(code_window)).contains(&address))
+        (code_start..code_end).contains(&address)
+            || aux_code.is_some_and(|(start, end)| (start..end).contains(&address))
             && !is_data_window_page(address)
             && !(arena_start..=arena_last).contains(&address)
     };
@@ -2544,15 +2552,12 @@ where
         }};
     }
 
-    for index in 0..code_windows.len() {
-        if code_windows[..index].contains(&code_windows[index]) {
-            continue;
-        }
-
-        let mut address = code_windows[index];
-        let end = address
-            .checked_add(code_window)
-            .ok_or(HarnessError::Memory)?;
+    for (start, end) in [
+        (code_start, code_end),
+        aux_code.unwrap_or((0, 0)),
+        (G::align_down(runtime_data[6]), G::align_down(runtime_data[7].saturating_add(G::SIZE - 1))),
+    ] {
+        let mut address = start;
 
         while address < end {
             if is_code_page(address)
@@ -2626,29 +2631,26 @@ where
         ensure_data_page!(page);
     }
 
-    for index in 0..data_windows.len() {
-        let start = data_windows[index];
-
-        if data_windows[..index].contains(&start) {
-            continue;
+    for page in runtime_pages {
+        if page != stack_page
+            && page != exception_stack_page
+            && !is_code_page(page)
+            && !is_state_page(page)
+        {
+            ensure_data_page!(page);
         }
-
-        let end = start
-            .checked_add(RUNTIME_DATA_WINDOW)
-            .ok_or(HarnessError::Memory)?;
-        let mut page = start;
-
-        while page < end {
-            if page != stack_page
-                && page != exception_stack_page
-                && !is_code_page(page)
-                && !is_state_page(page)
-            {
-                ensure_data_page!(page);
-            }
-
-            page = page.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
+    }
+    let mut page = G::align_down(runtime_data[8]);
+    let initialized_data_end = G::align_down(runtime_data[9].saturating_add(G::SIZE - 1));
+    while page < initialized_data_end {
+        if page != stack_page
+            && page != exception_stack_page
+            && !is_code_page(page)
+            && !is_state_page(page)
+        {
+            ensure_data_page!(page);
         }
+        page = page.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
     }
 
     if linkage_page != stack_page
@@ -2702,6 +2704,7 @@ pub fn prepare_lower_runtime_d128<R, G>(
     stack_top: u64,
     exception_stack_top: u64,
     lower_runtime_state: u64,
+    runtime_data: [u64; 12],
 ) -> Result<(), HarnessError>
 where
     R: PeTranslationRegime,
@@ -2764,15 +2767,25 @@ where
         access_flag: true,
         ..RawVmsa128Stage1TableAttrs::default()
     };
-    const CODE_WINDOW: u64 = 1024 * 1024;
     let page_size = G::SIZE;
     let state_window = page_size;
-    let code_windows = [
-        entry & !(CODE_WINDOW - 1),
-        vmsa_test_architecture::exception::vector_address() & !(CODE_WINDOW - 1),
-        vmsa_test_architecture::exception::runtime_code_address() & !(CODE_WINDOW - 1),
-        vmsa_test_architecture::transition::runtime_code_address() & !(CODE_WINDOW - 1),
+    let required_code = [
+        entry,
+        vmsa_test_architecture::exception::vector_address(),
+        vmsa_test_architecture::exception::runtime_code_address(),
+        vmsa_test_architecture::transition::runtime_code_address(),
     ];
+    let code_start = G::align_down(runtime_data[4]);
+    let code_end = runtime_data[5]
+        .checked_add(page_size - 1)
+        .map(G::align_down)
+        .ok_or(HarnessError::Memory)?;
+    let aux_code = (runtime_data[10] != 0).then(|| {
+        (
+            G::align_down(runtime_data[10]),
+            G::align_down(runtime_data[11].saturating_add(page_size - 1)),
+        )
+    });
     let stack_page = G::align_down(stack_top - 1);
     let exception_stack_page = G::align_down(exception_stack_top - 1);
     let state_windows = [
@@ -2780,6 +2793,8 @@ where
         G::align_down(vmsa_test_architecture::transition::runtime_state_address()),
         G::align_down(vmsa_test_architecture::exception::linkage_data_address()),
         G::align_down(lower_runtime_state),
+        G::align_down(runtime_data[0]),
+        G::align_down(runtime_data[1]),
     ];
     let is_state_page = |address: u64| {
         state_windows
@@ -2787,9 +2802,8 @@ where
             .any(|start| (*start..*start + state_window).contains(&address))
     };
     let is_code_page = |address: u64| {
-        code_windows
-            .iter()
-            .any(|start| (*start..*start + CODE_WINDOW).contains(&address))
+        (code_start..code_end).contains(&address)
+            || aux_code.is_some_and(|(start, end)| (start..end).contains(&address))
     };
     let arena_start = G::align_down(unsafe { memory.as_ref() }.physical_base());
     let arena_end = unsafe { memory.as_ref() }
@@ -2797,32 +2811,67 @@ where
         .checked_add(unsafe { memory.as_ref() }.byte_len() as u64)
         .ok_or(HarnessError::Memory)?;
     let arena_last = G::align_down(arena_end.saturating_sub(1));
-    for index in 0..code_windows.len() {
-        if code_windows[..index].contains(&code_windows[index]) {
-            continue;
-        }
-        let mut address = code_windows[index];
-        let end = address
-            .checked_add(CODE_WINDOW)
-            .ok_or(HarnessError::Memory)?;
+    for (start, end) in [
+        (code_start, code_end),
+        aux_code.unwrap_or((0, 0)),
+        (G::align_down(runtime_data[6]), G::align_down(runtime_data[7].saturating_add(page_size - 1))),
+    ] {
+        let mut address = start;
         while address < end {
             if !(arena_start..=arena_last).contains(&address)
                 && address != stack_page
                 && address != exception_stack_page
                 && !is_state_page(address)
             {
-                mapper
-                    .map_leaf(
-                        WalkInputAddr::new(address),
-                        WalkOutputAddr::new(address),
-                        Level::L3,
-                        code_fields,
-                        table_fields,
-                    )
-                    .map_err(|_| HarnessError::InvalidState)?;
+                if let Some(mapping) = mapper
+                    .translate(WalkInputAddr::new(address))
+                    .map_err(|_| HarnessError::InvalidState)?
+                {
+                    if mapping.output().raw() != address
+                        || mapping.level() != Level::L3
+                        || *mapping.fields() != code_fields
+                    {
+                        return Err(HarnessError::InvalidState);
+                    }
+                } else {
+                    mapper
+                        .map_leaf(
+                            WalkInputAddr::new(address),
+                            WalkOutputAddr::new(address),
+                            Level::L3,
+                            code_fields,
+                            table_fields,
+                        )
+                        .map_err(|_| HarnessError::InvalidState)?;
+                }
             }
             address = address.checked_add(page_size).ok_or(HarnessError::Memory)?;
         }
+    }
+    let mut address = G::align_down(runtime_data[8]);
+    let initialized_data_end = G::align_down(runtime_data[9].saturating_add(page_size - 1));
+    while address < initialized_data_end {
+        if !(arena_start..=arena_last).contains(&address)
+            && address != stack_page
+            && address != exception_stack_page
+            && !is_code_page(address)
+            && !is_state_page(address)
+            && mapper
+                .translate(WalkInputAddr::new(address))
+                .map_err(|_| HarnessError::InvalidState)?
+                .is_none()
+        {
+            mapper
+                .map_leaf(
+                    WalkInputAddr::new(address),
+                    WalkOutputAddr::new(address),
+                    Level::L3,
+                    data_fields,
+                    table_fields,
+                )
+                .map_err(|_| HarnessError::InvalidState)?;
+        }
+        address = address.checked_add(page_size).ok_or(HarnessError::Memory)?;
     }
     if !is_state_page(stack_page) {
         mapper
@@ -3992,17 +4041,13 @@ where
     pub(crate) fn prepare_current_runtime(
         &mut self,
         entry: u64,
-        payload_data: [u64; 4],
+        payload_data: [u64; 12],
         sandbox_regions: &[(u64, u64)],
         user_accessible: bool,
     ) -> Result<(), HarnessError>
     where
         LeafFieldsOf<Vmsa64, R, G>: PartialEq,
     {
-        const CODE_WINDOW: u64 = 1024 * 1024;
-        const LINKAGE_DATA_PREFIX: u64 = 256 * 1024;
-        const LINKAGE_DATA_WINDOW: u64 = LINKAGE_DATA_PREFIX + 64 * 1024;
-        const LINKED_RUNTIME_DATA_WINDOW: u64 = 64 * 1024;
         let leaf_level = LookupLevel::new(3).ok_or(HarnessError::InvalidState)?;
         let memory = self.inner.frames().memory();
         let arena_start = G::align_down(unsafe { memory.as_ref() }.physical_base());
@@ -4025,24 +4070,45 @@ where
         };
         let runtime_code_addresses = [
             entry,
-            entry.saturating_sub(CODE_WINDOW),
             vmsa_test_architecture::exception::vector_address(),
             vmsa_test_architecture::exception::recovery_vector_address(),
             vmsa_test_architecture::exception::runtime_code_address(),
             vmsa_test_architecture::transition::runtime_code_address(),
             vmsa_test_architecture::exception::fatal_handler_address(),
-            payload_data[1],
             payload_data[3],
         ];
-        let code_regions = runtime_code_addresses.map(|address| address & !(CODE_WINDOW - 1));
-        const PRIVILEGED_CODE_WINDOW: u64 = 64 * 1024;
-        let privileged_code_regions = [
-            vmsa_test_architecture::exception::vector_address() & !(PRIVILEGED_CODE_WINDOW - 1),
-            vmsa_test_architecture::exception::recovery_vector_address()
-                & !(PRIVILEGED_CODE_WINDOW - 1),
+        let code_start = G::align_down(payload_data[4]);
+        let code_end = payload_data[5]
+            .checked_add(G::SIZE - 1)
+            .map(G::align_down)
+            .ok_or(HarnessError::Memory)?;
+        let aux_code = if payload_data[10] == 0 {
+            None
+        } else {
+            Some((
+                G::align_down(payload_data[10]),
+                G::align_down(payload_data[11].saturating_add(G::SIZE - 1)),
+            ))
+        };
+        if payload_data[4] == 0
+            || payload_data[4] >= payload_data[5]
+            || runtime_code_addresses.iter().any(|address| {
+                *address != 0
+                    && !(payload_data[4]..payload_data[5]).contains(address)
+                    && !(payload_data[10]..payload_data[11]).contains(address)
+            })
+        {
+            return Err(HarnessError::TransitionPreparation(
+                crate::TransitionPreparationError::VmsaRuntimeCode,
+            ));
+        }
+        let privileged_code_pages = [
+            G::align_down(vmsa_test_architecture::exception::vector_address()),
+            G::align_down(vmsa_test_architecture::exception::recovery_vector_address()),
         ];
         let runtime_data_addresses = [
             payload_data[0],
+            payload_data[1],
             vmsa_test_architecture::exception::runtime_state_address(),
             vmsa_test_architecture::transition::runtime_state_address(),
             vmsa_test_architecture::exception::linkage_data_address(),
@@ -4053,50 +4119,32 @@ where
             0x1c0c_0000,
         ];
         let data_pages = runtime_data_addresses.map(|address| G::align_down(address));
-        let linked_runtime_data_regions = [
-            vmsa_test_architecture::exception::runtime_state_address()
-                & !(LINKED_RUNTIME_DATA_WINDOW - 1),
-            vmsa_test_architecture::transition::runtime_state_address()
-                & !(LINKED_RUNTIME_DATA_WINDOW - 1),
-        ];
-        let runtime_tail_start = code_regions[0]
-            .checked_add(CODE_WINDOW)
-            .ok_or(HarnessError::Memory)?;
-        let runtime_tail_end = vmsa_test_architecture::exception::linkage_data_address();
-        let is_linked_runtime_data = |address: u64| {
-            linked_runtime_data_regions.iter().any(|start| {
-                (*start..start.saturating_add(LINKED_RUNTIME_DATA_WINDOW)).contains(&address)
-            })
-        };
+        if payload_data[8] == 0 || payload_data[8] >= payload_data[9] {
+            return Err(HarnessError::TransitionPreparation(
+                crate::TransitionPreparationError::VmsaRuntimeData,
+            ));
+        }
         // Payloads can place writable runtime state either before or after
         // executable text. Map each known code window independently instead of
         // inferring a single code span from the relative section order.
-        for index in 0..code_regions.len() {
-            if runtime_code_addresses[index] == 0 {
-                continue;
-            }
-            let start = code_regions[index];
-            if runtime_code_addresses[..index]
-                .iter()
-                .enumerate()
-                .any(|(previous, address)| *address != 0 && code_regions[previous] == start)
-            {
-                continue;
-            }
-            let window_end = start.checked_add(CODE_WINDOW).ok_or(HarnessError::Memory)?;
-            let end = linked_runtime_data_regions
-                .iter()
-                .copied()
-                .filter(|data_start| *data_start > start && *data_start < window_end)
-                .min()
-                .unwrap_or(window_end);
+        let aux_code = if payload_data[10] == 0 {
+            None
+        } else {
+            Some((
+                G::align_down(payload_data[10]),
+                G::align_down(payload_data[11].saturating_add(G::SIZE - 1)),
+            ))
+        };
+        for (start, end) in [
+            (code_start, code_end),
+            aux_code.unwrap_or((0, 0)),
+        ] {
             let mut address = start;
             while address < end {
                 let sandbox_data = sandbox_regions.iter().any(|(input, _)| *input == address);
                 if !(stack_start..stack_end).contains(&address)
                     && !(arena_start..arena_end).contains(&address)
                     && !data_pages.contains(&address)
-                    && !is_linked_runtime_data(address)
                     && !sandbox_data
                 {
                     self.map_attributes_leaf(
@@ -4107,9 +4155,7 @@ where
                             writable: !user_accessible && R::MUTABLE_FIRMWARE_CODE,
                             executable: true,
                             user_accessible: user_accessible
-                                && !privileged_code_regions.iter().any(|start| {
-                                    (*start..*start + PRIVILEGED_CODE_WINDOW).contains(&address)
-                                }),
+                                && !privileged_code_pages.contains(&address),
                         },
                     )
                     .map_err(|_| {
@@ -4124,12 +4170,15 @@ where
         // Compiler-generated constants and lookup tables can land after the
         // fixed executable window but before relocation-backed linkage data.
         // Keep that linked-image tail available to privileged helpers.
-        let mut address = G::align_down(runtime_tail_start);
-        while address < runtime_tail_end {
+        let mut address = G::align_down(payload_data[6]);
+        let rodata_end = payload_data[7]
+            .checked_add(G::SIZE - 1)
+            .map(G::align_down)
+            .ok_or(HarnessError::Memory)?;
+        while address < rodata_end {
             if !(stack_start..stack_end).contains(&address)
                 && !(arena_start..arena_end).contains(&address)
                 && !data_pages.contains(&address)
-                && !is_linked_runtime_data(address)
                 && !sandbox_regions.iter().any(|(input, _)| *input == address)
                 && self
                     .inner
@@ -4155,81 +4204,38 @@ where
             }
             address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
         }
-        // Compiler support globals (for example the stack protector) share a
-        // bounded linked data neighborhood with the exception runtime state.
-        // They are accessed by privileged transition and recovery code, so
-        // mapping them as EL0 code would make PAN turn ordinary helper calls
-        // into recursive faults.
-        for index in 0..linked_runtime_data_regions.len() {
-            let start = linked_runtime_data_regions[index];
-            if linked_runtime_data_regions[..index].contains(&start) {
-                continue;
-            }
-            let end = start
-                .checked_add(LINKED_RUNTIME_DATA_WINDOW)
-                .ok_or(HarnessError::Memory)?;
-            let mut address = start;
-            while address < end {
-                if !(stack_start..stack_end).contains(&address)
-                    && !(arena_start..arena_end).contains(&address)
-                    && !sandbox_regions.iter().any(|(input, _)| *input == address)
-                {
-                    self.map_attributes_leaf(
-                        address,
-                        address,
-                        leaf_level,
-                        MappingAttributes {
-                            writable: true,
-                            executable: false,
-                            user_accessible: false,
-                        },
+        let mut address = G::align_down(payload_data[8]);
+        let initialized_data_end = payload_data[9]
+            .checked_add(G::SIZE - 1)
+            .map(G::align_down)
+            .ok_or(HarnessError::Memory)?;
+        while address < initialized_data_end {
+            if !(stack_start..stack_end).contains(&address)
+                && !(arena_start..arena_end).contains(&address)
+                && !sandbox_regions.iter().any(|(input, _)| *input == address)
+                && self
+                    .inner
+                    .translate(WalkInputAddr::new(address))
+                    .map_err(|_| HarnessError::InvalidState)?
+                    .is_none()
+            {
+                self.map_attributes_leaf(
+                    address,
+                    address,
+                    leaf_level,
+                    MappingAttributes {
+                        writable: true,
+                        executable: false,
+                        user_accessible: false,
+                    },
+                )
+                .map_err(|_| {
+                    HarnessError::TransitionPreparation(
+                        crate::TransitionPreparationError::VmsaRuntimeData,
                     )
-                    .map_err(|_| {
-                        HarnessError::TransitionPreparation(
-                            crate::TransitionPreparationError::VmsaRuntimeData,
-                        )
-                    })?;
-                }
-                address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
+                })?;
             }
-        }
-        // Keep the relocation-backed linkage window readable as privileged
-        // data regardless of whether the linker places it before or after text.
-        for start in [G::align_down(
-            vmsa_test_architecture::exception::linkage_data_address()
-                .saturating_sub(LINKAGE_DATA_PREFIX),
-        )] {
-            let end = start
-                .checked_add(LINKAGE_DATA_WINDOW)
-                .ok_or(HarnessError::Memory)?;
-            let mut address = start;
-            while address < end {
-                if !(stack_start..stack_end).contains(&address)
-                    && !sandbox_regions.iter().any(|(input, _)| *input == address)
-                    && self
-                        .inner
-                        .translate(WalkInputAddr::new(address))
-                        .map_err(|_| HarnessError::InvalidState)?
-                        .is_none()
-                {
-                    self.map_attributes_leaf(
-                        address,
-                        address,
-                        leaf_level,
-                        MappingAttributes {
-                            writable: true,
-                            executable: false,
-                            user_accessible: false,
-                        },
-                    )
-                    .map_err(|_| {
-                        HarnessError::TransitionPreparation(
-                            crate::TransitionPreparationError::VmsaRuntimeLinkageData,
-                        )
-                    })?;
-                }
-                address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
-            }
+            address = address.checked_add(G::SIZE).ok_or(HarnessError::Memory)?;
         }
         let mut address = stack_start;
         while address < stack_end {
@@ -4300,15 +4306,10 @@ where
             if sandbox_regions.iter().any(|(input, _)| *input == address) {
                 continue;
             }
-            if is_linked_runtime_data(address) {
-                continue;
-            }
             let contains_code = runtime_code_addresses
                 .iter()
                 .any(|code| *code != 0 && G::align_down(*code) == address);
-            let privileged_code = privileged_code_regions
-                .iter()
-                .any(|start| (*start..*start + PRIVILEGED_CODE_WINDOW).contains(&address));
+            let privileged_code = privileged_code_pages.contains(&address);
             let attributes = MappingAttributes {
                 writable: true,
                 // A coarse granule can contain both runtime data and payload
@@ -4725,12 +4726,10 @@ where
     pub(crate) fn prepare_current_runtime_d128(
         &mut self,
         entry: u64,
-        payload_data: [u64; 4],
+        payload_data: [u64; 12],
         sandbox_regions: &[(u64, u64)],
     ) -> Result<(), HarnessError> {
         const PAGE_SIZE: u64 = 4096;
-        const CODE_WINDOW: u64 = 1024 * 1024;
-        const LINKAGE_DATA_WINDOW: u64 = 64 * 1024;
         let memory = self.inner.frames().memory();
         let arena_start = unsafe { memory.as_ref() }.physical_base() & !(PAGE_SIZE - 1);
         let arena_end = unsafe { memory.as_ref() }
@@ -4740,14 +4739,36 @@ where
         let stack = vmsa_test_architecture::registers::stack_pointer() & !(PAGE_SIZE - 1);
         let stack_start = stack.saturating_sub(15 * PAGE_SIZE);
         let stack_end = stack.saturating_add(16 * PAGE_SIZE);
-        let code_regions = [
-            entry & !(CODE_WINDOW - 1),
-            entry.saturating_sub(CODE_WINDOW) & !(CODE_WINDOW - 1),
-            vmsa_test_architecture::exception::vector_address() & !(CODE_WINDOW - 1),
-            vmsa_test_architecture::exception::recovery_vector_address() & !(CODE_WINDOW - 1),
-            vmsa_test_architecture::exception::fatal_handler_address() & !(CODE_WINDOW - 1),
-            payload_data[3] & !(CODE_WINDOW - 1),
+        let aux_code = (payload_data[10] != 0).then(|| {
+            (
+                payload_data[10] & !(PAGE_SIZE - 1),
+                payload_data[11].saturating_add(PAGE_SIZE - 1) & !(PAGE_SIZE - 1),
+            )
+        });
+        let code_addresses = [
+            entry,
+            vmsa_test_architecture::exception::vector_address(),
+            vmsa_test_architecture::exception::recovery_vector_address(),
+            vmsa_test_architecture::exception::fatal_handler_address(),
+            payload_data[3],
         ];
+        let code_start = payload_data[4] & !(PAGE_SIZE - 1);
+        let code_end = payload_data[5]
+            .checked_add(PAGE_SIZE - 1)
+            .map(|value| value & !(PAGE_SIZE - 1))
+            .ok_or(HarnessError::Memory)?;
+        if payload_data[4] == 0
+            || payload_data[4] >= payload_data[5]
+            || code_addresses.iter().any(|address| {
+                *address != 0
+                    && !(payload_data[4]..payload_data[5]).contains(address)
+                    && !(payload_data[10]..payload_data[11]).contains(address)
+            })
+        {
+            return Err(HarnessError::TransitionPreparation(
+                crate::TransitionPreparationError::D128RuntimeCode,
+            ));
+        }
         let data_pages = [
             payload_data[0] & !(PAGE_SIZE - 1),
             vmsa_test_architecture::exception::runtime_state_address() & !(PAGE_SIZE - 1),
@@ -4761,15 +4782,15 @@ where
             0x1c0b_0000 & !(PAGE_SIZE - 1),
             0x1c0c_0000 & !(PAGE_SIZE - 1),
         ];
-        for index in 0..code_regions.len() {
-            let region = code_regions[index];
-            if code_regions[..index].contains(&region) {
-                continue;
-            }
-            let end = region
-                .checked_add(CODE_WINDOW)
-                .ok_or(HarnessError::Memory)?;
-            let mut address = region;
+        for (start, end) in [
+            (code_start, code_end),
+            aux_code.unwrap_or((0, 0)),
+            (
+                payload_data[6] & !(PAGE_SIZE - 1),
+                payload_data[7].saturating_add(PAGE_SIZE - 1) & !(PAGE_SIZE - 1),
+            ),
+        ] {
+            let mut address = start;
             while address < end {
                 let sandbox_data = sandbox_regions.iter().any(|(input, _)| *input == address);
                 if !(stack_start..stack_end).contains(&address)
@@ -4791,38 +4812,29 @@ where
                 address = address.checked_add(PAGE_SIZE).ok_or(HarnessError::Memory)?;
             }
         }
-        for index in 0..code_regions.len() {
-            let start = code_regions[index]
-                .checked_add(CODE_WINDOW)
-                .ok_or(HarnessError::Memory)?;
-            if code_regions[..index]
-                .iter()
-                .any(|region| region.checked_add(CODE_WINDOW) == Some(start))
+        let mut address = payload_data[8] & !(PAGE_SIZE - 1);
+        let initialized_data_end = payload_data[9]
+            .checked_add(PAGE_SIZE - 1)
+            .map(|value| value & !(PAGE_SIZE - 1))
+            .ok_or(HarnessError::Memory)?;
+        while address < initialized_data_end {
+            if !(stack_start..stack_end).contains(&address)
+                && !(arena_start..arena_end).contains(&address)
+                && !sandbox_regions.iter().any(|(input, _)| *input == address)
+                && self
+                    .inner
+                    .translate(WalkInputAddr::new(address))
+                    .map_err(|_| HarnessError::InvalidState)?
+                    .is_none()
             {
-                continue;
+                self.map_d128_runtime_page(address, address, D128MappingPermissions::ReadWrite)
+                    .map_err(|_| {
+                        HarnessError::TransitionPreparation(
+                            crate::TransitionPreparationError::D128RuntimeData,
+                        )
+                    })?;
             }
-            let end = start
-                .checked_add(LINKAGE_DATA_WINDOW)
-                .ok_or(HarnessError::Memory)?;
-            let mut address = start;
-            while address < end {
-                if !(stack_start..stack_end).contains(&address)
-                    && !sandbox_regions.iter().any(|(input, _)| *input == address)
-                    && self
-                        .inner
-                        .translate(WalkInputAddr::new(address))
-                        .map_err(|_| HarnessError::InvalidState)?
-                        .is_none()
-                {
-                    self.map_d128_runtime_page(address, address, D128MappingPermissions::ReadWrite)
-                        .map_err(|_| {
-                            HarnessError::TransitionPreparation(
-                                crate::TransitionPreparationError::D128RuntimeData,
-                            )
-                        })?;
-                }
-                address = address.checked_add(PAGE_SIZE).ok_or(HarnessError::Memory)?;
-            }
+            address = address.checked_add(PAGE_SIZE).ok_or(HarnessError::Memory)?;
         }
         let mut address = stack_start;
         while address < stack_end {

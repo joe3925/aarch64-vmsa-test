@@ -442,6 +442,14 @@ void fvp_vmsa_root_test(void)
 		.run_on_secondary = vmsa_run_on_secondary,
 		.pas_page_acquire = vmsa_pas_page_acquire,
 		.pas_page_release = vmsa_pas_page_release,
+		.payload_text_start = VMSA_ROOT_PAYLOAD_TEXT_START,
+		.payload_text_end = VMSA_ROOT_PAYLOAD_TEXT_END,
+		.payload_rodata_start = VMSA_ROOT_PAYLOAD_RODATA_START,
+		.payload_rodata_end = VMSA_ROOT_PAYLOAD_RODATA_END,
+		.payload_data_start = VMSA_ROOT_PAYLOAD_DATA_START,
+		.payload_data_end = VMSA_ROOT_PAYLOAD_DATA_END,
+		.payload_aux_text_start = (uintptr_t)__TEXT_START__,
+		.payload_aux_text_end = (uintptr_t)__TEXT_END__,
 	};
 
 	if (!vmsa_root_runtime_ready || vmsa_root_test_started) {

@@ -11,7 +11,7 @@
 
 #include "../vmsa_filter.h"
 
-#define VMSA_BOOT_CONTEXT_ABI_VERSION UINT32_C(4)
+#define VMSA_BOOT_CONTEXT_ABI_VERSION UINT32_C(5)
 #define VMSA_ARENA_BYTES (512U * 1024U)
 
 typedef void (*vmsa_uart_write_t)(uint8_t byte);
@@ -33,10 +33,14 @@ typedef struct vmsa_boot_context {
 	void *run_on_secondary;
 	vmsa_pas_page_acquire_t pas_page_acquire;
 	vmsa_pas_page_release_t pas_page_release;
+	uint64_t payload_text_start, payload_text_end;
+	uint64_t payload_rodata_start, payload_rodata_end;
+	uint64_t payload_data_start, payload_data_end;
+	uint64_t payload_aux_text_start, payload_aux_text_end;
 	uint64_t reserved[2];
 } vmsa_boot_context_t;
 
-_Static_assert(sizeof(vmsa_boot_context_t) == 112U, "vmsa boot ABI size");
+_Static_assert(sizeof(vmsa_boot_context_t) == 176U, "vmsa boot ABI size");
 _Static_assert(_Alignof(vmsa_boot_context_t) == 8U, "vmsa boot ABI alignment");
 
 static uint8_t vmsa_arena[VMSA_ARENA_BYTES] __attribute__((aligned(4096)));
@@ -44,6 +48,9 @@ static uint8_t *vmsa_report_buffer;
 static size_t vmsa_report_length;
 static bool vmsa_report_overflow;
 static vmsa_realm_rec_record_t *vmsa_rec_record;
+extern char __REALM_TEXT_START__[], __REALM_TEXT_END__[];
+extern char __REALM_RODATA_START__[], __REALM_RODATA_END__[];
+extern char __REALM_DATA_START__[], __REALM_DATA_END__[];
 
 extern uint32_t vmsa_test_realm_stage2_entry(const vmsa_boot_context_t *context,
 		vmsa_realm_rec_record_t *record);
@@ -100,6 +107,12 @@ bool vmsa_test_realm_rec_run(void)
 		.uart_write = vmsa_report_byte,
 		.filter = (const uint8_t *)VMSA_FILTER,
 		.filter_bytes = VMSA_FILTER_LENGTH,
+		.payload_text_start = (uintptr_t)__REALM_TEXT_START__,
+		.payload_text_end = (uintptr_t)__REALM_TEXT_END__,
+		.payload_rodata_start = (uintptr_t)__REALM_RODATA_START__,
+		.payload_rodata_end = (uintptr_t)__REALM_RODATA_END__,
+		.payload_data_start = (uintptr_t)__REALM_DATA_START__,
+		.payload_data_end = (uintptr_t)__REALM_DATA_END__,
 	};
 	uint32_t result;
 

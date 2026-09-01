@@ -14,6 +14,8 @@ static uint8_t vmsa_lower_stack[VMSA_LOWER_STACK_BYTES] __attribute__((aligned(1
 
 extern uint32_t vmsa_test_secure_el2_run(const vmsa_boot_context_t *context);
 extern void vmsa_lower_el_entry(void);
+extern char text_begin[], text_end[], rodata_begin[], rodata_end[];
+extern char data_begin[], bss_begin[];
 
 static void vmsa_uart_write(uint8_t byte)
 {
@@ -37,6 +39,12 @@ void hafnium_vmsa_secure_test(void)
 		.lower_el_stack = (uintptr_t)(vmsa_lower_stack + sizeof(vmsa_lower_stack)),
 		.filter = (const uint8_t *)VMSA_FILTER,
 		.filter_bytes = VMSA_FILTER_LENGTH,
+		.payload_text_start = (uintptr_t)text_begin,
+		.payload_text_end = (uintptr_t)text_end,
+		.payload_rodata_start = (uintptr_t)rodata_begin,
+		.payload_rodata_end = (uintptr_t)rodata_end,
+		.payload_data_start = (uintptr_t)data_begin,
+		.payload_data_end = (uintptr_t)bss_begin,
 	};
 	if (vmsa_test_secure_el2_run(&context) == 22U) {
 		const char message[] = "VMSA-INFRA CAPABILITY\n";

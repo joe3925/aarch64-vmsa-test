@@ -28,7 +28,7 @@ pub const REGIME_NORMAL: u8 = 0;
 pub const REGIME_SECURE: u8 = 1;
 pub const REGIME_REALM: u8 = 2;
 pub const REGIME_ROOT: u8 = 3;
-pub const BOOT_CONTEXT_ABI_VERSION: u32 = 4;
+pub const BOOT_CONTEXT_ABI_VERSION: u32 = 5;
 
 pub fn panic_callback_address() -> u64 {
     core::ptr::addr_of!(PANIC_CALLBACK) as u64
@@ -57,11 +57,19 @@ pub struct BootContext {
         unsafe extern "C" fn(pas: u32, virtual_address: *mut u64, physical: *mut u64) -> i32,
     >,
     pub pas_page_release: Option<unsafe extern "C" fn(pas: u32, physical: u64) -> i32>,
+    pub payload_text_start: u64,
+    pub payload_text_end: u64,
+    pub payload_rodata_start: u64,
+    pub payload_rodata_end: u64,
+    pub payload_data_start: u64,
+    pub payload_data_end: u64,
+    pub payload_aux_text_start: u64,
+    pub payload_aux_text_end: u64,
     pub reserved: [u64; 2],
 }
 
 const _: () = {
-    assert!(core::mem::size_of::<BootContext>() == 112);
+    assert!(core::mem::size_of::<BootContext>() == 176);
     assert!(core::mem::align_of::<BootContext>() == 8);
 };
 
@@ -237,6 +245,8 @@ impl BootContext {
 
     fn fields_valid(&self, regime: u8) -> bool {
         let virtual_start = self.memory_virtual as usize;
+        let region_valid = |start: u64, end: u64| start != 0 && start < end;
+        let empty_or_valid = |start: u64, end: u64| (start == end) || region_valid(start, end);
         let lower_pair_valid = (self.lower_el_entry == 0 && self.lower_el_stack == 0)
             || (self.lower_el_entry != 0
                 && self.lower_el_entry & 0x3 == 0
@@ -246,6 +256,11 @@ impl BootContext {
             && self.uart_write.is_some()
             && self.pas_page_acquire.is_some() == self.pas_page_release.is_some()
             && lower_pair_valid
+            && region_valid(self.payload_text_start, self.payload_text_end)
+            && empty_or_valid(self.payload_rodata_start, self.payload_rodata_end)
+            && region_valid(self.payload_data_start, self.payload_data_end)
+            && ((self.payload_aux_text_start == 0 && self.payload_aux_text_end == 0)
+                || region_valid(self.payload_aux_text_start, self.payload_aux_text_end))
             && virtual_start.checked_add(self.memory_bytes).is_some()
             && self
                 .memory_physical
@@ -498,6 +513,7 @@ pub struct AdapterCore {
     pas_page_acquire: Option<unsafe extern "C" fn(u32, *mut u64, *mut u64) -> i32>,
     pas_page_release: Option<unsafe extern "C" fn(u32, u64) -> i32>,
     scoped_pas_page: Option<(vmsa_test_harness::PhysicalAddressSpace, u64)>,
+    payload_layout: [u64; 8],
 }
 
 impl AdapterCore {
@@ -566,6 +582,16 @@ impl AdapterCore {
             pas_page_acquire: context.pas_page_acquire,
             pas_page_release: context.pas_page_release,
             scoped_pas_page: None,
+            payload_layout: [
+                context.payload_text_start,
+                context.payload_text_end,
+                context.payload_rodata_start,
+                context.payload_rodata_end,
+                context.payload_data_start,
+                context.payload_data_end,
+                context.payload_aux_text_start,
+                context.payload_aux_text_end,
+            ],
         };
         core.initialize()?;
         Ok((core, filter))
@@ -592,18 +618,21 @@ impl AdapterCore {
             _ => unreachable!(),
         }
     }
-    pub fn transition_runtime_data(&self) -> [u64; 4] {
+    pub fn transition_runtime_data(&self) -> [u64; 12] {
         let environment_entry = if self.lower_el_entry != 0 {
             self.lower_el_entry
         } else {
             self.run_on_secondary.map_or(0, |run| run as usize as u64)
         };
-        [
+        let mut data = [0; 12];
+        data[..4].copy_from_slice(&[
             self as *const Self as u64,
             panic_callback_address(),
             self.lower_el_stack.saturating_sub(1),
             environment_entry,
-        ]
+        ]);
+        data[4..].copy_from_slice(&self.payload_layout);
+        data
     }
     pub fn realm_rec_is_current(&self) -> bool {
         self.regime == REGIME_REALM && registers::current_el() == 1
@@ -717,6 +746,14 @@ impl AdapterCore {
             run_on_secondary: self.run_on_secondary,
             pas_page_acquire: self.pas_page_acquire,
             pas_page_release: self.pas_page_release,
+            payload_text_start: self.payload_layout[0],
+            payload_text_end: self.payload_layout[1],
+            payload_rodata_start: self.payload_layout[2],
+            payload_rodata_end: self.payload_layout[3],
+            payload_data_start: self.payload_layout[4],
+            payload_data_end: self.payload_layout[5],
+            payload_aux_text_start: self.payload_layout[6],
+            payload_aux_text_end: self.payload_layout[7],
             reserved: [0; 2],
         };
         if !valid.header_valid() || !valid.fields_valid(self.regime) {
@@ -1496,6 +1533,7 @@ impl AdapterCore {
                             lower_stack,
                             lower_exception_stack,
                             lower_runtime_state,
+                            transition_runtime_data,
                         )
                     }
                     vmsa_test_harness::Granule::Size16KiB => {
@@ -1506,6 +1544,7 @@ impl AdapterCore {
                             lower_stack,
                             lower_exception_stack,
                             lower_runtime_state,
+                            transition_runtime_data,
                         )
                     }
                     vmsa_test_harness::Granule::Size64KiB => {
@@ -1516,6 +1555,7 @@ impl AdapterCore {
                             lower_stack,
                             lower_exception_stack,
                             lower_runtime_state,
+                            transition_runtime_data,
                         )
                     }
                 }
@@ -2810,7 +2850,7 @@ macro_rules! define_environment {
                 self.core.memory_pas()
             }
 
-            fn transition_runtime_data(&self) -> [u64; 4] {
+            fn transition_runtime_data(&self) -> [u64; 12] {
                 self.core.transition_runtime_data()
             }
 

@@ -43,6 +43,12 @@ void trp_vmsa_test(void)
 			(uintptr_t)(vmsa_lower_stack + sizeof(vmsa_lower_stack)),
 		.filter = (const uint8_t *)VMSA_FILTER,
 		.filter_bytes = VMSA_FILTER_LENGTH,
+		.payload_text_start = RMM_BASE,
+		.payload_text_end = (uintptr_t)__VMSA_RW_START__,
+		.payload_rodata_start = (uintptr_t)__VMSA_RW_START__,
+		.payload_rodata_end = (uintptr_t)__VMSA_RW_START__,
+		.payload_data_start = (uintptr_t)__VMSA_RW_START__,
+		.payload_data_end = RMM_END,
 	};
 
 	mmap_add_region(RMM_BASE, RMM_BASE, rw_start - RMM_BASE,
