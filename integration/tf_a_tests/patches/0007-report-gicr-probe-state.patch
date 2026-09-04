@@ -1,0 +1,36 @@
+diff --git a/drivers/arm/gic/gic_v3.c b/drivers/arm/gic/gic_v3.c
+index e69933b..49bb2ba 100644
+--- a/drivers/arm/gic/gic_v3.c
++++ b/drivers/arm/gic/gic_v3.c
+@@ -446,6 +446,8 @@ void gicv3_probe_redistif_addr(void)
+ {
+ 	unsigned long long typer_val;
+ 	uintptr_t rdistif_base;
++	uintptr_t first_rdistif_base;
++	unsigned long long first_typer_val;
+ 	unsigned long long affinity;
+ 	unsigned int core_pos = platform_get_core_pos(read_mpidr_el1());
+ 
+@@ -461,7 +463,9 @@ void gicv3_probe_redistif_addr(void)
+ 
+ 	/* Iterate over the GICR frames and find the matching frame*/
+ 	rdistif_base = gicr_base_addr;
++	first_rdistif_base = rdistif_base;
+ 	affinity = gic_typer_affinity_from_mpidr(read_mpidr_el1() & MPIDR_AFFINITY_MASK);
++	first_typer_val = gicr_read_typer(rdistif_base);
+ 	do {
+ 		typer_val = gicr_read_typer(rdistif_base);
+ 		if (affinity == ((typer_val >> TYPER_AFF_VAL_SHIFT) & TYPER_AFF_VAL_MASK)) {
+@@ -472,6 +476,12 @@ void gicv3_probe_redistif_addr(void)
+ 		rdistif_base += (1 << GICR_PCPUBASE_SHIFT);
+ 	} while (!(typer_val & TYPER_LAST_BIT));
+ 
++	ERROR("GICR probe: MPIDR 0x%llx expected affinity 0x%llx\n",
++	      (unsigned long long)read_mpidr_el1(), affinity);
++	ERROR("GICR probe: first frame 0x%lx TYPER 0x%llx\n",
++	      first_rdistif_base, first_typer_val);
++	ERROR("GICR probe: last frame 0x%lx TYPER 0x%llx\n",
++	      rdistif_base - (1 << GICR_PCPUBASE_SHIFT), typer_val);
+ 	ERROR("Re-distributor address not found for core %d\n", core_pos);
+ 	panic();
+ }

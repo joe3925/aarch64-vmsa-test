@@ -10,13 +10,31 @@ use crate::matrix::{
 pub struct CatalogEntry {
     pub id: LogicalTest,
     pub name: &'static str,
+    pub platform: ExecutionPlatform,
     pub architecture: MatrixRequirements,
     pub model: Requirements,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExecutionPlatform {
+    FvpRevC,
+    FvpRdN2,
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub const CURRENT_PLATFORM: ExecutionPlatform = ExecutionPlatform::FvpRdN2;
+#[cfg(not(vmsa_platform_fvp_rdn2))]
+pub const CURRENT_PLATFORM: ExecutionPlatform = ExecutionPlatform::FvpRevC;
+
 impl CatalogEntry {
-    pub const fn applies_to(self, environment: SecurityEnvironment, profile: BootProfile) -> bool {
-        self.architecture.environments.contains(environment)
+    pub const fn applies_to(
+        self,
+        platform: ExecutionPlatform,
+        environment: SecurityEnvironment,
+        profile: BootProfile,
+    ) -> bool {
+        self.platform as u8 == platform as u8
+            && self.architecture.environments.contains(environment)
             && self.architecture.boot_profiles.contains(profile)
     }
 }
@@ -57,9 +75,42 @@ const fn entry(
     CatalogEntry {
         id,
         name,
+        platform: ExecutionPlatform::FvpRevC,
         architecture: matrix(environments),
         model,
     }
+}
+
+const fn rdn2_profile_entry(
+    id: LogicalTest,
+    name: &'static str,
+    environments: SecurityEnvironments,
+    profiles: BootProfiles,
+    model: Requirements,
+) -> CatalogEntry {
+    let mut entry = profile_entry(id, name, environments, profiles, model);
+    entry.platform = ExecutionPlatform::FvpRdN2;
+    entry
+}
+
+const fn rdn2_isolated_profile_entry(
+    id: LogicalTest,
+    name: &'static str,
+    environments: SecurityEnvironments,
+    profiles: BootProfiles,
+    isolation: IsolationPolicy,
+    model: Requirements,
+) -> CatalogEntry {
+    let mut entry = isolated_profile_entry(
+        id,
+        name,
+        environments,
+        profiles,
+        isolation,
+        model,
+    );
+    entry.platform = ExecutionPlatform::FvpRdN2;
+    entry
 }
 
 const fn profile_entry(
@@ -178,5 +229,5 @@ pub fn tests_for(
 ) -> impl Iterator<Item = &'static CatalogEntry> {
     TEST_CATALOG
         .iter()
-        .filter(move |entry| entry.applies_to(environment, profile))
+        .filter(move |entry| entry.applies_to(CURRENT_PLATFORM, environment, profile))
 }

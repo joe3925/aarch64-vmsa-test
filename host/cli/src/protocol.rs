@@ -171,15 +171,9 @@ impl Parser {
                 }
             }
             "SKIP" => {
-                ensure_idle(self)?;
-                let name =
-                    protocol_name(one_word(&mut words, "SKIP test name")?, "SKIP test name")?
-                        .to_owned();
-                if self.completed.contains(&name) {
-                    return Err(format!("duplicate test completion: {name}"));
-                }
+                let name = completion_name_first(self, &mut words)?;
                 let reason = required_reason(words)?;
-                self.completed.insert(name.clone());
+                finish_completion(self, &name)?;
                 self.counts.skipped = self
                     .counts
                     .skipped
@@ -253,6 +247,7 @@ pub fn validate_parser() -> Result<(), String> {
         "@@VMSA RUN host.pass",
         "@@VMSA INFRA host.pass reason=cleanup expected=1 actual=0",
         "@@VMSA PASS host.pass",
+        "@@VMSA RUN host.skip",
         "@@VMSA SKIP host.skip reason=unsupported",
         "@@VMSA END passed=1 failed=0 skipped=1",
     ] {
@@ -273,6 +268,10 @@ pub fn validate_parser() -> Result<(), String> {
             "@@VMSA RUN host.pass",
             "@@VMSA PASS host.pass",
             "@@VMSA END passed=0 failed=0 skipped=0",
+        ][..],
+        &[
+            "@@VMSA BEGIN protocol=1 target=x",
+            "@@VMSA SKIP host.skip reason=unsupported",
         ][..],
         &["@@VMSA BEGIN protocol=2 target=x"][..],
         &[

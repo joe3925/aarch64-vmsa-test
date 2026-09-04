@@ -1,6 +1,7 @@
 pub mod args;
 pub(crate) mod cancellation;
 pub(crate) mod catalog_plan;
+pub mod platform;
 pub mod podman;
 pub mod process;
 pub mod protocol;

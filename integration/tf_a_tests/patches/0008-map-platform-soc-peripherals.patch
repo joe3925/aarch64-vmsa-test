@@ -1,0 +1,30 @@
+diff --git a/plat/arm/neoverse_rd/common/plat_setup.c b/plat/arm/neoverse_rd/common/plat_setup.c
+index 14983de..83132a5 100644
+--- a/plat/arm/neoverse_rd/common/plat_setup.c
++++ b/plat/arm/neoverse_rd/common/plat_setup.c
+@@ -12,6 +12,10 @@ static const mmap_region_t mmap[] = {
+ 			MT_DEVICE | MT_RW | MT_NS),
+ 	MAP_REGION_FLAT(NRD_CSS_PERIPH1_BASE, NRD_CSS_PERIPH1_SIZE,
+ 			MT_DEVICE | MT_RW | MT_NS),
++#if defined(NRD_SOC_PERIPH_BASE) && defined(NRD_SOC_PERIPH_SIZE)
++	MAP_REGION_FLAT(NRD_SOC_PERIPH_BASE, NRD_SOC_PERIPH_SIZE,
++			MT_DEVICE | MT_RW | MT_NS),
++#endif
+ 	MAP_REGION_FLAT(DRAM_BASE, TFTF_BASE - DRAM_BASE,
+ 			MT_MEMORY | MT_RW | MT_NS),
+ 	{0}
+diff --git a/plat/arm/neoverse_rd/platform/rdn2/include/platform_def.h b/plat/arm/neoverse_rd/platform/rdn2/include/platform_def.h
+index 3d5f6c9..de94d52 100644
+--- a/plat/arm/neoverse_rd/platform/rdn2/include/platform_def.h
++++ b/plat/arm/neoverse_rd/platform/rdn2/include/platform_def.h
+@@ -32,6 +32,10 @@
+ #endif
+ #define PLAT_ARM_GICC_BASE		UL(0x2C000000)
+ 
++/* FVP SoC peripheral expansion window, including DMA MMU-500. */
++#define NRD_SOC_PERIPH_BASE		UL(0x0E000000)
++#define NRD_SOC_PERIPH_SIZE		UL(0x01000000)
++
+ /* Platform specific page table and MMU setup constants */
+ #define PLAT_PHY_ADDR_SPACE_SIZE	(1ULL << 46)
+ #define PLAT_VIRT_ADDR_SPACE_SIZE	(1ULL << 46)

@@ -1,4 +1,5 @@
 use crate::args::Target;
+use crate::platform::Platform;
 
 const REGISTRY: &str = include_str!("../../../target/harness/src/registry.rs");
 
@@ -11,6 +12,7 @@ enum Isolation {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BootPlan {
+    pub platform: Platform,
     pub filter: Option<String>,
     pub expects_termination: bool,
     pub test_count: usize,
@@ -19,6 +21,7 @@ pub struct BootPlan {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct CatalogCase {
     name: String,
+    platform: Platform,
     targets: [bool; 5],
     applicable: [bool; 5],
     isolation: Isolation,
@@ -83,17 +86,21 @@ pub fn plan(target: Target, filter: Option<&str>) -> Result<Vec<BootPlan>, Strin
             })
     };
     let mut plans = Vec::new();
-    let sequential_count = cases
-        .iter()
-        .filter(selected)
-        .filter(|case| case.isolation == Isolation::Sequential)
-        .count();
-    if sequential_count != 0 {
-        plans.push(BootPlan {
-            filter: filter.map(str::to_owned),
-            expects_termination: false,
-            test_count: sequential_count,
-        });
+    for platform in Platform::ALL {
+        let sequential_count = cases
+            .iter()
+            .filter(selected)
+            .filter(|case| case.platform == platform)
+            .filter(|case| case.isolation == Isolation::Sequential)
+            .count();
+        if sequential_count != 0 {
+            plans.push(BootPlan {
+                platform,
+                filter: filter.map(str::to_owned),
+                expects_termination: false,
+                test_count: sequential_count,
+            });
+        }
     }
     for case in cases
         .iter()
@@ -101,6 +108,7 @@ pub fn plan(target: Target, filter: Option<&str>) -> Result<Vec<BootPlan>, Strin
         .filter(|case| matches!(case.isolation, Isolation::Separate | Isolation::Destructive))
     {
         plans.push(BootPlan {
+            platform: case.platform,
             filter: Some(case.name.clone()),
             expects_termination: case.expects_termination,
             test_count: 1,
@@ -129,6 +137,11 @@ fn parse_registry() -> Result<Vec<CatalogCase>, String> {
             .ok_or_else(|| format!("registry row has invalid name: {line}"))?
             .to_owned();
         let builder = fields[2];
+        let platform = if builder.starts_with("rdn2_") {
+            Platform::FvpRdN2
+        } else {
+            Platform::FvpRevC
+        };
         let applicable = applicable_targets(builder)?;
         let isolation = if builder.contains("IsolationPolicy::DestructiveBoot") {
             Isolation::Destructive
@@ -144,6 +157,7 @@ fn parse_registry() -> Result<Vec<CatalogCase>, String> {
         }
         cases.push(CatalogCase {
             name,
+            platform,
             targets,
             applicable,
             isolation,

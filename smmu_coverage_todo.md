@@ -42,9 +42,12 @@ The complete reproductions and evidence are in `crate_report.md`.
   RevC 11.30.27 and 11.31.28 advertise the configurable IDR5 field but reject
   a D128 STE during translation; do not register this boot until a model with
   an implemented D128 SMMU translation path is selected.
-- [ ] Expand live stage-1 beyond non-secure 4 KiB little-endian: add 16/64 KiB,
-  big-endian, privileged-stream, Secure, and Realm cases after their semantic
-  codec blockers are resolved.
+- [x] Expand live stage-1 beyond non-secure 4 KiB little-endian. Non-secure
+  16/64 KiB, big-endian, the privileged-stream regime, all eight MAIR0 indices,
+  and Secure stage 1 complete live translations. A privileged write-fault
+  probe was not enforced by the current test-engine path and is not registered
+  as coverage. Secure and Realm stage 1 both complete live translations through
+  their respective SMMU register banks.
 - [x] Add `SecureStreamNonSecureIpaStage2` live translation and both public
   stage-2 permission models, including XNX execute permissions.
 - [x] Add live stage-2 table-descriptor controls, multi-level and block walks,
@@ -63,20 +66,45 @@ The complete reproductions and evidence are in `crate_report.md`.
 
 ## SMMUv2 live validation
 
-- [ ] Route SMMUv2 tests to independent hardware or an SMMUv2-capable model.
+- [x] Route SMMUv2 tests to independent hardware or an SMMUv2-capable model.
   Cover stage-1 and stage-2 page/block walks, permissions, faults, TLB
   invalidation, all supported granules, and both descriptor endians. Do not
   report `Unsupported` until live feature registers establish that the selected
   target lacks SMMUv2 after all model/firmware configuration attempts.
+  RD-N2 FVP 11.25.23 is now provisioned automatically in Podman and its live
+  DMA MMU-500 is routed through an isolated PL330 agent. Live ID registers
+  report stage 2 (not stage 1), stream matching, 4/64 KiB granules (not 16 KiB),
+  and four context banks. Independent named boots cover little- and big-endian
+  4 KiB pages, 2 MiB blocks, 64 KiB pages, 512 MiB blocks, read/write permission
+  faults, translation and leaf access-flag faults, masked StreamID selection, and a
+  stale-translation/remap/leaf-invalidation sequence. Every case uses public
+  crate-built descriptors, an independently observed PL330 transfer, terminating
+  fault handling, and symmetric SMMU restoration. The target has no executable
+  Secure, privileged, or Realm stage-1 stream world; those public regimes remain
+  covered by the exhaustive semantic descriptor/mapper matrices instead.
+  Table-descriptor access-flag encoding is also covered semantically; MMU-500
+  does not enforce it as a live table-walk fault (an isolated probe completed
+  the transfer with table AF clear and hardware AF management disabled).
+  Additional isolated boots now cover 4 KiB L2 and 64 KiB L1 roots and the
+  architectural `RACFG/WACFG=0b01` default behavior. The live evidence and
+  semantic decoder test now both pass with those encodings.
 
 ## Completion gate
 
 - [x] Before claiming 100%, run doctor and the complete suite, run it again in a
   fresh invocation, verify the crate checkout is byte-for-byte unchanged from
   its recorded baseline, and retain evidence for every remaining crate failure.
-  Doctor and the public codec probe passed; fresh sessions
-  `session-00001788150648053489-73822` and
-  `session-00001788150815502023-78314` produced identical 907-pass results.
-  The intentionally modified read-only crate remained at revision
-  `5251c2c5498c021eee95217f44930b28078cffc0` with content fingerprint
-  `fnv1a64:31acfb77f13ff50c`.
+  The previous completion run passed doctor; fresh sessions `session-00001788327339588178-34079` and
+  `session-00001788327527003835-42166` produced identical 919-pass results.
+  The read-only crate remained clean at revision
+  `c222149985759a47174911baf9e47a75d888c58e`. This result predates the newly
+  enabled live cases and the corrected allocation-hint oracle and is therefore
+  retained as historical evidence, not a current all-pass claim.
+  After resolving the allocation-hint decoder and associated harness triage,
+  doctor passed and fresh sessions `session-00001788485539190875-75659` and
+  `session-00001788485748485555-81091` each produced 936 passes, zero failures,
+  and one capability-backed Realm stage-1 skip.
+  After enabling the model's Realm stage-1 capability, the Realm profile passed
+  193/193 in `session-00001788486366856562-94836`; fresh complete sessions
+  `session-00001788486398764447-96635` and
+  `session-00001788486613473156-2204` each passed 937/937 with no skips.

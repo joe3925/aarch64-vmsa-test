@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import os
 from pathlib import Path
 import queue
@@ -12,6 +13,7 @@ import threading
 import time
 
 import build
+import providers as platform_provider
 import prepare
 
 OUTPUT = Path("/output")
@@ -22,6 +24,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "target",
         choices=["ns-el2", "secure-el2", "realm-el2", "realm-stage2", "root-el3"],
+    )
+    parser.add_argument(
+        "--platform", choices=["fvp-revc", "fvp-rdn2"], default="fvp-revc"
     )
     parser.add_argument("--filter")
     mode = parser.add_mutually_exclusive_group()
@@ -39,7 +44,93 @@ def parse_arguments() -> argparse.Namespace:
     return arguments
 
 
-def fvp_command(images: build.FirmwareImages, target: str) -> list[str]:
+def fvp_command(images: build.FirmwareImages, platform: str, target: str) -> list[str]:
+    if platform == "fvp-rdn2":
+        if target != "ns-el2":
+            raise RuntimeError(f"platform {platform} does not support target {target}")
+        if any(
+            image is None
+            for image in (images.scp_rom, images.scp_ram, images.mcp_rom, images.mcp_ram)
+        ):
+            raise RuntimeError("RD-N2 firmware set is incomplete")
+        executable = platform_provider.ensure(platform)
+        pcie2 = platform_provider.asset(platform, "example_pcie_hierarchy_2.json")
+        pcie3 = platform_provider.asset(platform, "example_pcie_hierarchy_3.json")
+        pcie4 = platform_provider.asset(platform, "example_pcie_hierarchy_4.json")
+        nor_images = []
+        for index in (1, 2):
+            path = OUTPUT / f"nor{index}-flash.img"
+            with gzip.open(path, "wb", compresslevel=1) as output:
+                zero = bytes(1024 * 1024)
+                for _ in range(64):
+                    output.write(zero)
+            nor_images.append(path)
+        return [
+            str(executable),
+            "--data", f"css.scp.armcortexm7ct={images.scp_ram}@0x0BD80000",
+            "--data", f"css.mcp.armcortexm7ct={images.mcp_ram}@0x0BF80000",
+            "-C", f"css.scp.ROMloader.fname={images.scp_rom}",
+            "-C", f"css.mcp.ROMloader.fname={images.mcp_rom}",
+            "-C", f"css.trustedBootROMloader.fname={images.bl1}",
+            "-C", f"board.flashloader0.fname={images.fip}",
+            "-C", f"board.flashloader1.fname={nor_images[0]}",
+            "-C", f"board.flashloader1.fnameWrite={nor_images[0]}",
+            "-C", f"board.flashloader2.fname={nor_images[1]}",
+            "-C", f"board.flashloader2.fnameWrite={nor_images[1]}",
+            "-C", "disable_visualisation=1",
+            "-C", "board.dram_size=0x200000000",
+            "-C", "css.pl011_ns_uart_ap.out_file=-",
+            "-C", "css.pl011_ns_uart_ap.unbuffered_output=1",
+            "-C", "css.pl011_s_uart_ap.out_file=-",
+            "-C", "css.pl011_s_uart_ap.unbuffered_output=1",
+            "-C", "css.terminal_ns_uart_ap.start_telnet=0",
+            "-C", "css.terminal_s_uart_ap.start_telnet=0",
+            "-C", "css.scp.terminal_uart_scp.start_telnet=0",
+            "-C", "css.mcp.terminal_uart_mcp.start_telnet=0",
+            "-C", "soc.terminal_s0.start_telnet=0",
+            "-C", "soc.terminal_s1.start_telnet=0",
+            "-C", "board.terminal_0.start_telnet=0",
+            "-C", "board.terminal_1.start_telnet=0",
+            "-C", "css.scp.pl011_uart_scp.out_file=/output/scp-uart.log",
+            "-C", "css.scp.pl011_uart_scp.unbuffered_output=1",
+            "-C", "css.scp.pl011_uart_scp.uart_enable=true",
+            "-C", "css.mcp.pl011_uart_mcp.out_file=/output/mcp-uart.log",
+            "-C", "css.mcp.pl011_uart_mcp.unbuffered_output=1",
+            "-C", "css.gic_distributor.ITS-device-bits=20",
+            "-C", "soc.pl330_dma.p_controller_nsecure=1",
+            "-C", "soc.pl330_dma.p_irq_nsecure=0xffffffff",
+            "-C", "pcie_group_0.pciex16.hierarchy_file_name=<default>",
+            "-C", f"pcie_group_1.pciex16.hierarchy_file_name={pcie2}",
+            "-C", f"pcie_group_2.pciex16.hierarchy_file_name={pcie3}",
+            "-C", f"pcie_group_3.pciex16.hierarchy_file_name={pcie4}",
+            "-C", "pcie_group_0.pciex16.pcie_rc.ahci0.endpoint.ats_supported=true",
+            "-C", "css.tzc0.tzc400.rst_gate_keeper=0x0f",
+            "-C", "css.tzc0.tzc400.rst_region_attributes_0=0xc000000f",
+            "-C", "css.tzc0.tzc400.rst_region_id_access_0=0xffffffff",
+            "-C", "css.tzc1.tzc400.rst_gate_keeper=0x0f",
+            "-C", "css.tzc1.tzc400.rst_region_attributes_0=0xc000000f",
+            "-C", "css.tzc1.tzc400.rst_region_id_access_0=0xffffffff",
+            "-C", "css.tzc2.tzc400.rst_gate_keeper=0x0f",
+            "-C", "css.tzc2.tzc400.rst_region_attributes_0=0xc000000f",
+            "-C", "css.tzc2.tzc400.rst_region_id_access_0=0xffffffff",
+            "-C", "css.tzc3.tzc400.rst_gate_keeper=0x0f",
+            "-C", "css.tzc3.tzc400.rst_region_attributes_0=0xc000000f",
+            "-C", "css.tzc3.tzc400.rst_region_id_access_0=0xffffffff",
+            "-C", "css.tzc4.tzc400.rst_gate_keeper=0x0f",
+            "-C", "css.tzc4.tzc400.rst_region_attributes_0=0xc000000f",
+            "-C", "css.tzc4.tzc400.rst_region_id_access_0=0xffffffff",
+            "-C", "css.tzc5.tzc400.rst_gate_keeper=0x0f",
+            "-C", "css.tzc5.tzc400.rst_region_attributes_0=0xc000000f",
+            "-C", "css.tzc5.tzc400.rst_region_id_access_0=0xffffffff",
+            "-C", "css.tzc6.tzc400.rst_gate_keeper=0x0f",
+            "-C", "css.tzc6.tzc400.rst_region_attributes_0=0xc000000f",
+            "-C", "css.tzc6.tzc400.rst_region_id_access_0=0xffffffff",
+            "-C", "css.tzc7.tzc400.rst_gate_keeper=0x0f",
+            "-C", "css.tzc7.tzc400.rst_region_attributes_0=0xc000000f",
+            "-C", "css.tzc7.tzc400.rst_region_id_access_0=0xffffffff",
+        ]
+    if platform != "fvp-revc":
+        raise RuntimeError(f"unsupported platform {platform}")
     command = [
         "FVP_Base_RevC-2xAEMvA",
         "-C", f"bp.secureflashloader.fname={images.bl1}",
@@ -179,7 +270,7 @@ def fvp_command(images: build.FirmwareImages, target: str) -> list[str]:
             "-C", "pci.pci_smmuv3.mmu.SMMU_S_IDR1=2684354562",
             "-C", "pci.pci_smmuv3.mmu.SMMU_ROOT_IDR0=8388623",
             "-C", "pci.pci_smmuv3.mmu.SMMU_ROOT_IIDR=1083",
-            "-C", "pci.pci_smmuv3.mmu.SMMU_R_IDR0=16851968",
+            "-C", "pci.pci_smmuv3.mmu.SMMU_R_IDR0=16851970",
             "-C", "pci.pci_smmuv3.mmu.root_register_page_offset=131072",
             "-C", "bp.has_rme=1",
             "-C", "bp.secure_memory=0",
@@ -268,8 +359,8 @@ def copy_stream(stream, destination: Path, messages: queue.Queue[tuple[str, str]
     stream.close()
 
 
-def run_fvp(images: build.FirmwareImages, target: str) -> None:
-    command = fvp_command(images, target)
+def run_fvp(images: build.FirmwareImages, platform: str, target: str) -> None:
+    command = fvp_command(images, platform, target)
     print("VMSA-INFRA FVP_START", flush=True)
     process = subprocess.Popen(
         command,
@@ -319,7 +410,7 @@ def run_fvp(images: build.FirmwareImages, target: str) -> None:
             sys.stdout.flush()
         if (
             source == "uart.log"
-            and line.startswith("Panic:")
+            and line.startswith(("Panic:", "PANIC "))
             and not saw_end
             and firmware_panic is None
         ):
@@ -372,15 +463,18 @@ def main() -> int:
     (OUTPUT / "firmware.log").write_bytes(b"")
     repositories: dict[str, Path] = {}
     try:
-        images = build.restore_cached_build(arguments.target, arguments.cache_key)
+        platform_provider.ensure(arguments.platform)
+        images = build.restore_cached_build(
+            arguments.platform, arguments.target, arguments.cache_key
+        )
         if images is None and arguments.require_cache:
             raise RuntimeError("required firmware cache entry is missing or invalid")
         if images is None:
             print("VMSA-INFRA PHASE prepare-start", flush=True)
-            repositories = prepare.prepare(arguments.target)
+            repositories = prepare.prepare(arguments.platform, arguments.target)
             print("VMSA-INFRA PHASE prepare-complete", flush=True)
             print("VMSA-INFRA PHASE build-start", flush=True)
-            images = build.build(arguments.target, repositories)
+            images = build.build(arguments.platform, arguments.target, repositories)
             print("VMSA-INFRA PHASE build-complete", flush=True)
             prepare.cleanup(repositories)
             repositories = {}
@@ -394,7 +488,7 @@ def main() -> int:
         else:
             try:
                 run_images = build.materialize_run_images(images, arguments.filter)
-                run_fvp(run_images, arguments.target)
+                run_fvp(run_images, arguments.platform, arguments.target)
             except (OSError, RuntimeError) as error:
                 print(f"FVP startup/runtime failure: {error}", file=sys.stderr, flush=True)
                 result = 21

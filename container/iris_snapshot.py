@@ -196,7 +196,7 @@ def main() -> int:
                 "-C",
                 "pci.pci_smmuv3.mmu.SMMU_ROOT_IIDR=1083",
                 "-C",
-                "pci.pci_smmuv3.mmu.SMMU_R_IDR0=16851968",
+                "pci.pci_smmuv3.mmu.SMMU_R_IDR0=16851970",
                 "-C",
                 "pci.pci_smmuv3.mmu.root_register_page_offset=131072",
                 "-C",

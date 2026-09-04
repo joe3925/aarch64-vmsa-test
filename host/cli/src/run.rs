@@ -3,14 +3,78 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::args::{Args, Command, Target};
+use crate::platform::Platform;
 use crate::podman;
 use crate::process;
 use crate::report::{self, TargetReport};
+
+struct PlatformConcurrency {
+    active: Mutex<std::collections::BTreeMap<Platform, usize>>,
+    changed: Condvar,
+}
+
+impl PlatformConcurrency {
+    fn new() -> Self {
+        Self {
+            active: Mutex::new(std::collections::BTreeMap::new()),
+            changed: Condvar::new(),
+        }
+    }
+
+    fn acquire(&self, platform: Platform) -> PlatformConcurrencyGuard<'_> {
+        let Some(limit) = platform.runtime_concurrency_limit() else {
+            return PlatformConcurrencyGuard {
+                gate: self,
+                platform: None,
+            };
+        };
+        let mut active = self
+            .active
+            .lock()
+            .expect("platform concurrency lock poisoned");
+        while active.get(&platform).copied().unwrap_or(0) >= limit {
+            active = self
+                .changed
+                .wait(active)
+                .expect("platform concurrency lock poisoned");
+        }
+        *active.entry(platform).or_insert(0) += 1;
+        PlatformConcurrencyGuard {
+            gate: self,
+            platform: Some(platform),
+        }
+    }
+}
+
+struct PlatformConcurrencyGuard<'a> {
+    gate: &'a PlatformConcurrency,
+    platform: Option<Platform>,
+}
+
+impl Drop for PlatformConcurrencyGuard<'_> {
+    fn drop(&mut self) {
+        let Some(platform) = self.platform else {
+            return;
+        };
+        let mut active = self
+            .gate
+            .active
+            .lock()
+            .expect("platform concurrency lock poisoned");
+        if let Some(count) = active.get_mut(&platform) {
+            *count -= 1;
+            if *count == 0 {
+                active.remove(&platform);
+            }
+        }
+        self.gate.changed.notify_all();
+    }
+}
 
 struct SuiteProgress {
     target: Target,
@@ -224,7 +288,7 @@ fn doctor(repository: &Path, crate_path: &Path) -> ExitCode {
         podman::ensure_cache_volume().map_err(|error| error.to_string())?;
         ensure_output_writable(repository)?;
         podman::validate_mounts(repository, crate_path).map_err(|error| error.to_string())?;
-        podman::validate_fvp().map_err(|error| error.to_string())?;
+        podman::validate_fvp(repository).map_err(|error| error.to_string())?;
         podman::validate_termination().map_err(|error| error.to_string())?;
         process::validate_lifecycle(&repository.join("output"))?;
         Ok::<(), String>(())
@@ -285,6 +349,7 @@ fn run_targets(
     }
     #[derive(Clone)]
     struct PlannedRun {
+        platform: Platform,
         target: Target,
         filter: Option<String>,
         expects_termination: bool,
@@ -317,6 +382,7 @@ fn run_targets(
         }
         for plan in plans {
             planned.push(PlannedRun {
+                platform: plan.platform,
                 target,
                 filter: plan.filter,
                 expects_termination: plan.expects_termination,
@@ -339,16 +405,21 @@ fn run_targets(
         return final_code;
     }
 
-    let build_targets = targets
+    let build_targets = planned
         .iter()
-        .copied()
-        .filter(|target| planned.iter().any(|run| run.target == *target))
+        .map(|run| (run.platform, run.target))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
         .collect::<Vec<_>>();
     let build_target_names = build_targets
         .iter()
-        .map(|target| target.as_str())
+        .map(|(platform, target)| format!("{}/{}", platform.as_str(), target.as_str()))
         .collect::<Vec<_>>();
-    process::begin_preparation_progress(&build_target_names);
+    let build_target_name_refs = build_target_names
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    process::begin_preparation_progress(&build_target_name_refs);
     let build_worker_count = build_concurrency.min(build_targets.len()).max(1);
     let next_build = AtomicUsize::new(0);
     let build_results = Mutex::new(
@@ -361,10 +432,10 @@ fn run_targets(
             scope.spawn(|| {
                 loop {
                     let index = next_build.fetch_add(1, Ordering::Relaxed);
-                    let Some(&target) = build_targets.get(index) else {
+                    let Some(&(platform, target)) = build_targets.get(index) else {
                         break;
                     };
-                    let result = prepare_target(repository, crate_path, target);
+                    let result = prepare_target(repository, crate_path, platform, target);
                     build_results
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())[index] = Some(result);
@@ -376,9 +447,9 @@ fn run_targets(
         .into_inner()
         .unwrap_or_else(|error| error.into_inner());
     let mut firmware_cache_keys = Vec::with_capacity(build_targets.len());
-    for (&target, result) in build_targets.iter().zip(build_results) {
+    for (&(platform, target), result) in build_targets.iter().zip(build_results) {
         match result.expect("each firmware build must produce a result") {
-            Ok(key) => firmware_cache_keys.push((target, key)),
+            Ok(key) => firmware_cache_keys.push((platform, target, key)),
             Err((error, directory)) => {
                 eprintln!("preparation artifacts retained at {}", directory.display());
                 let (outcome, code, detail) = classify_failure(error);
@@ -392,13 +463,20 @@ fn run_targets(
         return final_code;
     }
 
-    let fvp_version = match podman::fvp_version() {
-        Ok(version) => version,
-        Err(error) => {
-            eprintln!("vmsa-test: {error}");
-            return ExitCode::StartupFailed;
+    let mut fvp_versions = Vec::new();
+    for platform in planned
+        .iter()
+        .map(|run| run.platform)
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        match podman::platform_version(repository, platform) {
+            Ok(version) => fvp_versions.push((platform, version)),
+            Err(error) => {
+                eprintln!("vmsa-test: {error}");
+                return ExitCode::StartupFailed;
+            }
         }
-    };
+    }
 
     let worker_count = max_concurrency.min(planned.len()).max(1);
     eprintln!(
@@ -423,6 +501,7 @@ fn run_targets(
     };
     dashboard.announce();
     let next = AtomicUsize::new(0);
+    let platform_concurrency = PlatformConcurrency::new();
     let completed = Mutex::new(
         std::iter::repeat_with(|| None)
             .take(planned.len())
@@ -436,6 +515,7 @@ fn run_targets(
                     let Some(run) = planned.get(index) else {
                         break;
                     };
+                    let _platform_slot = platform_concurrency.acquire(run.platform);
                     let result = if crate::cancellation::requested() {
                         (
                             failure_report(
@@ -448,17 +528,27 @@ fn run_targets(
                     } else {
                         let firmware_cache_key = firmware_cache_keys
                             .iter()
-                            .find_map(|(target, key)| (*target == run.target).then_some(key.as_str()))
-                            .expect("every planned target must have a firmware cache key");
+                            .find_map(|(platform, target, key)| {
+                                (*platform == run.platform && *target == run.target)
+                                    .then_some(key.as_str())
+                            })
+                            .expect("every planned platform target must have a firmware cache key");
+                        let fvp_version = fvp_versions
+                            .iter()
+                            .find_map(|(platform, version)| {
+                                (*platform == run.platform).then_some(version.as_str())
+                            })
+                            .expect("every planned platform must have a version");
                         run_target(
                             repository,
                             crate_path,
+                            run.platform,
                             run.target,
                             run.filter.as_deref(),
                             run.expects_termination,
                             keep,
                             Some(dashboard.as_ref()),
-                            &fvp_version,
+                            fvp_version,
                             firmware_cache_key,
                             worker_count,
                         )
@@ -481,9 +571,10 @@ fn run_targets(
 fn prepare_target(
     repository: &Path,
     crate_path: &Path,
+    platform: Platform,
     target: Target,
 ) -> Result<String, (process::Failure, PathBuf)> {
-    let run_id = format!("prepare-{}", run_id(target));
+    let run_id = format!("prepare-{}", run_id(platform, target));
     let directory = repository.join("output/runs").join(&run_id);
     create_artifacts(&directory)
         .map_err(process::Failure::Io)
@@ -494,14 +585,16 @@ fn prepare_target(
         repository,
         crate_path,
         &directory,
+        platform.as_str(),
         target.as_str(),
     );
+    let progress_target = format!("{}/{}", platform.as_str(), target.as_str());
     let result = process::prepare(
         command,
         &container_name,
         &directory,
         process::PreparationProgress {
-            target: target.as_str(),
+            target: &progress_target,
         },
     );
     if result.is_ok() {
@@ -518,6 +611,7 @@ fn prepare_target(
 fn run_target(
     repository: &Path,
     crate_path: &Path,
+    platform: Platform,
     target: Target,
     filter: Option<&str>,
     expects_termination: bool,
@@ -527,7 +621,7 @@ fn run_target(
     firmware_cache_key: &str,
     parallelism: usize,
 ) -> (TargetReport, ExitCode) {
-    let run_id = run_id(target);
+    let run_id = run_id(platform, target);
     let directory = repository.join("output/runs").join(&run_id);
     if let Err(error) = create_artifacts(&directory) {
         return (
@@ -539,6 +633,7 @@ fn run_target(
         &directory,
         repository,
         crate_path,
+        platform,
         target,
         filter,
         fvp_version,
@@ -561,7 +656,8 @@ fn run_target(
     if let Err(error) = log(
         &mut host_log,
         &format!(
-            "run={run_id} target={} crate={} expects_termination={expects_termination}",
+            "run={run_id} platform={} target={} crate={} expects_termination={expects_termination}",
+            platform.as_str(),
             target.as_str(),
             crate_path.display()
         ),
@@ -581,6 +677,7 @@ fn run_target(
         repository,
         crate_path,
         &directory,
+        platform.as_str(),
         target.as_str(),
         filter,
         firmware_cache_key,
@@ -603,6 +700,7 @@ fn run_target(
                 .take()
                 .expect("each Podman launch attempt must have a command"),
             &container_name,
+            platform.as_str(),
             target.as_str(),
             &directory,
             observer.is_none(),
@@ -625,6 +723,7 @@ fn run_target(
             repository,
             crate_path,
             &directory,
+            platform.as_str(),
             target.as_str(),
             filter,
             firmware_cache_key,
@@ -836,6 +935,7 @@ fn write_provenance(
     directory: &Path,
     repository: &Path,
     crate_path: &Path,
+    platform: Platform,
     target: Target,
     filter: Option<&str>,
     fvp_version: &str,
@@ -853,10 +953,13 @@ fn write_provenance(
          vmsa_content_fingerprint=fnv1a64:{}\n\
          container_image={}\n\
          tf_a_revision={}\n\
+         rd_tf_a_revision={}\n\
+         scp_revision={}\n\
          tf_a_tests_revision={}\n\
          hafnium_revision={}\n\
          tf_rmm_revision={}\n\
          fvp_version={}\n\
+         platform={}\n\
          host_os={}\n\
          host_arch={}\n\
          boot_profile={}\n\
@@ -870,10 +973,13 @@ fn write_provenance(
         vmsa_fingerprint,
         crate::settings::CONTAINER_IMAGE,
         crate::settings::TF_A_REVISION,
+        crate::settings::RD_TF_A_REVISION,
+        crate::settings::SCP_REVISION,
         crate::settings::TF_A_TESTS_REVISION,
         crate::settings::HAFNIUM_REVISION,
         crate::settings::TF_RMM_REVISION,
         fvp_version,
+        platform.as_str(),
         std::env::consts::OS,
         std::env::consts::ARCH,
         target.as_str(),
@@ -1030,14 +1136,15 @@ fn append_reported_capabilities(directory: &Path) -> Result<(), String> {
     append_provenance(directory, &capabilities)
 }
 
-fn run_id(target: Target) -> String {
+fn run_id(platform: Platform, target: Target) -> String {
     static SEQUENCE: AtomicUsize = AtomicUsize::new(0);
     let micros = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |value| value.as_micros());
     let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
     format!(
-        "{}-{micros:020}-{}-{sequence:06}",
+        "{}-{}-{micros:020}-{}-{sequence:06}",
+        platform.as_str(),
         target.as_str(),
         std::process::id()
     )

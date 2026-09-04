@@ -43,9 +43,6 @@ mod pas;
 #[path = "../../common/runtime_support.rs"]
 #[allow(dead_code)]
 mod runtime_support;
-#[path = "../../common/smmu.rs"]
-#[allow(dead_code)]
-mod smmu;
 #[path = "../../common/semantic_d128.rs"]
 mod semantic_d128;
 #[path = "../../common/semantic_extended.rs"]
@@ -54,6 +51,9 @@ mod semantic_extended;
 mod semantic_host;
 #[path = "../../common/semantic_normal.rs"]
 mod semantic_normal;
+#[path = "../../common/smmu.rs"]
+#[allow(dead_code)]
+mod smmu;
 #[path = "../../common/stage2_leaf_matrix.rs"]
 mod stage2_leaf_matrix;
 use common::{BootContext, REGIME_REALM, define_environment, outcome_code};
@@ -209,10 +209,11 @@ fn live_break_before_make(context: &mut TestContext<'_, CurrentEnvironment>) -> 
 fn translation_cycle(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     invalidation::stage1_translation_cycle(c, vmsa_test_harness::RegimeAttributes::Realm)
 }
-fn smmu_v3_live_realm_stage2(
-    context: &mut TestContext<'_, CurrentEnvironment>,
-) -> TestResult {
+fn smmu_v3_live_realm_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     smmu::smmu_v3_live_realm_stage2(context)
+}
+fn smmu_v3_live_realm_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_realm_stage1(context)
 }
 macro_rules! dispatch_handler {
     ($context:ident, (none)) => {

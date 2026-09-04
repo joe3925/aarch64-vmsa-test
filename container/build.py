@@ -45,6 +45,10 @@ ROOT_PAYLOAD_DATA_LIMIT_VIRTUAL = ROOT_PAYLOAD_DATA_VIRTUAL + ROOT_PAYLOAD_DATA_
 class FirmwareImages:
     bl1: Path
     fip: Path
+    scp_rom: Path | None = None
+    scp_ram: Path | None = None
+    mcp_rom: Path | None = None
+    mcp_ram: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -66,15 +70,19 @@ def _hash_tree(digest: "hashlib._Hash", root: Path, excluded: set[str]) -> None:
                 digest.update(chunk)
 
 
-def firmware_cache_key(target: str) -> str:
+def firmware_cache_key(platform: str, target: str) -> str:
     digest = hashlib.sha256()
+    digest.update(platform.encode("utf-8"))
+    digest.update(b"\0")
     digest.update(target.encode("utf-8"))
     digest.update(b"\0")
     for revision in (
         prepare.TF_A_REVISION,
+        prepare.RD_TF_A_REVISION,
         prepare.TF_A_TESTS_REVISION,
         prepare.HAFNIUM_REVISION,
         prepare.TF_RMM_REVISION,
+        prepare.SCP_REVISION,
         RUST_TOOLCHAIN,
         TARGET_TRIPLE,
     ):
@@ -89,9 +97,11 @@ def firmware_cache_key(target: str) -> str:
     return digest.hexdigest()
 
 
-def restore_cached_build(target: str, expected_key: str | None = None) -> FirmwareImages | None:
-    key = expected_key if expected_key is not None else firmware_cache_key(target)
-    cached = FIRMWARE_CACHE / f"{target}-{key}"
+def restore_cached_build(
+    platform: str, target: str, expected_key: str | None = None
+) -> FirmwareImages | None:
+    key = expected_key if expected_key is not None else firmware_cache_key(platform, target)
+    cached = FIRMWARE_CACHE / f"{platform}-{target}-{key}"
     bl1 = cached / "bl1.bin"
     fip = cached / "fip.bin"
     if not bl1.is_file() or not fip.is_file() or bl1.stat().st_size == 0 or fip.stat().st_size == 0:
@@ -108,14 +118,24 @@ def restore_cached_build(target: str, expected_key: str | None = None) -> Firmwa
     os.utime(cached)
     print(f"VMSA-INFRA PHASE firmware-cache-hit key={key[:16]}", flush=True)
     print(f"VMSA-INFRA FIRMWARE_CACHE_KEY key={key}", flush=True)
-    return FirmwareImages(artifacts / "bl1.bin", artifacts / "fip.bin")
+    optional = {
+        name: (artifacts / f"{name}.bin") if (artifacts / f"{name}.bin").is_file() else None
+        for name in ("scp_rom", "scp_ram", "mcp_rom", "mcp_ram")
+    }
+    if platform == "fvp-rdn2" and any(value is None for value in optional.values()):
+        shutil.rmtree(cached)
+        return None
+    return FirmwareImages(
+        artifacts / "bl1.bin", artifacts / "fip.bin",
+        optional["scp_rom"], optional["scp_ram"], optional["mcp_rom"], optional["mcp_ram"],
+    )
 
 
-def cache_build(target: str, images: FirmwareImages) -> str:
-    key = firmware_cache_key(target)
+def cache_build(platform: str, target: str, images: FirmwareImages) -> str:
+    key = firmware_cache_key(platform, target)
     FIRMWARE_CACHE.mkdir(parents=True, exist_ok=True)
-    destination = FIRMWARE_CACHE / f"{target}-{key}"
-    temporary = FIRMWARE_CACHE / f".{target}-{key}-{os.getpid()}"
+    destination = FIRMWARE_CACHE / f"{platform}-{target}-{key}"
+    temporary = FIRMWARE_CACHE / f".{platform}-{target}-{key}-{os.getpid()}"
     if temporary.exists():
         shutil.rmtree(temporary)
     shutil.copytree(OUTPUT / "artifacts", temporary)
@@ -124,7 +144,7 @@ def cache_build(target: str, images: FirmwareImages) -> str:
     else:
         temporary.rename(destination)
     entries = sorted(
-        FIRMWARE_CACHE.glob(f"{target}-*"),
+        FIRMWARE_CACHE.glob(f"{platform}-{target}-*"),
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
@@ -249,7 +269,18 @@ def ensure_rust(log: Path) -> None:
             raise RuntimeError("pinned Rust installation did not provide cargo")
 
 
-def build_rust(package: str, log: Path) -> Path:
+def build_rust(package: str, platform: str, log: Path) -> Path:
+    environment = rust_environment()
+    # Environment RUSTFLAGS overrides target/.cargo/config.toml rather than
+    # extending it, so preserve the target's mandatory PIE and BTI contract.
+    rustflags = [
+        "-C", "relocation-model=pic",
+        "-Z", "branch-protection=bti",
+        "--check-cfg=cfg(vmsa_platform_fvp_rdn2)",
+    ]
+    if platform == "fvp-rdn2":
+        rustflags.append("--cfg=vmsa_platform_fvp_rdn2")
+    environment["RUSTFLAGS"] = " ".join(rustflags)
     checked(
         [
             "/cache/cargo/bin/cargo", f"+{RUST_TOOLCHAIN}", "build",
@@ -257,7 +288,7 @@ def build_rust(package: str, log: Path) -> Path:
         ],
         TARGET_WORKSPACE,
         log,
-        rust_environment(),
+        environment,
     )
     archive = TARGET_WORKSPACE / "target" / TARGET_TRIPLE / "release" / f"lib{package.replace('-', '_')}.a"
     if not archive.is_file():
@@ -331,7 +362,15 @@ def materialize_run_images(images: FirmwareImages, filter_value: str | None) -> 
     shutil.copy2(images.bl1, bl1)
     shutil.copy2(images.fip, fip)
     patch_runtime_filter(fip, filter_value)
-    return FirmwareImages(bl1, fip)
+    optional: list[Path | None] = []
+    for source in (images.scp_rom, images.scp_ram, images.mcp_rom, images.mcp_ram):
+        if source is None:
+            optional.append(None)
+        else:
+            destination = run_artifacts / source.name
+            shutil.copy2(source, destination)
+            optional.append(destination)
+    return FirmwareImages(bl1, fip, *optional)
 
 
 def patch_runtime_filter(fip: Path, filter_value: str | None) -> None:
@@ -636,13 +675,17 @@ def build_tftf(
     test_suite: str | None = None,
     build_realm_payload: bool = False,
     realm_payload_archive: Path | None = None,
+    platform: str = "fvp-revc",
 ) -> Path:
     write_filter_header(worktree)
     command = [
-        "make", "-j", str(os.cpu_count() or 1), "PLAT=fvp", "DEBUG=1",
+        "make", "-j", str(os.cpu_count() or 1),
+        f"PLAT={'rdn2' if platform == 'fvp-rdn2' else 'fvp'}", "DEBUG=1",
         "CROSS_COMPILE=aarch64-none-elf-",
         f"TESTS={test_suite or ('vmsa' if test_archive else 'psci')}",
     ]
+    if platform == "fvp-rdn2":
+        command.append("NRD_PLATFORM_VARIANT=0")
     if test_archive:
         command.append(f"VMSA_TEST_LIB={test_archive}")
     if build_realm_payload:
@@ -650,7 +693,8 @@ def build_tftf(
     if realm_payload_archive:
         command.append(f"VMSA_REALM_LIB={realm_payload_archive}")
     checked(command, worktree, log)
-    image = worktree / "build" / "fvp" / "debug" / "tftf.bin"
+    firmware_platform = "rdn2" if platform == "fvp-rdn2" else "fvp"
+    image = worktree / "build" / firmware_platform / "debug" / "tftf.bin"
     require_file(image)
     artifacts = OUTPUT / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -667,46 +711,98 @@ def build_tf_a(
     extra: list[str],
     *,
     debug: bool = True,
+    platform: str = "fvp-revc",
 ) -> FirmwareImages:
     build_name = "debug" if debug else "release"
     command = [
-        "make", "-j", str(os.cpu_count() or 1), "PLAT=fvp",
+        "make", "-j", str(os.cpu_count() or 1),
+        f"PLAT={'rdn2' if platform == 'fvp-rdn2' else 'fvp'}",
         f"DEBUG={int(debug)}",
         "CROSS_COMPILE=aarch64-none-elf-", "ENABLE_ASSERTIONS=1", *extra, "all", "fip",
     ]
+    if platform == "fvp-rdn2":
+        command.insert(-2, "NRD_PLATFORM_VARIANT=0")
     checked(command, worktree, log)
-    directory = worktree / "build" / "fvp" / build_name
+    firmware_platform = "rdn2" if platform == "fvp-rdn2" else "fvp"
+    directory = worktree / "build" / firmware_platform / build_name
     images = FirmwareImages(directory / "bl1.bin", directory / "fip.bin")
     require_file(images.bl1)
     require_file(images.fip)
     return images
 
 
-def build_ns_el2(repositories: dict[str, Path], log: Path) -> FirmwareImages:
-    emit_build_step(1, 4, "rust-payload")
-    payload = build_rust("vmsa-test-ns-el2", log)
-    emit_build_step(2, 4, "tf-a-tests")
-    tftf = build_tftf(repositories["tf-a-tests"], payload, log)
-    emit_build_step(3, 4, "tf-a-firmware")
-    images = build_tf_a(
-        repositories["tf-a"],
-        log,
-        [
-            "ARM_ARCH_MAJOR=9",
-            "ARM_ARCH_MINOR=4",
-            "ENABLE_FEAT_D128=2",
-            "ENABLE_FEAT_AIE=1",
-            "CTX_INCLUDE_AARCH32_REGS=0",
-            f"BL33={tftf}",
-        ],
-    )
-    emit_build_step(4, 4, "package-cache")
+def build_scp(worktree: Path, log: Path) -> dict[str, Path]:
+    compiler = shutil.which("arm-none-eabi-gcc")
+    if compiler is None:
+        raise RuntimeError("container image does not provide arm-none-eabi-gcc")
+    firmware = {
+        "scp_rom": ("scp_romfw", "rdn2-bl1.bin"),
+        "scp_ram": ("scp_ramfw", "rdn2-bl2.bin"),
+        "mcp_rom": ("mcp_romfw", "rdn2-mcp-bl1.bin"),
+        "mcp_ram": ("mcp_ramfw", "rdn2-mcp-bl2.bin"),
+    }
+    images: dict[str, Path] = {}
+    for name, (source, filename) in firmware.items():
+        directory = worktree / "cmake-build" / "rdn2" / source
+        checked(
+            [
+                "cmake", "-S", str(worktree), "-B", str(directory), "-G", "Ninja",
+                "-DSCP_TOOLCHAIN:STRING=GNU",
+                "-DCMAKE_BUILD_TYPE=Debug",
+                f"-DSCP_FIRMWARE_SOURCE_DIR:PATH=neoverse-rd/rdn2/{source}",
+                f"-DCMAKE_C_COMPILER={compiler}",
+                f"-DCMAKE_ASM_COMPILER={compiler}",
+                "-DPLAT_RESET_TO_BL31=0",
+                "-DSCP_PLATFORM_VARIANT=0",
+            ],
+            worktree,
+            log,
+        )
+        checked(["cmake", "--build", str(directory), "--parallel", str(os.cpu_count() or 1)], worktree, log)
+        matches = list(directory.rglob(filename))
+        if len(matches) != 1:
+            raise RuntimeError(f"expected one SCP firmware image {filename}, found {matches}")
+        images[name] = matches[0]
     return images
 
 
-def build_root_el3(repositories: dict[str, Path], log: Path) -> FirmwareImages:
+def build_ns_el2(platform: str, repositories: dict[str, Path], log: Path) -> FirmwareImages:
+    total = 5 if platform == "fvp-rdn2" else 4
+    emit_build_step(1, total, "rust-payload")
+    payload = build_rust("vmsa-test-ns-el2", platform, log)
+    scp_images = None
+    if platform == "fvp-rdn2":
+        emit_build_step(2, total, "scp-firmware")
+        scp_images = build_scp(repositories["scp"], log)
+    emit_build_step(3 if scp_images else 2, total, "tf-a-tests")
+    tftf = build_tftf(repositories["tf-a-tests"], payload, log, platform=platform)
+    emit_build_step(4 if scp_images else 3, total, "tf-a-firmware")
+    extra = [
+        "CTX_INCLUDE_AARCH32_REGS=0",
+        f"BL33={tftf}",
+    ]
+    if scp_images is None:
+        extra[:0] = [
+            "ARM_ARCH_MAJOR=9", "ARM_ARCH_MINOR=4", "ENABLE_FEAT_D128=2", "ENABLE_FEAT_AIE=1",
+        ]
+    else:
+        extra[:0] = ["ARM_BL31_IN_DRAM=1", "PLAT_RO_XLAT_TABLES=1"]
+        extra.append(f"SCP_BL2={scp_images['scp_ram']}")
+    images = build_tf_a(
+        repositories["tf-a"],
+        log,
+        extra,
+        platform=platform,
+    )
+    if scp_images is not None:
+        images = FirmwareImages(images.bl1, images.fip, **scp_images)
+    emit_build_step(total, total, "package-cache")
+    return images
+
+
+def build_root_el3(platform: str, repositories: dict[str, Path], log: Path) -> FirmwareImages:
     emit_build_step(1, 4, "rust-payload")
-    payload_archive = build_rust("vmsa-test-root-el3", log)
+    payload_archive = build_rust("vmsa-test-root-el3", platform, log)
     emit_build_step(2, 4, "root-bridge")
     payload, bridge, payload_layout = build_root_payload(payload_archive, log)
     write_filter_header(repositories["tf-a"])
@@ -734,9 +830,9 @@ def build_root_el3(repositories: dict[str, Path], log: Path) -> FirmwareImages:
     return images
 
 
-def build_realm_el2(repositories: dict[str, Path], log: Path) -> FirmwareImages:
+def build_realm_el2(platform: str, repositories: dict[str, Path], log: Path) -> FirmwareImages:
     emit_build_step(1, 4, "rust-payload")
-    payload = build_rust("vmsa-test-realm-el2", log)
+    payload = build_rust("vmsa-test-realm-el2", platform, log)
     emit_build_step(2, 4, "tf-a-tests")
     tftf = build_tftf(repositories["tf-a-tests"], None, log)
     write_filter_header(repositories["tf-a"])
@@ -964,9 +1060,9 @@ def stage_secure_partitions(tf_a_tests: Path, tftf: Path) -> Path:
     return staging / layout.name
 
 
-def build_secure_el2(repositories: dict[str, Path], log: Path) -> FirmwareImages:
+def build_secure_el2(platform: str, repositories: dict[str, Path], log: Path) -> FirmwareImages:
     emit_build_step(1, 5, "rust-payload")
-    payload = build_rust("vmsa-test-secure-el2", log)
+    payload = build_rust("vmsa-test-secure-el2", platform, log)
     write_filter_header(repositories["hafnium"])
     emit_build_step(2, 5, "hafnium")
     hafnium = build_hafnium(repositories["hafnium"], payload, log)
@@ -1012,9 +1108,9 @@ def build_tf_rmm(worktree: Path, log: Path) -> Path:
     return candidates[0]
 
 
-def build_realm_stage2(repositories: dict[str, Path], log: Path) -> FirmwareImages:
+def build_realm_stage2(platform: str, repositories: dict[str, Path], log: Path) -> FirmwareImages:
     emit_build_step(1, 5, "rust-payload")
-    payload = build_rust("vmsa-test-realm-stage2", log)
+    payload = build_rust("vmsa-test-realm-stage2", platform, log)
     emit_build_step(2, 5, "rmm")
     rmm = build_tf_rmm(repositories["tf-rmm"], log)
     emit_build_step(3, 5, "tf-a-tests")
@@ -1048,26 +1144,26 @@ def emit_build_step(index: int, total: int, name: str) -> None:
     print(f"VMSA-INFRA BUILD_STEP index={index} total={total} name={name}", flush=True)
 
 
-def build(target: str, repositories: dict[str, Path]) -> FirmwareImages:
+def build(platform: str, target: str, repositories: dict[str, Path]) -> FirmwareImages:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     log = OUTPUT / "firmware.log"
     prepare_target_workspace()
     ensure_rust(log)
     if target == "ns-el2":
-        images = build_ns_el2(repositories, log)
+        images = build_ns_el2(platform, repositories, log)
     elif target == "secure-el2":
-        images = build_secure_el2(repositories, log)
+        images = build_secure_el2(platform, repositories, log)
     elif target == "realm-el2":
-        images = build_realm_el2(repositories, log)
+        images = build_realm_el2(platform, repositories, log)
     elif target == "realm-stage2":
-        images = build_realm_stage2(repositories, log)
+        images = build_realm_stage2(platform, repositories, log)
     elif target == "root-el3":
-        images = build_root_el3(repositories, log)
+        images = build_root_el3(platform, repositories, log)
     else:
         raise ValueError(f"unsupported target {target}")
     preserved = preserve_artifacts(target, repositories, images)
     validate_runtime_selector(preserved.fip)
-    cache_build(target, preserved)
+    cache_build(platform, target, preserved)
     return preserved
 
 
@@ -1080,7 +1176,16 @@ def preserve_artifacts(
     artifacts.mkdir(parents=True, exist_ok=True)
     shutil.copy2(images.bl1, artifacts / "bl1.bin")
     shutil.copy2(images.fip, artifacts / "fip.bin")
-    tf_a_build = repositories["tf-a"] / "build" / "fvp" / "debug"
+    for name, source in (
+        ("scp_rom", images.scp_rom),
+        ("scp_ram", images.scp_ram),
+        ("mcp_rom", images.mcp_rom),
+        ("mcp_ram", images.mcp_ram),
+    ):
+        if source is not None:
+            shutil.copy2(source, artifacts / f"{name}.bin")
+    firmware_platform = "rdn2" if images.scp_rom is not None else "fvp"
+    tf_a_build = repositories["tf-a"] / "build" / firmware_platform / "debug"
     for relative in (
         Path("bl1/bl1.elf"),
         Path("bl1/bl1.map"),
@@ -1101,7 +1206,12 @@ def preserve_artifacts(
             if len(matches) != 1:
                 raise RuntimeError(f"expected one TF-RMM {name}, found {matches}")
             shutil.copy2(matches[0], artifacts / f"{target}-{name}")
-    return FirmwareImages(artifacts / "bl1.bin", artifacts / "fip.bin")
+    return FirmwareImages(
+        artifacts / "bl1.bin",
+        artifacts / "fip.bin",
+        *((artifacts / f"{name}.bin") if (artifacts / f"{name}.bin").is_file() else None
+          for name in ("scp_rom", "scp_ram", "mcp_rom", "mcp_ram")),
+    )
 
 
 def require_file(path: Path) -> None:

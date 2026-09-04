@@ -54,10 +54,13 @@ def c_fields(path: Path, tag: str) -> tuple[str, ...]:
         declaration = declaration.strip()
         if not declaration:
             continue
-        match = re.search(r"(\w+)(?:\[[^]]+\])?$", declaration)
-        if match is None:
-            raise ValueError(f"{path}: cannot parse C ABI field: {declaration!r}")
-        fields.append(match.group(1))
+        for declarator in declaration.split(","):
+            match = re.search(r"(\w+)(?:\[[^]]+\])?$", declarator.strip())
+            if match is None:
+                raise ValueError(
+                    f"{path}: cannot parse C ABI field: {declarator!r}"
+                )
+            fields.append(match.group(1))
     return tuple(fields)
 
 

@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use crate::podman;
 use crate::protocol::{Counts, Event, Parser};
 use crate::settings::{
-    BUILD_TIMEOUT, PREPARATION_TIMEOUT, REALM_STAGE2_STARTUP_TIMEOUT, STARTUP_TIMEOUT,
-    SUITE_TIMEOUT, TEST_TIMEOUT,
+    BUILD_TIMEOUT, PREPARATION_TIMEOUT, RD_N2_STARTUP_TIMEOUT, REALM_STAGE2_STARTUP_TIMEOUT,
+    STARTUP_TIMEOUT, SUITE_TIMEOUT, TEST_TIMEOUT,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -154,12 +154,14 @@ struct ExpectedRun<'a> {
 }
 
 impl SupervisorLimits {
-    fn production(expected_target: &str) -> Self {
+    fn production(expected_platform: &str, expected_target: &str) -> Self {
         Self {
             initial: BUILD_TIMEOUT,
             preparation: PREPARATION_TIMEOUT,
             build: BUILD_TIMEOUT,
-            startup: if expected_target == "realm-stage2" {
+            startup: if expected_platform == "fvp-rdn2" {
+                RD_N2_STARTUP_TIMEOUT
+            } else if expected_target == "realm-stage2" {
                 REALM_STAGE2_STARTUP_TIMEOUT
             } else {
                 STARTUP_TIMEOUT
@@ -170,8 +172,12 @@ impl SupervisorLimits {
         }
     }
 
-    fn production_for_parallelism(expected_target: &str, parallelism: usize) -> Self {
-        let mut limits = Self::production(expected_target);
+    fn production_for_parallelism(
+        expected_platform: &str,
+        expected_target: &str,
+        parallelism: usize,
+    ) -> Self {
+        let mut limits = Self::production(expected_platform, expected_target);
         // Several software FVPs share the same host CPUs. Preserve the strict
         // single-model watchdog while allowing proportional wall-clock
         // progress under intentional oversubscription.
@@ -197,6 +203,7 @@ impl SupervisorLimits {
 pub fn run(
     command: Command,
     container_name: &str,
+    expected_platform: &str,
     expected_target: &str,
     output_directory: &Path,
     stream_live: bool,
@@ -212,7 +219,11 @@ pub fn run(
         stream_live,
         expected_termination,
         observer,
-        SupervisorLimits::production_for_parallelism(expected_target, parallelism),
+        SupervisorLimits::production_for_parallelism(
+            expected_platform,
+            expected_target,
+            parallelism,
+        ),
     )
 }
 
@@ -273,79 +284,77 @@ pub fn prepare(
             ));
         }
         match receiver.recv_timeout(Duration::from_millis(250)) {
-            Ok(Ok(line)) => {
-                match line.text.as_str() {
-                    "VMSA-INFRA PHASE prepare-start" => {
-                        render_preparation(progress, 0, 1, "preparing sources", false, false);
-                        deadline = Instant::now() + PREPARATION_TIMEOUT;
-                    }
-                    "VMSA-INFRA PHASE prepare-complete" => {
-                        render_preparation(progress, 1, 1, "sources prepared", false, false);
-                    }
-                    "VMSA-INFRA PHASE build-start" => {
-                        render_preparation(progress, 0, 1, "initializing build", false, false);
-                        deadline = Instant::now() + BUILD_TIMEOUT;
-                    }
-                    "VMSA-INFRA PHASE build-complete" => {
-                        render_preparation(
-                            progress,
-                            detail_step,
-                            detail_total,
-                            "build steps complete",
-                            false,
-                            false,
-                        );
-                        deadline = Instant::now() + BUILD_TIMEOUT;
-                    }
-                    "VMSA-INFRA PHASE package-complete" => {
-                        detail_step = detail_total;
-                        render_preparation(
-                            progress,
-                            detail_step,
-                            detail_total,
-                            "firmware packaged",
-                            false,
-                            false,
-                        );
-                    }
-                    text if text.starts_with("VMSA-INFRA PHASE firmware-cache-hit ") => {
-                        detail_step = 1;
-                        detail_total = 1;
-                        render_preparation(progress, 1, 1, "firmware cache hit", false, false);
-                    }
-                    text if text.starts_with("VMSA-INFRA FIRMWARE_CACHE_KEY ") => {
-                        if let Some(key) = parse_firmware_cache_key(text) {
-                            firmware_cache_key = Some(key.to_owned());
-                        } else {
-                            break Err(terminate_then(
-                                &mut child,
-                                container_name,
-                                Failure::Malformed(
-                                    "firmware preparation emitted an invalid cache key".into(),
-                                ),
-                            ));
-                        }
-                    }
-                    text if text.starts_with("VMSA-INFRA BUILD_STEP ") => {
-                        if let Some((index, total, name)) = parse_build_step(text) {
-                            detail_step = index - 1;
-                            detail_total = total;
-                            render_preparation(
-                                progress,
-                                detail_step,
-                                detail_total,
-                                &format!("building {}", name.replace('-', " ")),
-                                false,
-                                false,
-                            );
-                        } else {
-                            stream_terminal(&line);
-                        }
-                    }
-                    _ if !crate::terminal::stderr_is_terminal() => stream_terminal(&line),
-                    _ => {}
+            Ok(Ok(line)) => match line.text.as_str() {
+                "VMSA-INFRA PHASE prepare-start" => {
+                    render_preparation(progress, 0, 1, "preparing sources", false, false);
+                    deadline = Instant::now() + PREPARATION_TIMEOUT;
                 }
-            }
+                "VMSA-INFRA PHASE prepare-complete" => {
+                    render_preparation(progress, 1, 1, "sources prepared", false, false);
+                }
+                "VMSA-INFRA PHASE build-start" => {
+                    render_preparation(progress, 0, 1, "initializing build", false, false);
+                    deadline = Instant::now() + BUILD_TIMEOUT;
+                }
+                "VMSA-INFRA PHASE build-complete" => {
+                    render_preparation(
+                        progress,
+                        detail_step,
+                        detail_total,
+                        "build steps complete",
+                        false,
+                        false,
+                    );
+                    deadline = Instant::now() + BUILD_TIMEOUT;
+                }
+                "VMSA-INFRA PHASE package-complete" => {
+                    detail_step = detail_total;
+                    render_preparation(
+                        progress,
+                        detail_step,
+                        detail_total,
+                        "firmware packaged",
+                        false,
+                        false,
+                    );
+                }
+                text if text.starts_with("VMSA-INFRA PHASE firmware-cache-hit ") => {
+                    detail_step = 1;
+                    detail_total = 1;
+                    render_preparation(progress, 1, 1, "firmware cache hit", false, false);
+                }
+                text if text.starts_with("VMSA-INFRA FIRMWARE_CACHE_KEY ") => {
+                    if let Some(key) = parse_firmware_cache_key(text) {
+                        firmware_cache_key = Some(key.to_owned());
+                    } else {
+                        break Err(terminate_then(
+                            &mut child,
+                            container_name,
+                            Failure::Malformed(
+                                "firmware preparation emitted an invalid cache key".into(),
+                            ),
+                        ));
+                    }
+                }
+                text if text.starts_with("VMSA-INFRA BUILD_STEP ") => {
+                    if let Some((index, total, name)) = parse_build_step(text) {
+                        detail_step = index - 1;
+                        detail_total = total;
+                        render_preparation(
+                            progress,
+                            detail_step,
+                            detail_total,
+                            &format!("building {}", name.replace('-', " ")),
+                            false,
+                            false,
+                        );
+                    } else {
+                        stream_terminal(&line);
+                    }
+                }
+                _ if !crate::terminal::stderr_is_terminal() => stream_terminal(&line),
+                _ => {}
+            },
             Ok(Err(error)) => {
                 break Err(terminate_then(
                     &mut child,
@@ -482,8 +491,11 @@ fn parse_build_step(text: &str) -> Option<(usize, usize, &str)> {
 
 fn parse_firmware_cache_key(text: &str) -> Option<&str> {
     let key = text.strip_prefix("VMSA-INFRA FIRMWARE_CACHE_KEY key=")?;
-    (key.len() == 64 && key.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
-        .then_some(key)
+    (key.len() == 64
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
+    .then_some(key)
 }
 
 fn progress_bar(done: usize, total: usize, width: usize, color: bool) -> String {
@@ -1182,7 +1194,7 @@ fn run_lifecycle_case_inner(
         if expected_termination.is_some() {
             SupervisorLimits::doctor()
         } else {
-            SupervisorLimits::production("host-self-check")
+            SupervisorLimits::production("fvp-revc", "host-self-check")
         },
     )
 }
@@ -1476,6 +1488,9 @@ mod tests {
             parse_firmware_cache_key(&format!("VMSA-INFRA FIRMWARE_CACHE_KEY key={key}")),
             Some(key)
         );
-        assert_eq!(parse_firmware_cache_key("VMSA-INFRA FIRMWARE_CACHE_KEY key=abc"), None);
+        assert_eq!(
+            parse_firmware_cache_key("VMSA-INFRA FIRMWARE_CACHE_KEY key=abc"),
+            None
+        );
     }
 }

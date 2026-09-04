@@ -50,11 +50,11 @@ mod semantic_extended;
 mod semantic_host;
 #[path = "../../common/semantic_normal.rs"]
 mod semantic_normal;
-#[path = "../../common/stage2_leaf_matrix.rs"]
-mod stage2_leaf_matrix;
 #[path = "../../common/smmu.rs"]
 #[allow(dead_code)]
 mod smmu;
+#[path = "../../common/stage2_leaf_matrix.rs"]
+mod stage2_leaf_matrix;
 use common::{BootContext, REGIME_SECURE, define_environment, outcome_code};
 use vmsa_test_harness::adapter::{RunOptions, run_catalog_tests};
 use vmsa_test_harness::{LogicalTest, Requirements, SecurityEnvironment, TestContext, TestResult};
@@ -226,10 +226,11 @@ fn live_break_before_make(context: &mut TestContext<'_, CurrentEnvironment>) -> 
 fn translation_cycle(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     invalidation::stage1_translation_cycle(c, vmsa_test_harness::RegimeAttributes::Secure)
 }
-fn smmu_v3_live_secure_stage2(
-    context: &mut TestContext<'_, CurrentEnvironment>,
-) -> TestResult {
+fn smmu_v3_live_secure_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     smmu::smmu_v3_live_secure_stage2(context)
+}
+fn smmu_v3_live_secure_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_secure_stage1(context)
 }
 fn smmu_v3_live_secure_stream_nonsecure_stage2(
     context: &mut TestContext<'_, CurrentEnvironment>,

@@ -15,12 +15,21 @@ LOG = Path("/output/firmware.log")
 
 TF_A_URL = "https://git.trustedfirmware.org/TF-A/trusted-firmware-a.git"
 TF_A_REVISION = "1d5aa939bc8d3d892e2ed9945fa50e36a1a924cc"
+RD_TF_A_URL = TF_A_URL
+# RD-N2 configures its graceful-reset SGI from the platform setup hook.  Use
+# the upstream GIC ordering fix so the common driver and per-CPU interface are
+# initialized before that hook executes (TF-A commit I361f587a).
+RD_TF_A_REVISION = "95230492bae3eee8d8b88ca469710fec2b25bdb3"
 TF_A_TESTS_URL = "https://git.trustedfirmware.org/TF-A/tf-a-tests.git"
 TF_A_TESTS_REVISION = "3b3d800133081b48482b1205a32671b82bc2b640"
 HAFNIUM_URL = "https://git.trustedfirmware.org/hafnium/hafnium.git"
 HAFNIUM_REVISION = "ce12c6e53838f1cf07d50b616b72db57a81539a4"
 TF_RMM_URL = "https://github.com/TF-RMM/tf-rmm.git"
 TF_RMM_REVISION = "13a82ef5f3bbe4181c8c73a898b6ccdd61e12dae"
+SCP_URL = "https://git.gitlab.arm.com/infra-solutions/reference-design/platsw/scp-firmware.git"
+SCP_REVISION = "62bc3f079d1ae5780df1459d4c66de2dbee54359"
+CMSIS_URL = "https://github.com/ARM-software/CMSIS_5.git"
+CMOCK_URL = "https://github.com/ThrowTheSwitch/CMock.git"
 LIBEVENTLOG_URL = "https://review.trustedfirmware.org/shared/libEventLog"
 LIBTL_URL = "https://review.trustedfirmware.org/shared/transfer-list-library"
 MBEDTLS_URL = "https://github.com/Mbed-TLS/mbedtls.git"
@@ -187,6 +196,13 @@ def prepare_submodules(repository_name: str, worktree: Path) -> None:
             worktree / "contrib/mbedtls", "framework", "framework", MBEDTLS_FRAMEWORK_URL,
             "mbedtls-framework",
         )
+    elif repository_name == "scp":
+        prepare_cached_submodule(
+            worktree, "cmsis", "contrib/cmsis/git", CMSIS_URL, "scp-cmsis"
+        )
+        prepare_cached_submodule(
+            worktree, "contrib/cmock/git", "contrib/cmock/git", CMOCK_URL, "scp-cmock"
+        )
     elif repository_name == "hafnium":
         for module_name, module_path, url, cache_name in (
             ("prebuilts", "prebuilts", HAFNIUM_PREBUILTS_URL, "hafnium-prebuilts"),
@@ -241,10 +257,11 @@ def cleanup(repositories: dict[str, Path]) -> None:
     run_roots = {path.parent for path in repositories.values()}
     failures: list[str] = []
     for name, worktree in repositories.items():
-        mirror = CACHE / "git" / f"{name}.git"
+        repository_name = worktree.name
+        mirror = CACHE / "git" / f"{repository_name}.git"
         if mirror.is_dir() and worktree.exists():
             try:
-                with cache_lock(f"repository-{name}"):
+                with cache_lock(f"repository-{repository_name}"):
                     checked([
                         "git", "--git-dir", str(mirror), "worktree", "remove", "--force",
                         str(worktree),
@@ -263,7 +280,11 @@ def cleanup(repositories: dict[str, Path]) -> None:
         raise RuntimeError("; ".join(failures))
 
 
-def prepare(target: str) -> dict[str, Path]:
+def prepare(platform: str, target: str) -> dict[str, Path]:
+    if platform not in {"fvp-revc", "fvp-rdn2"}:
+        raise ValueError(f"unsupported platform {platform}")
+    if platform == "fvp-rdn2" and target != "ns-el2":
+        raise ValueError(f"platform {platform} does not support target {target}")
     run_id = os.environ.get("VMSA_RUN_ID")
     safe_characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
     if not run_id or any(character not in safe_characters for character in run_id):
@@ -279,8 +300,19 @@ def prepare(target: str) -> dict[str, Path]:
 
     repositories: dict[str, Path] = {}
     try:
-        repositories["tf-a"] = prepare_repository("tf-a", TF_A_URL, TF_A_REVISION, run_root)
-        apply_integration(repositories["tf-a"], "tf_a")
+        if platform == "fvp-rdn2":
+            repositories["tf-a"] = prepare_repository(
+                "tf-a-rdn2", RD_TF_A_URL, RD_TF_A_REVISION, run_root
+            )
+            apply_integration(repositories["tf-a"], "tf_a_rdn2")
+            repositories["scp"] = prepare_repository(
+                "scp", SCP_URL, SCP_REVISION, run_root
+            )
+        else:
+            repositories["tf-a"] = prepare_repository(
+                "tf-a", TF_A_URL, TF_A_REVISION, run_root
+            )
+            apply_integration(repositories["tf-a"], "tf_a")
         if target != "root-el3":
             repositories["tf-a-tests"] = prepare_repository(
                 "tf-a-tests", TF_A_TESTS_URL, TF_A_TESTS_REVISION, run_root
@@ -310,7 +342,7 @@ def prepare(target: str) -> dict[str, Path]:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: prepare.py <target>")
-    for key, value in prepare(sys.argv[1]).items():
+    if len(sys.argv) != 3:
+        raise SystemExit("usage: prepare.py <platform> <target>")
+    for key, value in prepare(sys.argv[1], sys.argv[2]).items():
         print(f"{key}={value}")

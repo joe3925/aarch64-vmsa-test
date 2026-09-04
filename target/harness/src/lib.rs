@@ -66,7 +66,9 @@ pub mod adapter {
 pub use access::{AccessKind, AccessOperation, AccessResult};
 pub use address_translation::{TranslationQueryAccess, TranslationQueryResult};
 pub use capability::{Capabilities, Requirements};
-pub use catalog::{CatalogEntry, LogicalTest, TEST_CATALOG, tests_for};
+pub use catalog::{
+    CURRENT_PLATFORM, CatalogEntry, ExecutionPlatform, LogicalTest, TEST_CATALOG, tests_for,
+};
 pub use context::{
     CacheMaintenanceOperation, CombinedTlbiOperation, CombinedTranslation, ExecutionSession,
     HardwareUpdateGuard, HarnessFailurePoint, InfrastructureD128Stage1Snapshot,

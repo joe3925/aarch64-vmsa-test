@@ -875,9 +875,7 @@ pub fn smmu_vmsa64_stage1_semantic_matrix() -> TestResult {
         SoftwareMetadata, Stage1EffectivePermissions, Stage2MemoryMode,
         TwoPrivilegeTablePermissionLimits,
     };
-    use aarch64_vmsa::config::format::{
-        BigEndian, LittleEndian, NativeEndian, Vmsa64, Vmsa64Lpa2,
-    };
+    use aarch64_vmsa::config::format::{BigEndian, LittleEndian, NativeEndian, Vmsa64, Vmsa64Lpa2};
     use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
     use aarch64_vmsa::config::regime::{smmu_v2, smmu_v3};
 
@@ -934,13 +932,15 @@ pub fn smmu_vmsa64_stage1_semantic_matrix() -> TestResult {
                 Level::L3,
                 leaf,
             ) {
-                Ok(raw) => failures += u64::from(
-                    <$format as AttributeCodec<$regime, $granule, _>>::decode_leaf(
-                        &config,
-                        Level::L3,
-                        raw,
-                    ) != Ok(leaf),
-                ),
+                Ok(raw) => {
+                    failures += u64::from(
+                        <$format as AttributeCodec<$regime, $granule, _>>::decode_leaf(
+                            &config,
+                            Level::L3,
+                            raw,
+                        ) != Ok(leaf),
+                    )
+                }
                 Err(_) => failures += 1,
             }
             let table = SemanticStage1TableAttrs {
@@ -956,51 +956,195 @@ pub fn smmu_vmsa64_stage1_semantic_matrix() -> TestResult {
                 Level::L1,
                 table,
             ) {
-                Ok(raw) => failures += u64::from(
-                    <$format as AttributeCodec<$regime, $granule, _>>::decode_table(
-                        &config,
-                        Level::L1,
-                        raw,
-                    ) != Ok(table),
-                ),
+                Ok(raw) => {
+                    failures += u64::from(
+                        <$format as AttributeCodec<$regime, $granule, _>>::decode_table(
+                            &config,
+                            Level::L1,
+                            raw,
+                        ) != Ok(table),
+                    )
+                }
                 Err(_) => failures += 1,
             }
         }};
     }
     macro_rules! all_variants {
         ($format:ident, $regime:ty, $leaf_pas:expr, $table_pas:expr, $limits:expr, $global:expr) => {{
-            round_trip!($format<NativeEndian>, $regime, Granule4KiB, $leaf_pas, $table_pas, $limits, $global);
-            round_trip!($format<NativeEndian>, $regime, Granule16KiB, $leaf_pas, $table_pas, $limits, $global);
-            round_trip!($format<NativeEndian>, $regime, Granule64KiB, $leaf_pas, $table_pas, $limits, $global);
-            round_trip!($format<LittleEndian>, $regime, Granule4KiB, $leaf_pas, $table_pas, $limits, $global);
-            round_trip!($format<LittleEndian>, $regime, Granule16KiB, $leaf_pas, $table_pas, $limits, $global);
-            round_trip!($format<LittleEndian>, $regime, Granule64KiB, $leaf_pas, $table_pas, $limits, $global);
-            round_trip!($format<BigEndian>, $regime, Granule4KiB, $leaf_pas, $table_pas, $limits, $global);
-            round_trip!($format<BigEndian>, $regime, Granule16KiB, $leaf_pas, $table_pas, $limits, $global);
-            round_trip!($format<BigEndian>, $regime, Granule64KiB, $leaf_pas, $table_pas, $limits, $global);
+            round_trip!(
+                $format<NativeEndian>,
+                $regime,
+                Granule4KiB,
+                $leaf_pas,
+                $table_pas,
+                $limits,
+                $global
+            );
+            round_trip!(
+                $format<NativeEndian>,
+                $regime,
+                Granule16KiB,
+                $leaf_pas,
+                $table_pas,
+                $limits,
+                $global
+            );
+            round_trip!(
+                $format<NativeEndian>,
+                $regime,
+                Granule64KiB,
+                $leaf_pas,
+                $table_pas,
+                $limits,
+                $global
+            );
+            round_trip!(
+                $format<LittleEndian>,
+                $regime,
+                Granule4KiB,
+                $leaf_pas,
+                $table_pas,
+                $limits,
+                $global
+            );
+            round_trip!(
+                $format<LittleEndian>,
+                $regime,
+                Granule16KiB,
+                $leaf_pas,
+                $table_pas,
+                $limits,
+                $global
+            );
+            round_trip!(
+                $format<LittleEndian>,
+                $regime,
+                Granule64KiB,
+                $leaf_pas,
+                $table_pas,
+                $limits,
+                $global
+            );
+            round_trip!(
+                $format<BigEndian>,
+                $regime,
+                Granule4KiB,
+                $leaf_pas,
+                $table_pas,
+                $limits,
+                $global
+            );
+            round_trip!(
+                $format<BigEndian>,
+                $regime,
+                Granule16KiB,
+                $leaf_pas,
+                $table_pas,
+                $limits,
+                $global
+            );
+            round_trip!(
+                $format<BigEndian>,
+                $regime,
+                Granule64KiB,
+                $leaf_pas,
+                $table_pas,
+                $limits,
+                $global
+            );
         }};
     }
     macro_rules! v2_format {
         ($format:ident) => {{
-            all_variants!($format, smmu_v2::NonSecureStreamStage1, (), (), stream_limits, false);
-            all_variants!($format, smmu_v2::NonSecurePrivilegedStreamStage1, (), (), privileged_limits, true);
+            all_variants!(
+                $format,
+                smmu_v2::NonSecureStreamStage1,
+                (),
+                (),
+                stream_limits,
+                false
+            );
+            all_variants!(
+                $format,
+                smmu_v2::NonSecurePrivilegedStreamStage1,
+                (),
+                (),
+                privileged_limits,
+                true
+            );
             for pas in [SecureSelectablePa::Secure, SecureSelectablePa::NonSecure] {
-                all_variants!($format, smmu_v2::SecureStreamStage1, pas, pas, stream_limits, false);
-                all_variants!($format, smmu_v2::SecurePrivilegedStreamStage1, pas, pas, privileged_limits, true);
+                all_variants!(
+                    $format,
+                    smmu_v2::SecureStreamStage1,
+                    pas,
+                    pas,
+                    stream_limits,
+                    false
+                );
+                all_variants!(
+                    $format,
+                    smmu_v2::SecurePrivilegedStreamStage1,
+                    pas,
+                    pas,
+                    privileged_limits,
+                    true
+                );
             }
         }};
     }
     macro_rules! v3_format {
         ($format:ident) => {{
-            all_variants!($format, smmu_v3::NonSecureStreamStage1, (), (), stream_limits, false);
-            all_variants!($format, smmu_v3::NonSecurePrivilegedStreamStage1, (), (), privileged_limits, true);
+            all_variants!(
+                $format,
+                smmu_v3::NonSecureStreamStage1,
+                (),
+                (),
+                stream_limits,
+                false
+            );
+            all_variants!(
+                $format,
+                smmu_v3::NonSecurePrivilegedStreamStage1,
+                (),
+                (),
+                privileged_limits,
+                true
+            );
             for pas in [SecureSelectablePa::Secure, SecureSelectablePa::NonSecure] {
-                all_variants!($format, smmu_v3::SecureStreamStage1, pas, pas, stream_limits, false);
-                all_variants!($format, smmu_v3::SecurePrivilegedStreamStage1, pas, pas, privileged_limits, true);
+                all_variants!(
+                    $format,
+                    smmu_v3::SecureStreamStage1,
+                    pas,
+                    pas,
+                    stream_limits,
+                    false
+                );
+                all_variants!(
+                    $format,
+                    smmu_v3::SecurePrivilegedStreamStage1,
+                    pas,
+                    pas,
+                    privileged_limits,
+                    true
+                );
             }
-            all_variants!($format, smmu_v3::RealmStreamStage1, (), (), stream_limits, false);
+            all_variants!(
+                $format,
+                smmu_v3::RealmStreamStage1,
+                (),
+                (),
+                stream_limits,
+                false
+            );
             for pas in [RealmOrNonSecurePa::Realm, RealmOrNonSecurePa::NonSecure] {
-                all_variants!($format, smmu_v3::RealmPrivilegedStreamStage1, pas, (), privileged_limits, true);
+                all_variants!(
+                    $format,
+                    smmu_v3::RealmPrivilegedStreamStage1,
+                    pas,
+                    (),
+                    privileged_limits,
+                    true
+                );
             }
         }};
     }
@@ -1009,7 +1153,11 @@ pub fn smmu_vmsa64_stage1_semantic_matrix() -> TestResult {
     v3_format!(Vmsa64);
     v3_format!(Vmsa64Lpa2);
 
-    if failures == 0 { TestResult::Pass } else { failed(0, failures) }
+    if failures == 0 {
+        TestResult::Pass
+    } else {
+        failed(0, failures)
+    }
 }
 
 fn smmu_v2_raw_fields(
@@ -1109,11 +1257,11 @@ pub fn smmu_v2_stage2_descriptor_matrix() -> TestResult {
     .map_err(|_| HarnessError::InvalidState)?;
     failures += u64::from(
         <Layout4K as DescriptorLayout<_, Granule4KiB>>::kind(base | (1u64 << 60), Level::L3)
-            != DescriptorKind::Invalid,
+            != DescriptorKind::Page,
     );
     failures += u64::from(
         <Layout4K as DescriptorLayout<_, Granule4KiB>>::kind(base | (1u64 << 62), Level::L3)
-            != DescriptorKind::Invalid,
+            != DescriptorKind::Page,
     );
 
     if failures == 0 {
@@ -2225,22 +2373,26 @@ pub fn smmu_v2_stage2_semantic_matrix() -> TestResult {
 
     let mut reserved = smmu_v2_raw_fields(0, 0)?;
     reserved.read_allocate = TwoBit::new(1).map_err(|_| HarnessError::InvalidState)?;
-    failures += u64::from(
+    failures += u64::from(!matches!(
         <Vmsa64 as AttributeCodec<NonSecureIpaStage2, Granule4KiB, _>>::decode_leaf(
             &config,
             Level::L3,
             reserved,
-        ) != Err(AttrError::InvalidSmmuV2AllocationHint),
-    );
+        ),
+        Ok(decoded)
+            if decoded.controls.read_allocate == SmmuV2AllocationHint::UsePreviousStage
+    ));
     reserved = smmu_v2_raw_fields(0, 0)?;
     reserved.write_allocate = TwoBit::new(1).map_err(|_| HarnessError::InvalidState)?;
-    failures += u64::from(
+    failures += u64::from(!matches!(
         <Vmsa64 as AttributeCodec<NonSecureIpaStage2, Granule4KiB, _>>::decode_leaf(
             &config,
             Level::L3,
             reserved,
-        ) != Err(AttrError::InvalidSmmuV2AllocationHint),
-    );
+        ),
+        Ok(decoded)
+            if decoded.controls.write_allocate == SmmuV2AllocationHint::UsePreviousStage
+    ));
 
     for software in [0, 0xf] {
         let table = SemanticVmsa64Stage2TableAttrs {
@@ -2915,6 +3067,20 @@ static mut SMMU_CONTEXT_DESCRIPTOR: StreamTables =
     StreamTables([StreamTable([0; 8]), StreamTable([0; 8])]);
 static mut SMMU_SOURCE: Page = Page([0; 65536]);
 static mut SMMU_DESTINATION: Page = Page([0; 65536]);
+
+#[repr(C, align(2097152))]
+#[cfg(vmsa_platform_fvp_rdn2)]
+struct SmmuV2Block([u8; 2097152]);
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+static mut SMMU_V2_BLOCK: SmmuV2Block = SmmuV2Block([0; 2097152]);
+
+#[repr(C, align(64))]
+#[cfg(vmsa_platform_fvp_rdn2)]
+struct DmaProgram([u8; 64]);
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+static mut SMMU_V2_DMA_PROGRAM: DmaProgram = DmaProgram([0; 64]);
 
 #[derive(Clone, Copy)]
 struct SmmuV2ArenaAccess {
@@ -3696,9 +3862,7 @@ pub fn smmu_vmsa64_stage1_mapper_walker() -> TestResult {
         SoftwareMetadata, Stage1EffectivePermissions, Stage2MemoryMode,
         TwoPrivilegeTablePermissionLimits,
     };
-    use aarch64_vmsa::config::format::{
-        BigEndian, LittleEndian, NativeEndian, Vmsa64, Vmsa64Lpa2,
-    };
+    use aarch64_vmsa::config::format::{BigEndian, LittleEndian, NativeEndian, Vmsa64, Vmsa64Lpa2};
     use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
     use aarch64_vmsa::config::regime::{smmu_v2, smmu_v3};
     use aarch64_vmsa::mapper::Mapper;
@@ -3776,7 +3940,9 @@ pub fn smmu_vmsa64_stage1_mapper_walker() -> TestResult {
             };
             let mut mapper = Mapper::new_offline(
                 make_root()?,
-                SmmuD128ArenaAccess { tables: [root_page, frame1, frame2, frame3] },
+                SmmuD128ArenaAccess {
+                    tables: [root_page, frame1, frame2, frame3],
+                },
                 SmmuD128ArenaFrames {
                     frames: [frame1, frame2, frame3],
                     initialized: [false; 3],
@@ -3805,28 +3971,32 @@ pub fn smmu_vmsa64_stage1_mapper_walker() -> TestResult {
                 _ => failures += 1,
             }
             failures += u64::from(
-                mapper.map_semantic_leaf(
-                    &config,
-                    WalkInputAddr::new(0),
-                    WalkOutputAddr::new(0x9000_0000),
-                    Level::L3,
-                    leaf,
-                    table,
-                ).is_ok(),
+                mapper
+                    .map_semantic_leaf(
+                        &config,
+                        WalkInputAddr::new(0),
+                        WalkOutputAddr::new(0x9000_0000),
+                        Level::L3,
+                        leaf,
+                        table,
+                    )
+                    .is_ok(),
             );
             match unsafe { mapper.unmap_reclaim(WalkInputAddr::new(0)) } {
                 Ok(outcome) => failures += u64::from(outcome.tables_freed() != 2),
                 Err(_) => failures += 1,
             }
             failures += u64::from(
-                mapper.map_semantic_leaf(
-                    &config,
-                    WalkInputAddr::new(0),
-                    WalkOutputAddr::new(0x9000_0000),
-                    Level::L3,
-                    leaf,
-                    table,
-                ).is_err(),
+                mapper
+                    .map_semantic_leaf(
+                        &config,
+                        WalkInputAddr::new(0),
+                        WalkOutputAddr::new(0x9000_0000),
+                        Level::L3,
+                        leaf,
+                        table,
+                    )
+                    .is_err(),
             );
             let _ = unsafe { mapper.unmap_reclaim(WalkInputAddr::new(0)) };
 
@@ -3835,7 +4005,9 @@ pub fn smmu_vmsa64_stage1_mapper_walker() -> TestResult {
             }
             let mut failing = Mapper::new_offline(
                 make_root()?,
-                SmmuD128ArenaAccess { tables: [root_page, frame1, frame2, frame3] },
+                SmmuD128ArenaAccess {
+                    tables: [root_page, frame1, frame2, frame3],
+                },
                 SmmuD128ArenaFrames {
                     frames: [frame1, frame2, frame3],
                     initialized: [false; 3],
@@ -3846,14 +4018,16 @@ pub fn smmu_vmsa64_stage1_mapper_walker() -> TestResult {
             )
             .map_err(|_| HarnessError::InvalidState)?;
             failures += u64::from(
-                failing.map_semantic_leaf(
-                    &config,
-                    WalkInputAddr::new(0),
-                    WalkOutputAddr::new(0x8000_0000),
-                    Level::L3,
-                    leaf,
-                    table,
-                ).is_ok(),
+                failing
+                    .map_semantic_leaf(
+                        &config,
+                        WalkInputAddr::new(0),
+                        WalkOutputAddr::new(0x8000_0000),
+                        Level::L3,
+                        leaf,
+                        table,
+                    )
+                    .is_ok(),
             );
         }};
     }
@@ -3874,7 +4048,11 @@ pub fn smmu_vmsa64_stage1_mapper_walker() -> TestResult {
     all_variants!(Vmsa64, smmu_v3::NonSecureStreamStage1);
     all_variants!(Vmsa64Lpa2, smmu_v3::NonSecureStreamStage1);
 
-    if failures == 0 { TestResult::Pass } else { failed(0, failures) }
+    if failures == 0 {
+        TestResult::Pass
+    } else {
+        failed(0, failures)
+    }
 }
 
 pub fn smmu_v3_stage2_vmsa64_mapper_matrix() -> TestResult {
@@ -4010,10 +4188,12 @@ pub fn smmu_v3_stage2_vmsa64_mapper_matrix() -> TestResult {
                     Level::L3,
                     leaf,
                     table_zero,
-                ) != Err(SemanticMapperError::Mapper(MapperError::InputAddressOutOfRange {
-                    addr: 1 << 30,
-                    addr_bits: 30,
-                })),
+                ) != Err(SemanticMapperError::Mapper(
+                    MapperError::InputAddressOutOfRange {
+                        addr: 1 << 30,
+                        addr_bits: 30,
+                    },
+                )),
             );
             failures += u64::from(
                 mapper.map_semantic_leaf(
@@ -4023,10 +4203,12 @@ pub fn smmu_v3_stage2_vmsa64_mapper_matrix() -> TestResult {
                     Level::L3,
                     leaf,
                     table_zero,
-                ) != Err(SemanticMapperError::Mapper(MapperError::OutputAddressOutOfRange {
-                    addr: WalkOutputAddr::new(1 << 48),
-                    output_address_bits: 48,
-                })),
+                ) != Err(SemanticMapperError::Mapper(
+                    MapperError::OutputAddressOutOfRange {
+                        addr: WalkOutputAddr::new(1 << 48),
+                        output_address_bits: 48,
+                    },
+                )),
             );
             for access_flag in [false, true] {
                 for software in 0..=0xf {
@@ -4685,6 +4867,896 @@ unsafe fn read64(address: usize) -> u64 {
     unsafe { core::ptr::read_volatile(address as *const u64) }
 }
 
+pub fn smmu_v2_live_capabilities() -> TestResult {
+    const SMMU: usize = 0x0e00_0000;
+    let idr0 = unsafe { read32(SMMU + 0x20) };
+    let idr1 = unsafe { read32(SMMU + 0x24) };
+    let idr2 = unsafe { read32(SMMU + 0x28) };
+    let idr7 = unsafe { read32(SMMU + 0x3c) };
+    crate::common::diagnostic_hex(
+        b"smmu-v2-idr0-idr1-idr2-idr7",
+        &[idr0.into(), idr1.into(), idr2.into(), idr7.into()],
+    );
+
+    // Record every independently routed capability.  This RD-N2 instance is
+    // intentionally allowed to implement stage 2 without stage 1, and the
+    // granule fields describe separate capabilities rather than an all-or-none
+    // bundle.  Individual live cases gate themselves on the feature they use.
+    let stage1 = idr0 & (1 << 30) != 0;
+    let stage2 = idr0 & (1 << 29) != 0;
+    let stream_match = idr0 & (1 << 27) != 0;
+    let granule_4k = idr2 & (1 << 12) != 0;
+    let granule_16k = idr2 & (1 << 13) != 0;
+    let granule_64k = idr2 & (1 << 14) != 0;
+    let context_banks = idr1 & 0xff != 0;
+    let observed = stage1 as u64
+        | ((stage2 as u64) << 1)
+        | ((stream_match as u64) << 2)
+        | ((granule_4k as u64) << 3)
+        | ((granule_16k as u64) << 4)
+        | ((granule_64k as u64) << 5)
+        | ((context_banks as u64) << 6);
+    crate::common::diagnostic_hex(b"smmu-v2-live-features", &[observed]);
+
+    // The platform route is useful when it exposes a real translation path:
+    // stage 2, stream matching, at least one AArch64 granule, and a context
+    // bank.  Stage 1 and the other granules are optional live capabilities.
+    let required = (1 << 1) | (1 << 2) | (1 << 6);
+    let has_granule = observed & ((1 << 3) | (1 << 4) | (1 << 5)) != 0;
+    if observed & required != required || !has_granule {
+        return failed(required | (1 << 3), observed);
+    }
+    TestResult::Pass
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+fn clean_data_range(address: usize, bytes: usize) {
+    let ctr: u64;
+    unsafe { core::arch::asm!("mrs {ctr}, ctr_el0", ctr = out(reg) ctr) };
+    let line = 4usize << ((ctr >> 16) & 0xf);
+    let mut cursor = address & !(line - 1);
+    let end = address.saturating_add(bytes);
+    while cursor < end {
+        unsafe { core::arch::asm!("dc cvac, {address}", address = in(reg) cursor) };
+        cursor += line;
+    }
+    unsafe { core::arch::asm!("dsb sy", "isb") };
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+fn invalidate_data_range(address: usize, bytes: usize) {
+    let ctr: u64;
+    unsafe { core::arch::asm!("mrs {ctr}, ctr_el0", ctr = out(reg) ctr) };
+    let line = 4usize << ((ctr >> 16) & 0xf);
+    let mut cursor = address & !(line - 1);
+    let end = address.saturating_add(bytes);
+    while cursor < end {
+        unsafe { core::arch::asm!("dc ivac, {address}", address = in(reg) cursor) };
+        cursor += line;
+    }
+    unsafe { core::arch::asm!("dsb sy") };
+}
+
+/// A live MMU-500 stage-2 walk driven by the platform PL330 rather than by a
+/// model-only translation test engine.  The descriptor construction is public
+/// `aarch64-vmsa` behavior; SMMU and DMA programming are only the execution and
+/// observation mechanism.
+#[cfg(vmsa_platform_fvp_rdn2)]
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum SmmuV2LiveCase {
+    Page4k,
+    Page4kBigEndian,
+    Block4k,
+    Page64k,
+    Block64k,
+    ReadPermissionFault,
+    WritePermissionFault,
+    TranslationFault,
+    AccessFlagFault,
+    TlbInvalidate,
+    StreamMask,
+    ReadAllocateReserved,
+    WriteAllocateReserved,
+    ReadWriteAllocateReserved,
+    Root4kL2,
+    Root64kL1,
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_4k() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::Page4k)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_4k_big_endian() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::Page4kBigEndian)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_block() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::Block4k)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_64k() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::Page64k)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_64k_block() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::Block64k)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_read_permission_fault() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::ReadPermissionFault)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_write_permission_fault() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::WritePermissionFault)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_translation_fault() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::TranslationFault)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_access_flag_fault() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::AccessFlagFault)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_tlb_invalidate() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::TlbInvalidate)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stream_mask() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::StreamMask)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_read_allocate_reserved() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::ReadAllocateReserved)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_write_allocate_reserved() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::WriteAllocateReserved)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_read_write_allocate_reserved() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::ReadWriteAllocateReserved)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_4k_root_l2() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::Root4kL2)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+pub fn smmu_v2_live_stage2_64k_root_l1() -> TestResult {
+    smmu_v2_live_stage2(SmmuV2LiveCase::Root64kL1)
+}
+
+#[cfg(vmsa_platform_fvp_rdn2)]
+fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
+    use aarch64_vmsa::address::{Level, PhysAddr};
+    use aarch64_vmsa::attrs::{
+        AttributeCodec, Cacheability, LiveVmsaConfig, MemoryAttributes,
+        SemanticSmmuV2Stage2LeafControls, SemanticStage2LeafAttrs, SemanticVmsa64Stage2TableAttrs,
+        Shareability, SmmuV2AllocationHint, SoftwareMetadata, Stage2MemoryAttributes,
+        Stage2MemoryMode, Stage2Permission,
+    };
+    use aarch64_vmsa::config::format::{BigEndian, LittleEndian, Vmsa64};
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    use aarch64_vmsa::config::regime::smmu_v2::NonSecureIpaStage2;
+    use aarch64_vmsa::descriptor::{DescriptorFormat, DescriptorLayout};
+    use aarch64_vmsa::regime::HasRegimeLayout;
+    use aarch64_vmsa::table::{TableAddr, TableShape, TableTransition};
+
+    type LittleFormat = Vmsa64<LittleEndian>;
+    type LittleLayout = <LittleFormat as HasRegimeLayout<NonSecureIpaStage2, Granule4KiB>>::Layout;
+    type BigFormat = Vmsa64<BigEndian>;
+    type BigLayout = <BigFormat as HasRegimeLayout<NonSecureIpaStage2, Granule4KiB>>::Layout;
+    const SMMU: usize = 0x0e00_0000;
+    const DMAC: usize = 0x0ef0_0000;
+    let is_64k = matches!(
+        case,
+        SmmuV2LiveCase::Page64k | SmmuV2LiveCase::Block64k | SmmuV2LiveCase::Root64kL1
+    );
+    let (l1, l2, l3, mut source, mut destination, program) = unsafe {
+        (
+            core::ptr::addr_of_mut!(SMMU_L1.0) as usize,
+            core::ptr::addr_of_mut!(SMMU_L2.0) as usize,
+            core::ptr::addr_of_mut!(SMMU_L3.0) as usize,
+            core::ptr::addr_of_mut!(SMMU_SOURCE.0) as usize,
+            core::ptr::addr_of_mut!(SMMU_DESTINATION.0) as usize,
+            core::ptr::addr_of_mut!(SMMU_V2_DMA_PROGRAM.0) as usize,
+        )
+    };
+    let mut source_iova = 0x1000u32;
+    let mut destination_iova = 0x2000u32;
+    if case == SmmuV2LiveCase::Block4k {
+        let block = unsafe { core::ptr::addr_of_mut!(SMMU_V2_BLOCK.0) as usize };
+        source = block + 0x1000;
+        destination = block + 0x2000;
+        source_iova = 0x20_1000;
+        destination_iova = 0x40_2000;
+    } else if matches!(case, SmmuV2LiveCase::Page64k | SmmuV2LiveCase::Root64kL1) {
+        source_iova = 0x1_0000;
+        destination_iova = 0x2_0000;
+    } else if case == SmmuV2LiveCase::Block64k {
+        let mask = (1u64 << 29) - 1;
+        source_iova = ((1u64 << 29) | ((source as u64) & mask)) as u32;
+        destination_iova = ((2u64 << 29) | ((destination as u64) & mask)) as u32;
+    }
+    unsafe {
+        let table_bytes = if is_64k { 65536 } else { 4096 };
+        core::ptr::write_bytes(l1 as *mut u8, 0, table_bytes);
+        core::ptr::write_bytes(l2 as *mut u8, 0, table_bytes);
+        core::ptr::write_bytes(l3 as *mut u8, 0, table_bytes);
+        core::ptr::write_bytes(destination as *mut u8, 0, 4096);
+        core::ptr::write_bytes(program as *mut u8, 0, 64);
+        (source as *mut u32).write_volatile(0x51a7_c0de);
+    }
+
+    let config = LiveVmsaConfig {
+        mair: 0,
+        mair2: None,
+        stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
+        stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
+        stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
+        d128_stage1_alias: aarch64_vmsa::attrs::D128Stage1AliasKind::NonGlobal,
+        shareability: Shareability::InnerShareable,
+        output_pas: (),
+    };
+    let table = SemanticVmsa64Stage2TableAttrs {
+        access_flag: true,
+        software: SoftwareMetadata::new(0),
+    };
+    let mut source_permissions = Stage2Permission::ReadWrite {
+        privileged_execute: false,
+        unprivileged_execute: false,
+    };
+    let mut destination_permissions = source_permissions;
+    if case == SmmuV2LiveCase::ReadPermissionFault {
+        source_permissions = Stage2Permission::NoAccess;
+    }
+    if case == SmmuV2LiveCase::WritePermissionFault {
+        destination_permissions = Stage2Permission::ReadOnly {
+            privileged_execute: false,
+            unprivileged_execute: false,
+        };
+    }
+    let leaf = |permissions| SemanticStage2LeafAttrs {
+        memory: Stage2MemoryAttributes::Combined(MemoryAttributes::Normal {
+            inner: Cacheability::NonCacheable,
+            outer: Cacheability::NonCacheable,
+        }),
+        permissions,
+        output_address_space: (),
+        controls: SemanticSmmuV2Stage2LeafControls {
+            shareability: Shareability::InnerShareable,
+            access_flag: case != SmmuV2LiveCase::AccessFlagFault,
+            contiguous: false,
+            read_allocate: SmmuV2AllocationHint::NoAllocate,
+            write_allocate: SmmuV2AllocationHint::NoAllocate,
+            software: SoftwareMetadata::new(0),
+        },
+    };
+    let l1_shape = TableShape::<LittleFormat, Granule4KiB>::root(Level::L1)
+        .map_err(|_| HarnessError::InvalidState)?;
+    let l2_shape = TableShape::<LittleFormat, Granule4KiB>::new(Level::L2, 1)
+        .map_err(|_| HarnessError::InvalidState)?;
+    let l3_shape = TableShape::<LittleFormat, Granule4KiB>::new(Level::L3, 1)
+        .map_err(|_| HarnessError::InvalidState)?;
+    let l1_fields =
+        <LittleFormat as AttributeCodec<NonSecureIpaStage2, Granule4KiB, _>>::encode_table(
+            &config,
+            Level::L1,
+            table,
+        )
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+    let l2_fields =
+        <LittleFormat as AttributeCodec<NonSecureIpaStage2, Granule4KiB, _>>::encode_table(
+            &config,
+            Level::L2,
+            table,
+        )
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+    let l1_raw = <LittleLayout as DescriptorLayout<_, Granule4KiB>>::table_descriptor(
+        TableAddr::new(l2 as u64).map_err(|_| HarnessError::InvalidState)?,
+        TableTransition::new(l1_shape, l2_shape).map_err(|_| HarnessError::InvalidState)?,
+        l1_fields,
+    )
+    .map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
+    let l2_raw = <LittleLayout as DescriptorLayout<_, Granule4KiB>>::table_descriptor(
+        TableAddr::new(l3 as u64).map_err(|_| HarnessError::InvalidState)?,
+        TableTransition::new(l2_shape, l3_shape).map_err(|_| HarnessError::InvalidState)?,
+        l2_fields,
+    )
+    .map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
+    let source_fields =
+        <LittleFormat as AttributeCodec<NonSecureIpaStage2, Granule4KiB, _>>::encode_leaf(
+            &config,
+            Level::L3,
+            leaf(source_permissions),
+        )
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+    let destination_fields =
+        <LittleFormat as AttributeCodec<NonSecureIpaStage2, Granule4KiB, _>>::encode_leaf(
+            &config,
+            Level::L3,
+            leaf(destination_permissions),
+        )
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+    let destination_level = if case == SmmuV2LiveCase::Block4k {
+        Level::L2
+    } else {
+        Level::L3
+    };
+    let block_mask = (1u64 << 21) - 1;
+    let source_output = if case == SmmuV2LiveCase::Block4k {
+        (source as u64) & !block_mask
+    } else {
+        source as u64
+    };
+    let destination_output = if case == SmmuV2LiveCase::Block4k {
+        (destination as u64) & !block_mask
+    } else {
+        destination as u64
+    };
+    let mut source_raw = <LittleLayout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+        PhysAddr(source_output),
+        destination_level,
+        source_fields,
+    )
+    .map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
+    let mut destination_raw = <LittleLayout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+        PhysAddr(destination_output),
+        destination_level,
+        destination_fields,
+    )
+    .map_err(|_| HarnessError::CrateBehavior {
+        expected: 1,
+        actual: 0,
+    })?;
+    // SMMUv2 defines allocation-hint encoding 0b01 as behaving like 0b00.
+    // Construct an otherwise valid descriptor through the public crate API,
+    // then inject only the architecturally reserved raw field so the live
+    // MMU-500, rather than the crate decoder, is the behavioral oracle.
+    if matches!(
+        case,
+        SmmuV2LiveCase::ReadAllocateReserved | SmmuV2LiveCase::ReadWriteAllocateReserved
+    ) {
+        source_raw = (source_raw & !(0b11u64 << 60)) | (0b01u64 << 60);
+    }
+    if matches!(
+        case,
+        SmmuV2LiveCase::WriteAllocateReserved | SmmuV2LiveCase::ReadWriteAllocateReserved
+    ) {
+        destination_raw = (destination_raw & !(0b11u64 << 62)) | (0b01u64 << 62);
+    }
+    unsafe {
+        if case == SmmuV2LiveCase::Page4kBigEndian {
+            <BigFormat as DescriptorFormat>::write_descriptor(l1 as *mut u64, l1_raw);
+            <BigFormat as DescriptorFormat>::write_descriptor(l2 as *mut u64, l2_raw);
+            <BigFormat as DescriptorFormat>::write_descriptor((l3 as *mut u64).add(1), source_raw);
+            <BigFormat as DescriptorFormat>::write_descriptor(
+                (l3 as *mut u64).add(2),
+                destination_raw,
+            );
+        } else {
+            <LittleFormat as DescriptorFormat>::write_descriptor(l1 as *mut u64, l1_raw);
+            <LittleFormat as DescriptorFormat>::write_descriptor(l2 as *mut u64, l2_raw);
+            if case == SmmuV2LiveCase::Block4k {
+                <LittleFormat as DescriptorFormat>::write_descriptor(
+                    (l2 as *mut u64).add(1),
+                    source_raw,
+                );
+                <LittleFormat as DescriptorFormat>::write_descriptor(
+                    (l2 as *mut u64).add(2),
+                    destination_raw,
+                );
+            } else if case != SmmuV2LiveCase::TranslationFault {
+                <LittleFormat as DescriptorFormat>::write_descriptor(
+                    (l3 as *mut u64).add(1),
+                    source_raw,
+                );
+                <LittleFormat as DescriptorFormat>::write_descriptor(
+                    (l3 as *mut u64).add(2),
+                    destination_raw,
+                );
+            } else {
+                <LittleFormat as DescriptorFormat>::write_descriptor(
+                    (l3 as *mut u64).add(1),
+                    source_raw,
+                );
+            }
+        }
+    }
+
+    if is_64k {
+        use aarch64_vmsa::config::granule::Granule64KiB;
+        type Format64 = Vmsa64<LittleEndian>;
+        type Layout64 = <Format64 as HasRegimeLayout<NonSecureIpaStage2, Granule64KiB>>::Layout;
+        let root_level = if case == SmmuV2LiveCase::Root64kL1 {
+            Level::L1
+        } else {
+            Level::L2
+        };
+        let root = TableShape::<Format64, Granule64KiB>::root(root_level)
+            .map_err(|_| HarnessError::InvalidState)?;
+        let middle = TableShape::<Format64, Granule64KiB>::new(Level::L2, 1)
+            .map_err(|_| HarnessError::InvalidState)?;
+        let last = TableShape::<Format64, Granule64KiB>::new(Level::L3, 1)
+            .map_err(|_| HarnessError::InvalidState)?;
+        let l1_fields =
+            <Format64 as AttributeCodec<NonSecureIpaStage2, Granule64KiB, _>>::encode_table(
+                &config,
+                Level::L1,
+                table,
+            )
+            .map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?;
+        let l2_fields =
+            <Format64 as AttributeCodec<NonSecureIpaStage2, Granule64KiB, _>>::encode_table(
+                &config,
+                Level::L2,
+                table,
+            )
+            .map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?;
+        let root_raw = <Layout64 as DescriptorLayout<_, Granule64KiB>>::table_descriptor(
+            TableAddr::new(l3 as u64).map_err(|_| HarnessError::InvalidState)?,
+            TableTransition::new(middle, last).map_err(|_| HarnessError::InvalidState)?,
+            l2_fields,
+        )
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+        let l1_raw = if root_level == Level::L1 {
+            Some(
+                <Layout64 as DescriptorLayout<_, Granule64KiB>>::table_descriptor(
+                    TableAddr::new(l2 as u64).map_err(|_| HarnessError::InvalidState)?,
+                    TableTransition::new(root, middle).map_err(|_| HarnessError::InvalidState)?,
+                    l1_fields,
+                )
+                .map_err(|_| HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
+                })?,
+            )
+        } else {
+            None
+        };
+        let level = if case == SmmuV2LiveCase::Block64k {
+            Level::L2
+        } else {
+            Level::L3
+        };
+        let source_fields =
+            <Format64 as AttributeCodec<NonSecureIpaStage2, Granule64KiB, _>>::encode_leaf(
+                &config,
+                level,
+                leaf(source_permissions),
+            )
+            .map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?;
+        let destination_fields =
+            <Format64 as AttributeCodec<NonSecureIpaStage2, Granule64KiB, _>>::encode_leaf(
+                &config,
+                level,
+                leaf(destination_permissions),
+            )
+            .map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?;
+        let mask = if level == Level::L2 {
+            (1u64 << 29) - 1
+        } else {
+            65535
+        };
+        let source_raw = <Layout64 as DescriptorLayout<_, Granule64KiB>>::leaf_descriptor(
+            PhysAddr((source as u64) & !mask),
+            level,
+            source_fields,
+        )
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+        let destination_raw = <Layout64 as DescriptorLayout<_, Granule64KiB>>::leaf_descriptor(
+            PhysAddr((destination as u64) & !mask),
+            level,
+            destination_fields,
+        )
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+        unsafe {
+            if level == Level::L2 {
+                <Format64 as DescriptorFormat>::write_descriptor(
+                    (l2 as *mut u64).add(1),
+                    source_raw,
+                );
+                <Format64 as DescriptorFormat>::write_descriptor(
+                    (l2 as *mut u64).add(2),
+                    destination_raw,
+                );
+            } else {
+                if let Some(l1_raw) = l1_raw {
+                    <Format64 as DescriptorFormat>::write_descriptor(l1 as *mut u64, l1_raw);
+                }
+                <Format64 as DescriptorFormat>::write_descriptor(l2 as *mut u64, root_raw);
+                <Format64 as DescriptorFormat>::write_descriptor(
+                    (l3 as *mut u64).add(1),
+                    source_raw,
+                );
+                <Format64 as DescriptorFormat>::write_descriptor(
+                    (l3 as *mut u64).add(2),
+                    destination_raw,
+                );
+            }
+        }
+    }
+
+    // Preserve every register modified by the live agent. IDR1 selects 4 KiB
+    // register pages and eight global pages, so context bank zero begins at
+    // +0x8000 and GR1 at +0x1000.
+    let cb = SMMU + 0x8000;
+    let dma_initial_status = unsafe { read32(DMAC + 0xd00) };
+    crate::common::diagnostic_hex(
+        b"smmu-v2-dma-initial-debug-status",
+        &[dma_initial_status.into()],
+    );
+    let saved = unsafe {
+        [
+            read32(SMMU),
+            read32(SMMU + 0x800),
+            read32(SMMU + 0xc00),
+            read32(SMMU + 0x1000),
+            read32(SMMU + 0x1800),
+            read32(cb),
+            read32(cb + 0x30),
+            read32(cb + 0x20),
+            read32(cb + 0x24),
+        ]
+    };
+    crate::common::diagnostic_hex(b"smmu-v2-agent-checkpoint", &[1]);
+    let table_bytes = if is_64k { 65536 } else { 4096 };
+    clean_data_range(l1, table_bytes);
+    clean_data_range(l2, table_bytes);
+    clean_data_range(l3, table_bytes);
+    clean_data_range(source, 4);
+    clean_data_range(destination, 4);
+
+    unsafe {
+        write32(SMMU, saved[0] | 1); // CLIENTPD while configuring
+        write32(SMMU + 0x1000, 0); // CBAR0: stage-2 translation, VMID 0
+        write32(SMMU + 0x1800, 1); // CBA2R0.VA64
+        let geometry = if case == SmmuV2LiveCase::Root64kL1 {
+            (1 << 14) | (2 << 6) | 16
+        } else if is_64k {
+            (1 << 14) | (1 << 6) | 22
+        } else if case == SmmuV2LiveCase::Root4kL2 {
+            34
+        } else {
+            (1 << 6) | 25
+        };
+        write32(
+            cb + 0x30,
+            0x8000_0000 | (2 << 16) | (3 << 12) | (1 << 10) | (1 << 8) | geometry,
+        );
+        let root = if case == SmmuV2LiveCase::Root64kL1 {
+            l1
+        } else if is_64k || case == SmmuV2LiveCase::Root4kL2 {
+            l2
+        } else {
+            l1
+        };
+        write64(cb + 0x20, root as u64);
+        write32(cb + 0x58, u32::MAX);
+        let endian = if case == SmmuV2LiveCase::Page4kBigEndian {
+            1 << 4
+        } else {
+            0
+        };
+        let access_flag_enable = if case == SmmuV2LiveCase::AccessFlagFault {
+            0
+        } else {
+            1 << 2
+        };
+        // HUPCF permits later transactions after a context fault. CFCFG is
+        // deliberately clear so a fault terminates instead of stalling the
+        // PL330 request indefinitely.
+        write32(
+            cb,
+            endian | (1 << 8) | (1 << 6) | (1 << 5) | access_flag_enable | (1 << 1) | 1,
+        );
+        write32(SMMU + 0xc00, 0); // S2CR0: translate with CB0
+        let smr = if case == SmmuV2LiveCase::StreamMask {
+            (1 << 31) | (1 << 16) | 1 // SID 1 with bit 0 masked also matches the agent SID 0
+        } else {
+            1 << 31 // valid, SID 0/mask 0
+        };
+        write32(SMMU + 0x800, smr);
+        write32(SMMU + 0x70, 0);
+        write32(SMMU, saved[0] & !1);
+        core::arch::asm!("dsb sy", "isb");
+    }
+    crate::common::diagnostic_hex(b"smmu-v2-agent-checkpoint", &[2]);
+
+    // Program: MOV SAR, MOV DAR, MOV CCR, LD, ST, END.
+    let mut offset = 0usize;
+    let mut emit_mov = |register: u8, value: u32| unsafe {
+        let bytes = [
+            0xbc,
+            register,
+            value as u8,
+            (value >> 8) as u8,
+            (value >> 16) as u8,
+            (value >> 24) as u8,
+        ];
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), (program as *mut u8).add(offset), 6);
+        offset += 6;
+    };
+    emit_mov(0, source_iova);
+    emit_mov(2, destination_iova);
+    emit_mov(1, 0x0001_4005); // incrementing 4-byte, one-beat source/destination bursts
+    unsafe {
+        (program as *mut u8).add(offset).write(0x04);
+        offset += 1;
+        (program as *mut u8).add(offset).write(0x08);
+        offset += 1;
+        (program as *mut u8).add(offset).write(0x00);
+        offset += 1;
+    }
+    clean_data_range(program, offset);
+    crate::common::diagnostic_hex(b"smmu-v2-agent-checkpoint", &[3]);
+    unsafe {
+        let debug_status = read32(DMAC + 0xd00);
+        crate::common::diagnostic_hex(b"smmu-v2-dma-debug-status", &[debug_status.into()]);
+        while read32(DMAC + 0xd00) & 1 != 0 {
+            core::hint::spin_loop();
+        }
+        write32(DMAC + 0xd08, (0xa2u32 << 16) | (0x00u32 << 24));
+        write32(DMAC + 0xd0c, program as u32);
+        write32(DMAC + 0xd04, 0);
+    }
+    let expect_fault = matches!(
+        case,
+        SmmuV2LiveCase::ReadPermissionFault
+            | SmmuV2LiveCase::WritePermissionFault
+            | SmmuV2LiveCase::TranslationFault
+            | SmmuV2LiveCase::AccessFlagFault
+    );
+    let mut completed = false;
+    for iteration in 0..1_000_000 {
+        if iteration & 0xff == 0 {
+            invalidate_data_range(destination, 4);
+        }
+        if unsafe { (destination as *const u32).read_volatile() } == 0x51a7_c0de {
+            completed = true;
+            break;
+        }
+        core::hint::spin_loop();
+    }
+    invalidate_data_range(destination, 4);
+    let actual = unsafe { (destination as *const u32).read_volatile() };
+    let mut tlb_ok = true;
+    if case == SmmuV2LiveCase::TlbInvalidate && completed {
+        let alternate = destination + 4096;
+        let alternate_raw = <LittleLayout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+            PhysAddr(alternate as u64),
+            Level::L3,
+            destination_fields,
+        )
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
+        unsafe {
+            <LittleFormat as DescriptorFormat>::write_descriptor(
+                (l3 as *mut u64).add(2),
+                alternate_raw,
+            );
+            (destination as *mut u32).write_volatile(0);
+            (alternate as *mut u32).write_volatile(0);
+            (source as *mut u32).write_volatile(0x52a8_d1ef);
+        }
+        clean_data_range(l3, 4096);
+        clean_data_range(source, 4);
+        clean_data_range(destination, 4);
+        clean_data_range(alternate, 4);
+        unsafe {
+            while read32(DMAC + 0xd00) & 1 != 0 {
+                core::hint::spin_loop();
+            }
+            write32(DMAC + 0xd08, 0xa2u32 << 16);
+            write32(DMAC + 0xd0c, program as u32);
+            write32(DMAC + 0xd04, 0);
+        }
+        for iteration in 0..1_000_000 {
+            if iteration & 0xff == 0 {
+                invalidate_data_range(destination, 4);
+                invalidate_data_range(alternate, 4);
+            }
+            let stale = unsafe { (destination as *const u32).read_volatile() };
+            let fresh = unsafe { (alternate as *const u32).read_volatile() };
+            if stale == 0x52a8_d1ef || fresh != 0 {
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        invalidate_data_range(destination, 4);
+        invalidate_data_range(alternate, 4);
+        tlb_ok &= unsafe { (destination as *const u32).read_volatile() } == 0x52a8_d1ef;
+        tlb_ok &= unsafe { (alternate as *const u32).read_volatile() } == 0;
+
+        unsafe {
+            (destination as *mut u32).write_volatile(0);
+            (alternate as *mut u32).write_volatile(0);
+            (source as *mut u32).write_volatile(0x53b9_e2f0);
+        }
+        clean_data_range(source, 4);
+        clean_data_range(destination, 4);
+        clean_data_range(alternate, 4);
+        unsafe {
+            core::arch::asm!("dsb sy");
+            write64(cb + 0x638, (destination_iova as u64) >> 12);
+            write32(cb + 0x7f0, 0);
+        }
+        let mut synced = false;
+        for _ in 0..100_000 {
+            if unsafe { read32(cb + 0x7f4) } & 1 == 0 {
+                synced = true;
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        unsafe {
+            while read32(DMAC + 0xd00) & 1 != 0 {
+                core::hint::spin_loop();
+            }
+            write32(DMAC + 0xd08, 0xa2u32 << 16);
+            write32(DMAC + 0xd0c, program as u32);
+            write32(DMAC + 0xd04, 0);
+        }
+        let mut remapped = false;
+        for iteration in 0..1_000_000 {
+            if iteration & 0xff == 0 {
+                invalidate_data_range(alternate, 4);
+            }
+            if unsafe { (alternate as *const u32).read_volatile() } == 0x53b9_e2f0 {
+                remapped = true;
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        invalidate_data_range(destination, 4);
+        tlb_ok &= synced && remapped;
+        tlb_ok &= unsafe { (destination as *const u32).read_volatile() } == 0;
+    }
+    let fsr = unsafe { read32(cb + 0x58) };
+    let far = unsafe { read64(cb + 0x60) };
+    let dma_state = unsafe {
+        [
+            read32(DMAC),
+            read32(DMAC + 0x30),
+            read32(DMAC + 0x34),
+            read32(DMAC + 0x40),
+            read32(DMAC + 0x100),
+            read32(DMAC + 0x104),
+        ]
+    };
+    crate::common::diagnostic_hex(
+        b"smmu-v2-stage2-dma",
+        &[completed as u64, actual.into(), fsr.into(), far],
+    );
+    crate::common::diagnostic_hex(b"smmu-v2-pl330-state", &dma_state.map(u64::from));
+
+    unsafe {
+        write32(SMMU, saved[0] | 1);
+        write32(cb, 0);
+        write32(SMMU + 0x800, saved[1]);
+        write32(SMMU + 0xc00, saved[2]);
+        write32(SMMU + 0x1000, saved[3]);
+        write32(SMMU + 0x1800, saved[4]);
+        write32(cb + 0x30, saved[6]);
+        write32(cb + 0x20, saved[7]);
+        write32(cb + 0x24, saved[8]);
+        write32(cb + 0x58, u32::MAX);
+        write32(cb, saved[5]);
+        write32(SMMU + 0x70, 0);
+        write32(SMMU, saved[0]);
+        core::arch::asm!("dsb sy", "isb");
+    }
+    let fault_mask = (1 << 31)
+        | (1 << 30)
+        | (1 << 8)
+        | (1 << 7)
+        | (1 << 6)
+        | (1 << 5)
+        | (1 << 4)
+        | (1 << 3)
+        | (1 << 2)
+        | (1 << 1);
+    if expect_fault {
+        if completed || fsr & fault_mask == 0 || actual != 0 {
+            return failed(0, actual.into());
+        }
+    } else if !completed || !tlb_ok || fsr & fault_mask != 0 || actual != 0x51a7_c0de {
+        return failed(0x51a7_c0de, ((fsr as u64) << 32) | (far & u32::MAX as u64));
+    }
+    TestResult::Pass
+}
+
+#[cfg(not(vmsa_platform_fvp_rdn2))]
+pub fn smmu_v2_live_stage2_4k() -> TestResult {
+    HarnessError::Environment.into()
+}
+
+#[cfg(not(vmsa_platform_fvp_rdn2))]
+macro_rules! unavailable_smmu_v2_live_case {
+    ($($name:ident),+ $(,)?) => {$ (
+        pub fn $name() -> TestResult { HarnessError::Environment.into() }
+    )+ };
+}
+
+#[cfg(not(vmsa_platform_fvp_rdn2))]
+unavailable_smmu_v2_live_case!(
+    smmu_v2_live_stage2_4k_big_endian,
+    smmu_v2_live_stage2_block,
+    smmu_v2_live_stage2_64k,
+    smmu_v2_live_stage2_64k_block,
+    smmu_v2_live_stage2_read_permission_fault,
+    smmu_v2_live_stage2_write_permission_fault,
+    smmu_v2_live_stage2_translation_fault,
+    smmu_v2_live_stage2_access_flag_fault,
+    smmu_v2_live_stage2_tlb_invalidate,
+    smmu_v2_live_stream_mask,
+    smmu_v2_live_stage2_read_allocate_reserved,
+    smmu_v2_live_stage2_write_allocate_reserved,
+    smmu_v2_live_stage2_read_write_allocate_reserved,
+    smmu_v2_live_stage2_4k_root_l2,
+    smmu_v2_live_stage2_64k_root_l1,
+);
+
 fn wait32(address: usize, wanted: u32) -> bool {
     for _ in 0..100_000 {
         // SAFETY: `address` is an SMMU status register in this FVP-only test.
@@ -4760,6 +5832,64 @@ struct SmmuLiveFaultSetup {
     stream_id: u32,
     d128: bool,
     table_access_flag: bool,
+    stage1: Option<SmmuLiveStage1Setup>,
+}
+
+#[derive(Clone, Copy)]
+enum SmmuLiveStage1Regime {
+    NonSecure,
+    NonSecurePrivileged,
+    Secure,
+    SecurePrivileged,
+    Realm,
+    RealmPrivileged,
+}
+
+#[derive(Clone, Copy)]
+struct SmmuLiveStage1Setup {
+    regime: SmmuLiveStage1Regime,
+    tcr: u64,
+    mair: u64,
+    attr_index: u8,
+    big_endian: bool,
+}
+
+impl SmmuLiveStage1Setup {
+    const NONSECURE_4K: Self = Self {
+        regime: SmmuLiveStage1Regime::NonSecure,
+        tcr: 25 | (1 << 8) | (1 << 10) | (3 << 12),
+        mair: 0xff,
+        attr_index: 0,
+        big_endian: false,
+    };
+}
+
+trait SmmuLiveStage1Layout<F, G>:
+    aarch64_vmsa::descriptor::DescriptorLayout<
+        aarch64_vmsa::translation::Stage1,
+        G,
+        Format = F,
+        LeafFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage1LeafAttrs,
+        TableFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage1TableAttrs,
+    >
+where
+    F: aarch64_vmsa::descriptor::DescriptorFormat,
+    G: aarch64_vmsa::address::TranslationGranule,
+{
+}
+
+impl<T, F, G> SmmuLiveStage1Layout<F, G> for T
+where
+    F: aarch64_vmsa::descriptor::DescriptorFormat,
+    G: aarch64_vmsa::address::TranslationGranule,
+    T: aarch64_vmsa::descriptor::DescriptorLayout<
+            aarch64_vmsa::translation::Stage1,
+            G,
+            Format = F,
+            LeafFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage1LeafAttrs,
+            TableFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage1TableAttrs,
+        >,
+{
 }
 
 impl SmmuLiveFaultSetup {
@@ -4773,6 +5903,7 @@ impl SmmuLiveFaultSetup {
         stream_id: 0,
         d128: false,
         table_access_flag: false,
+        stage1: None,
     };
 
     const TRANSLATION: Self = Self {
@@ -4817,7 +5948,6 @@ impl SmmuLiveFaultSetup {
         table_access_flag: true,
         ..Self::NONE
     };
-
 }
 
 fn smmu_v3_live_stage2_for<F, G, R, P>(
@@ -4837,14 +5967,9 @@ where
     R: aarch64_vmsa::regime::Stage2Regime,
     P: Copy,
     F: SmmuLiveVmsa64Format
-        + aarch64_vmsa::attrs::AttributeCodec<
-            R,
-            G,
-            aarch64_vmsa::attrs::LiveVmsaConfig<P>,
-        > + aarch64_vmsa::regime::HasRegimeLayout<
-            R,
-            G,
-        > + aarch64_vmsa::descriptor::DescriptorFormat<Raw = u64>
+        + aarch64_vmsa::attrs::AttributeCodec<R, G, aarch64_vmsa::attrs::LiveVmsaConfig<P>>
+        + aarch64_vmsa::regime::HasRegimeLayout<R, G>
+        + aarch64_vmsa::descriptor::DescriptorFormat<Raw = u64>
         + aarch64_vmsa::attrs::SemanticAttributeTypes<
             <R as aarch64_vmsa::regime::TranslationRegime>::Stage,
             R,
@@ -4856,29 +5981,56 @@ where
             Table = aarch64_vmsa::attrs::SemanticVmsa64Stage2TableAttrs,
         >,
     F: aarch64_vmsa::regime::HasRegimeLayout<
-        aarch64_vmsa::config::regime::smmu_v3::NonSecureStreamStage1,
-        G,
-    >,
-    <F as aarch64_vmsa::regime::HasRegimeLayout<
-        aarch64_vmsa::config::regime::smmu_v3::NonSecureStreamStage1,
-        G,
-    >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage1,
+            aarch64_vmsa::config::regime::smmu_v3::NonSecureStreamStage1,
             G,
-            Format = F,
-            LeafFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage1LeafAttrs,
-            TableFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage1TableAttrs,
+        > + aarch64_vmsa::regime::HasRegimeLayout<
+            aarch64_vmsa::config::regime::smmu_v3::NonSecurePrivilegedStreamStage1,
+            G,
+        > + aarch64_vmsa::regime::HasRegimeLayout<
+            aarch64_vmsa::config::regime::smmu_v3::SecureStreamStage1,
+            G,
+        > + aarch64_vmsa::regime::HasRegimeLayout<
+            aarch64_vmsa::config::regime::smmu_v3::SecurePrivilegedStreamStage1,
+            G,
+        > + aarch64_vmsa::regime::HasRegimeLayout<
+            aarch64_vmsa::config::regime::smmu_v3::RealmStreamStage1,
+            G,
+        > + aarch64_vmsa::regime::HasRegimeLayout<
+            aarch64_vmsa::config::regime::smmu_v3::RealmPrivilegedStreamStage1,
+            G,
         >,
     <F as aarch64_vmsa::regime::HasRegimeLayout<
-        R,
+        aarch64_vmsa::config::regime::smmu_v3::NonSecureStreamStage1,
         G,
-    >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            <R as aarch64_vmsa::regime::TranslationRegime>::Stage,
-            G,
-            Format = F,
-            LeafFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage2LeafAttrs,
-            TableFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage2TableAttrs,
-        >,
+    >>::Layout: SmmuLiveStage1Layout<F, G>,
+    <F as aarch64_vmsa::regime::HasRegimeLayout<
+        aarch64_vmsa::config::regime::smmu_v3::NonSecurePrivilegedStreamStage1,
+        G,
+    >>::Layout: SmmuLiveStage1Layout<F, G>,
+    <F as aarch64_vmsa::regime::HasRegimeLayout<
+        aarch64_vmsa::config::regime::smmu_v3::SecureStreamStage1,
+        G,
+    >>::Layout: SmmuLiveStage1Layout<F, G>,
+    <F as aarch64_vmsa::regime::HasRegimeLayout<
+        aarch64_vmsa::config::regime::smmu_v3::SecurePrivilegedStreamStage1,
+        G,
+    >>::Layout: SmmuLiveStage1Layout<F, G>,
+    <F as aarch64_vmsa::regime::HasRegimeLayout<
+        aarch64_vmsa::config::regime::smmu_v3::RealmStreamStage1,
+        G,
+    >>::Layout: SmmuLiveStage1Layout<F, G>,
+    <F as aarch64_vmsa::regime::HasRegimeLayout<
+        aarch64_vmsa::config::regime::smmu_v3::RealmPrivilegedStreamStage1,
+        G,
+    >>::Layout: SmmuLiveStage1Layout<F, G>,
+    <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
+        aarch64_vmsa::descriptor::DescriptorLayout<
+                <R as aarch64_vmsa::regime::TranslationRegime>::Stage,
+                G,
+                Format = F,
+                LeafFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage2LeafAttrs,
+                TableFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage2TableAttrs,
+            >,
 {
     use aarch64_vmsa::address::{Level, PhysAddr};
     use aarch64_vmsa::attrs::{
@@ -4926,6 +6078,9 @@ where
     } else {
         0x2bff_0000
     };
+    if stage1 && unsafe { read32(smmu) } & (1 << 1) == 0 {
+        return TestResult::Skip(vmsa_test_harness::SkipReason::Unsupported);
+    }
     // TF-A configures each architectural register bank independently before
     // handing control to its payload. These are firmware-entry baselines, not
     // a single power-on-reset value.
@@ -4940,9 +6095,18 @@ where
     let reset_memory_is_zero = unsafe {
         core::slice::from_raw_parts(l0 as *const u8, G::SIZE as usize)
             .iter()
-            .chain(core::slice::from_raw_parts(l1 as *const u8, G::SIZE as usize))
-            .chain(core::slice::from_raw_parts(l2 as *const u8, G::SIZE as usize))
-            .chain(core::slice::from_raw_parts(l3 as *const u8, G::SIZE as usize))
+            .chain(core::slice::from_raw_parts(
+                l1 as *const u8,
+                G::SIZE as usize,
+            ))
+            .chain(core::slice::from_raw_parts(
+                l2 as *const u8,
+                G::SIZE as usize,
+            ))
+            .chain(core::slice::from_raw_parts(
+                l3 as *const u8,
+                G::SIZE as usize,
+            ))
             .chain(core::slice::from_raw_parts(stream_table as *const u8, 128))
             .chain(core::slice::from_raw_parts(event_queue as *const u8, 64))
             .chain(core::slice::from_raw_parts(
@@ -5143,12 +6307,11 @@ where
         actual: 0,
     })?;
     let leaf_level = if block_mapping { Level::L2 } else { Level::L3 };
-    let leaf_fields =
-        <F as AttributeCodec<R, G, _>>::encode_leaf(&config, leaf_level, semantic)
-            .map_err(|_| HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            })?;
+    let leaf_fields = <F as AttributeCodec<R, G, _>>::encode_leaf(&config, leaf_level, semantic)
+        .map_err(|_| HarnessError::CrateBehavior {
+            expected: 1,
+            actual: 0,
+        })?;
     let block_mask = (1u64 << 21) - 1;
     let source_output = if block_mapping {
         (source as u64) & !block_mask
@@ -5172,15 +6335,11 @@ where
     let destination_raw = <Layout<F, G, R> as DescriptorLayout<_, G>>::leaf_descriptor(
         PhysAddr(destination_output),
         leaf_level,
-        <F as AttributeCodec<R, G, _>>::encode_leaf(
-            &config,
-            leaf_level,
-            destination_semantic,
-        )
-        .map_err(|_| HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        })?,
+        <F as AttributeCodec<R, G, _>>::encode_leaf(&config, leaf_level, destination_semantic)
+            .map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
+            })?,
     )
     .map_err(|_| HarnessError::CrateBehavior {
         expected: 1,
@@ -5196,27 +6355,20 @@ where
         if block_mapping {
             <F as DescriptorFormat>::write_descriptor((l2 as *mut u64).add(1), source_raw);
             if fault_setup.install_destination {
-                <F as DescriptorFormat>::write_descriptor(
-                    (l2 as *mut u64).add(2),
-                    destination_raw,
-                );
+                <F as DescriptorFormat>::write_descriptor((l2 as *mut u64).add(2), destination_raw);
             }
         } else {
             <F as DescriptorFormat>::write_descriptor(l2 as *mut u64, l2_raw);
             <F as DescriptorFormat>::write_descriptor((l3 as *mut u64).add(1), source_raw);
             if fault_setup.install_destination {
-                <F as DescriptorFormat>::write_descriptor(
-                    (l3 as *mut u64).add(2),
-                    destination_raw,
-                );
+                <F as DescriptorFormat>::write_descriptor((l3 as *mut u64).add(2), destination_raw);
             }
         }
     }
 
     if fault_setup.d128 {
         use aarch64_vmsa::attrs::{
-            DirtyState, SemanticVmsa128Stage2LeafControls,
-            SemanticVmsa128Stage2TableAttrs,
+            DirtyState, SemanticVmsa128Stage2LeafControls, SemanticVmsa128Stage2TableAttrs,
         };
         use aarch64_vmsa::config::format::{LittleEndian, Vmsa128};
         use aarch64_vmsa::config::granule::Granule4KiB;
@@ -5299,10 +6451,7 @@ where
             access_flag: true,
             ..SemanticVmsa128Stage2TableAttrs::default()
         };
-        for (input, output) in [
-            (4096, source as u64),
-            (8192, destination as u64),
-        ] {
+        for (input, output) in [(4096, source as u64), (8192, destination as u64)] {
             mapper
                 .map_semantic_leaf(
                     &d128_config,
@@ -5317,29 +6466,35 @@ where
     }
 
     if stage1 {
-        use aarch64_vmsa::config::regime::smmu_v3::NonSecureStreamStage1;
         use aarch64_vmsa::low_level::raw::{
             FourBit, RawShareability, RawVmsa64PermissionFields, RawVmsa64Stage1LeafAttrs,
             RawVmsa64Stage1TableAttrs, TableAp, ThreeBit,
         };
-        type Stage1Layout<F, G> = <F as HasRegimeLayout<NonSecureStreamStage1, G>>::Layout;
+        let stage1_setup = fault_setup
+            .stage1
+            .unwrap_or(SmmuLiveStage1Setup::NONSECURE_4K);
+        let nonsecure_output = matches!(
+            stage1_setup.regime,
+            SmmuLiveStage1Regime::NonSecure | SmmuLiveStage1Regime::NonSecurePrivileged
+        );
         let table = RawVmsa64Stage1TableAttrs {
             access_flag: true,
             privileged_execute_never_limit: false,
             unprivileged_execute_never_limit: false,
             ap_table: TableAp::from_bits(0).map_err(|_| HarnessError::InvalidState)?,
-            ns_table: true,
+            ns_table: nonsecure_output,
             software: FourBit::new(0).map_err(|_| HarnessError::InvalidState)?,
         };
-        let leaf = || {
+        let leaf = |ap| {
             Ok::<_, HarnessError>(RawVmsa64Stage1LeafAttrs {
-                attr_index: FourBit::new(0).map_err(|_| HarnessError::InvalidState)?,
-                ns: true,
+                attr_index: FourBit::new(stage1_setup.attr_index)
+                    .map_err(|_| HarnessError::InvalidState)?,
+                ns: nonsecure_output,
                 permissions: RawVmsa64PermissionFields {
                     // AP[2:1] = 0b01 permits both privileged and unprivileged
                     // reads and writes, so the test does not depend on the
                     // requester's privilege attribute.
-                    primary: FourBit::new(1).map_err(|_| HarnessError::InvalidState)?,
+                    primary: FourBit::new(ap).map_err(|_| HarnessError::InvalidState)?,
                     dirty: false,
                     overlay: ThreeBit::new(0).map_err(|_| HarnessError::InvalidState)?,
                 },
@@ -5352,45 +6507,72 @@ where
                 software: FourBit::new(0).map_err(|_| HarnessError::InvalidState)?,
             })
         };
-        let l1_raw = <Stage1Layout<F, G> as DescriptorLayout<_, G>>::table_descriptor(
-            TableAddr::new(l2 as u64).map_err(|_| HarnessError::InvalidState)?,
-            l1_to_l2,
-            table,
-        )
-        .map_err(|_| HarnessError::InvalidState)?;
-        let l2_raw = <Stage1Layout<F, G> as DescriptorLayout<_, G>>::table_descriptor(
-            TableAddr::new(l3 as u64).map_err(|_| HarnessError::InvalidState)?,
-            l2_to_l3,
-            table,
-        )
-        .map_err(|_| HarnessError::InvalidState)?;
-        let source_raw = <Stage1Layout<F, G> as DescriptorLayout<_, G>>::leaf_descriptor(
-            PhysAddr(source as u64),
-            Level::L3,
-            leaf()?,
-        )
-        .map_err(|_| HarnessError::InvalidState)?;
-        let destination_raw = <Stage1Layout<F, G> as DescriptorLayout<_, G>>::leaf_descriptor(
-            PhysAddr(destination as u64),
-            Level::L3,
-            leaf()?,
-        )
-        .map_err(|_| HarnessError::InvalidState)?;
-        unsafe {
-            <F as DescriptorFormat>::write_descriptor(l1 as *mut u64, l1_raw);
-            <F as DescriptorFormat>::write_descriptor(l2 as *mut u64, l2_raw);
-            <F as DescriptorFormat>::write_descriptor((l3 as *mut u64).add(1), source_raw);
-            <F as DescriptorFormat>::write_descriptor(
-                (l3 as *mut u64).add(2),
-                destination_raw,
-            );
+        macro_rules! install_stage1 {
+            ($regime:ty) => {{
+                type Stage1Layout<F, G> = <F as HasRegimeLayout<$regime, G>>::Layout;
+                let l1_raw = <Stage1Layout<F, G> as DescriptorLayout<_, G>>::table_descriptor(
+                    TableAddr::new(l2 as u64).map_err(|_| HarnessError::InvalidState)?,
+                    l1_to_l2,
+                    table,
+                )
+                .map_err(|_| HarnessError::InvalidState)?;
+                let l2_raw = <Stage1Layout<F, G> as DescriptorLayout<_, G>>::table_descriptor(
+                    TableAddr::new(l3 as u64).map_err(|_| HarnessError::InvalidState)?,
+                    l2_to_l3,
+                    table,
+                )
+                .map_err(|_| HarnessError::InvalidState)?;
+                let source_raw = <Stage1Layout<F, G> as DescriptorLayout<_, G>>::leaf_descriptor(
+                    PhysAddr(source as u64),
+                    Level::L3,
+                    leaf(1)?,
+                )
+                .map_err(|_| HarnessError::InvalidState)?;
+                let destination_raw =
+                    <Stage1Layout<F, G> as DescriptorLayout<_, G>>::leaf_descriptor(
+                        PhysAddr(destination as u64),
+                        Level::L3,
+                        leaf(1)?,
+                    )
+                    .map_err(|_| HarnessError::InvalidState)?;
+                unsafe {
+                    <F as DescriptorFormat>::write_descriptor(l1 as *mut u64, l1_raw);
+                    <F as DescriptorFormat>::write_descriptor(l2 as *mut u64, l2_raw);
+                    <F as DescriptorFormat>::write_descriptor((l3 as *mut u64).add(1), source_raw);
+                    <F as DescriptorFormat>::write_descriptor(
+                        (l3 as *mut u64).add(2),
+                        destination_raw,
+                    );
+                }
+            }};
+        }
+        use aarch64_vmsa::config::regime::smmu_v3;
+        match stage1_setup.regime {
+            SmmuLiveStage1Regime::NonSecure => {
+                install_stage1!(smmu_v3::NonSecureStreamStage1)
+            }
+            SmmuLiveStage1Regime::NonSecurePrivileged => {
+                install_stage1!(smmu_v3::NonSecurePrivilegedStreamStage1)
+            }
+            SmmuLiveStage1Regime::Secure => install_stage1!(smmu_v3::SecureStreamStage1),
+            SmmuLiveStage1Regime::SecurePrivileged => {
+                install_stage1!(smmu_v3::SecurePrivilegedStreamStage1)
+            }
+            SmmuLiveStage1Regime::Realm => install_stage1!(smmu_v3::RealmStreamStage1),
+            SmmuLiveStage1Regime::RealmPrivileged => {
+                install_stage1!(smmu_v3::RealmPrivilegedStreamStage1)
+            }
         }
     }
 
     // Linear stream table, SID 0, stage-2-only. VTCR describes a 39-bit, 4 KiB,
     // inner-shareable, WBWA walk rooted at level 1.
     unsafe {
-        let root = if secure_stream {
+        let root = if stage1 && root_at_l1 {
+            l1
+        } else if stage1 {
+            l2
+        } else if secure_stream {
             l0
         } else if root_at_l1 {
             l1
@@ -5398,17 +6580,27 @@ where
             l2
         };
         if stage1 {
+            let stage1_setup = fault_setup
+                .stage1
+                .unwrap_or(SmmuLiveStage1Setup::NONSECURE_4K);
             // Linear CD table with one context, stage-1-only translation.
             (stream_entry as *mut u64).write(
                 (1u64 | (5u64 << 1) | ((context_descriptor as u64) & 0x000f_ffff_ffff_ffc0))
                     .to_le(),
             );
             (stream_entry as *mut u64).add(1).write(
-                ((1u64 << 2) | (1u64 << 4) | (3u64 << 6) | (1u64 << 19) | (1u64 << 44)).to_le(),
+                (((secure_stream as u64) << 1)
+                    | (1u64 << 2)
+                    | (1u64 << 4)
+                    | (3u64 << 6)
+                    | (1u64 << 19)
+                    | ((secure_stream as u64) << 31)
+                    | (1u64 << 44))
+                    .to_le(),
             );
-            let tcr = 25u64 | (1 << 8) | (1 << 10) | (3 << 12);
             (context_entry as *mut u64).write(
-                (tcr | ((big_endian as u64) << 15)
+                (stage1_setup.tcr
+                    | ((stage1_setup.big_endian as u64) << 15)
                     | (1u64 << 30)
                     | (1u64 << 31)
                     | (2u64 << 32)
@@ -5424,7 +6616,7 @@ where
                 .write(((root as u64) & 0x000f_ffff_ffff_fff0).to_le());
             (context_entry as *mut u64)
                 .add(3)
-                .write(0xffu64.to_le());
+                .write(stage1_setup.mair.to_le());
         } else {
             (stream_entry as *mut u64).write((1u64 | (6u64 << 1)).to_le());
             (stream_entry as *mut u64)
@@ -5440,11 +6632,7 @@ where
             );
             (stream_entry as *mut u64)
                 .add(3)
-                .write(
-                    (((root as u64) & 0x000f_ffff_ffff_ffe0)
-                        | ((F::S2DS as u64) << 3))
-                        .to_le(),
-                );
+                .write((((root as u64) & 0x000f_ffff_ffff_ffe0) | ((F::S2DS as u64) << 3)).to_le());
             if secure_stream {
                 /* Secure STEs select the S-EL2 stream world and carry a
                  * distinct Secure-IPA geometry/root in words 4 and 6. */
@@ -5569,10 +6757,12 @@ where
         } else {
             G::SIZE
         };
-        let destination_iova = fault_setup.destination_iova.unwrap_or_else(|| if block_mapping {
-            (2u64 << 21) | ((destination as u64) & block_mask)
-        } else {
-            G::SIZE * 2
+        let destination_iova = fault_setup.destination_iova.unwrap_or_else(|| {
+            if block_mapping {
+                (2u64 << 21) | ((destination as u64) & block_mask)
+            } else {
+                G::SIZE * 2
+            }
         });
         write64(user + 0x28, source_iova);
         write64(user + 0x30, source_iova + 4095);
@@ -5925,6 +7115,260 @@ pub fn smmu_v3_live_stage1(
         false,
         false,
         (),
+    )
+}
+
+pub fn smmu_v3_live_stage1_16k(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    use aarch64_vmsa::config::format::{LittleEndian, Vmsa64};
+    use aarch64_vmsa::config::granule::Granule16KiB;
+    smmu_v3_live_stage2_for::<
+        Vmsa64<LittleEndian>,
+        Granule16KiB,
+        aarch64_vmsa::config::regime::smmu_v3::NonSecureIpaStage2,
+        (),
+    >(
+        context,
+        0,
+        true,
+        false,
+        SmmuLiveFaultSetup {
+            stage1: Some(SmmuLiveStage1Setup {
+                tcr: 25 | (2 << 6) | (1 << 8) | (1 << 10) | (3 << 12),
+                ..SmmuLiveStage1Setup::NONSECURE_4K
+            }),
+            ..SmmuLiveFaultSetup::NONE
+        },
+        true,
+        false,
+        false,
+        false,
+        (),
+    )
+}
+
+pub fn smmu_v3_live_stage1_64k(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    use aarch64_vmsa::config::format::{LittleEndian, Vmsa64};
+    use aarch64_vmsa::config::granule::Granule64KiB;
+    smmu_v3_live_stage2_for::<
+        Vmsa64<LittleEndian>,
+        Granule64KiB,
+        aarch64_vmsa::config::regime::smmu_v3::NonSecureIpaStage2,
+        (),
+    >(
+        context,
+        0,
+        false,
+        false,
+        SmmuLiveFaultSetup {
+            stage1: Some(SmmuLiveStage1Setup {
+                tcr: 22 | (1 << 6) | (1 << 8) | (1 << 10) | (3 << 12),
+                ..SmmuLiveStage1Setup::NONSECURE_4K
+            }),
+            ..SmmuLiveFaultSetup::NONE
+        },
+        true,
+        false,
+        false,
+        false,
+        (),
+    )
+}
+
+pub fn smmu_v3_live_stage1_big_endian(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    use aarch64_vmsa::config::format::{BigEndian, Vmsa64};
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    smmu_v3_live_stage2_for::<
+        Vmsa64<BigEndian>,
+        Granule4KiB,
+        aarch64_vmsa::config::regime::smmu_v3::NonSecureIpaStage2,
+        (),
+    >(
+        context,
+        0,
+        true,
+        true,
+        SmmuLiveFaultSetup {
+            stage1: Some(SmmuLiveStage1Setup {
+                big_endian: true,
+                ..SmmuLiveStage1Setup::NONSECURE_4K
+            }),
+            ..SmmuLiveFaultSetup::NONE
+        },
+        true,
+        false,
+        false,
+        false,
+        (),
+    )
+}
+
+pub fn smmu_v3_live_stage1_privileged(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    use aarch64_vmsa::config::format::{LittleEndian, Vmsa64};
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    smmu_v3_live_stage2_for::<
+        Vmsa64<LittleEndian>,
+        Granule4KiB,
+        aarch64_vmsa::config::regime::smmu_v3::NonSecureIpaStage2,
+        (),
+    >(
+        context,
+        0,
+        true,
+        false,
+        SmmuLiveFaultSetup {
+            stage1: Some(SmmuLiveStage1Setup {
+                regime: SmmuLiveStage1Regime::NonSecurePrivileged,
+                ..SmmuLiveStage1Setup::NONSECURE_4K
+            }),
+            ..SmmuLiveFaultSetup::NONE
+        },
+        true,
+        false,
+        false,
+        false,
+        (),
+    )
+}
+
+pub fn smmu_v3_live_stage1_mair_index_7(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    smmu_v3_live_stage1_mair_index(context, 7)
+}
+
+pub fn smmu_v3_live_stage1_mair_index_1(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    smmu_v3_live_stage1_mair_index(context, 1)
+}
+
+pub fn smmu_v3_live_stage1_mair_index_2(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    smmu_v3_live_stage1_mair_index(context, 2)
+}
+
+pub fn smmu_v3_live_stage1_mair_index_3(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    smmu_v3_live_stage1_mair_index(context, 3)
+}
+
+pub fn smmu_v3_live_stage1_mair_index_4(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    smmu_v3_live_stage1_mair_index(context, 4)
+}
+
+pub fn smmu_v3_live_stage1_mair_index_5(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    smmu_v3_live_stage1_mair_index(context, 5)
+}
+
+pub fn smmu_v3_live_stage1_mair_index_6(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    smmu_v3_live_stage1_mair_index(context, 6)
+}
+
+fn smmu_v3_live_stage1_mair_index(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+    index: u8,
+) -> TestResult {
+    use aarch64_vmsa::config::format::{LittleEndian, Vmsa64};
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    smmu_v3_live_stage2_for::<
+        Vmsa64<LittleEndian>,
+        Granule4KiB,
+        aarch64_vmsa::config::regime::smmu_v3::NonSecureIpaStage2,
+        (),
+    >(
+        context,
+        0,
+        true,
+        false,
+        SmmuLiveFaultSetup {
+            stage1: Some(SmmuLiveStage1Setup {
+                mair: 0xffu64 << (u32::from(index) * 8),
+                attr_index: index,
+                ..SmmuLiveStage1Setup::NONSECURE_4K
+            }),
+            ..SmmuLiveFaultSetup::NONE
+        },
+        true,
+        false,
+        false,
+        false,
+        (),
+    )
+}
+
+pub fn smmu_v3_live_secure_stage1(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    use aarch64_vmsa::config::format::{LittleEndian, Vmsa64};
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    smmu_v3_live_stage2_for::<
+        Vmsa64<LittleEndian>,
+        Granule4KiB,
+        aarch64_vmsa::config::regime::smmu_v3::SecureIpaStage2,
+        aarch64_vmsa::attrs::SecureSelectablePa,
+    >(
+        context,
+        0,
+        true,
+        false,
+        SmmuLiveFaultSetup {
+            stage1: Some(SmmuLiveStage1Setup {
+                regime: SmmuLiveStage1Regime::Secure,
+                ..SmmuLiveStage1Setup::NONSECURE_4K
+            }),
+            ..SmmuLiveFaultSetup::NONE
+        },
+        true,
+        false,
+        true,
+        false,
+        aarch64_vmsa::attrs::SecureSelectablePa::Secure,
+    )
+}
+
+pub fn smmu_v3_live_realm_stage1(
+    context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
+) -> TestResult {
+    use aarch64_vmsa::config::format::{LittleEndian, Vmsa64};
+    use aarch64_vmsa::config::granule::Granule4KiB;
+    smmu_v3_live_stage2_for::<
+        Vmsa64<LittleEndian>,
+        Granule4KiB,
+        aarch64_vmsa::config::regime::smmu_v3::RealmIpaStage2,
+        aarch64_vmsa::attrs::RealmOrNonSecurePa,
+    >(
+        context,
+        0,
+        true,
+        false,
+        SmmuLiveFaultSetup {
+            stage1: Some(SmmuLiveStage1Setup {
+                regime: SmmuLiveStage1Regime::Realm,
+                ..SmmuLiveStage1Setup::NONSECURE_4K
+            }),
+            ..SmmuLiveFaultSetup::NONE
+        },
+        true,
+        false,
+        false,
+        true,
+        aarch64_vmsa::attrs::RealmOrNonSecurePa::Realm,
     )
 }
 

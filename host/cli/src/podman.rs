@@ -4,6 +4,7 @@ use std::path::Path;
 use std::process::{Command, ExitStatus, Output, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::platform::Platform;
 use crate::settings::{CACHE_VOLUME, CONTAINER_IMAGE, DEFAULT_VMSA_URL, SHUTDOWN_TIMEOUT};
 
 #[derive(Debug)]
@@ -163,21 +164,36 @@ pub fn validate_mounts(repository: &Path, crate_path: &Path) -> Result<(), Podma
     Ok(())
 }
 
-pub fn validate_fvp() -> Result<(), PodmanError> {
-    fvp_version().map(|_| ())
+pub fn validate_fvp(repository: &Path) -> Result<(), PodmanError> {
+    for platform in Platform::ALL {
+        platform_version(repository, platform)?;
+    }
+    Ok(())
 }
 
-pub fn fvp_version() -> Result<String, PodmanError> {
-    let output = command_output([
-        "run",
-        "--rm",
-        "--entrypoint",
-        "FVP_Base_RevC-2xAEMvA",
-        CONTAINER_IMAGE,
-        "--version",
+pub fn platform_version(repository: &Path, platform: Platform) -> Result<String, PodmanError> {
+    let output = command_output_os([
+        OsString::from("run"),
+        OsString::from("--rm"),
+        OsString::from("--mount"),
+        mount_argument(repository, "/workspace/tests", true),
+        OsString::from("--mount"),
+        OsString::from(format!("type=volume,src={CACHE_VOLUME},dst=/cache")),
+        OsString::from("--workdir"),
+        OsString::from("/workspace/tests"),
+        OsString::from("--entrypoint"),
+        OsString::from("python3"),
+        OsString::from(CONTAINER_IMAGE),
+        OsString::from("-B"),
+        OsString::from("/workspace/tests/container/providers.py"),
+        OsString::from("version"),
+        OsString::from(platform.as_str()),
     ])?;
     if !output.status.success() {
-        return Err(PodmanError::command("FVP startup check", &output));
+        return Err(PodmanError::command(
+            &format!("{} provisioning/version check", platform.as_str()),
+            &output,
+        ));
     }
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -272,6 +288,7 @@ pub fn run_command(
     repository: &Path,
     crate_path: &Path,
     output: &Path,
+    platform: &str,
     target: &str,
     filter: Option<&str>,
     firmware_cache_key: &str,
@@ -281,6 +298,7 @@ pub fn run_command(
         repository,
         crate_path,
         output,
+        platform,
         target,
         filter,
         "--require-cache",
@@ -294,6 +312,7 @@ pub fn prepare_command(
     repository: &Path,
     crate_path: &Path,
     output: &Path,
+    platform: &str,
     target: &str,
 ) -> Command {
     container_command(
@@ -301,6 +320,7 @@ pub fn prepare_command(
         repository,
         crate_path,
         output,
+        platform,
         target,
         None,
         "--prepare-only",
@@ -312,6 +332,7 @@ fn container_command(
     repository: &Path,
     crate_path: &Path,
     output: &Path,
+    platform: &str,
     target: &str,
     filter: Option<&str>,
     mode: &str,
@@ -340,7 +361,9 @@ fn container_command(
         .arg("-B")
         .arg("/workspace/tests/container/run.py")
         .arg(target)
-        .arg(mode);
+        .arg(mode)
+        .arg("--platform")
+        .arg(platform);
     if let Some(value) = filter {
         command.arg("--filter").arg(value);
     }

@@ -203,6 +203,71 @@ fn descriptor_endian_storage(_: &mut TestContext<'_, CurrentEnvironment>) -> Tes
 fn smmu_v2_stage2_exact_vector(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     smmu::smmu_v2_stage2_exact_vector()
 }
+fn smmu_v2_live_capabilities(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_live_capabilities()
+}
+fn smmu_v2_live_stage2_4k(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_live_stage2_4k()
+}
+fn smmu_v2_live_stage2_4k_big_endian(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_live_stage2_4k_big_endian()
+}
+fn smmu_v2_live_stage2_block(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_live_stage2_block()
+}
+fn smmu_v2_live_stage2_64k(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_live_stage2_64k()
+}
+fn smmu_v2_live_stage2_64k_block(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_live_stage2_64k_block()
+}
+fn smmu_v2_live_stage2_read_permission_fault(
+    _: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v2_live_stage2_read_permission_fault()
+}
+fn smmu_v2_live_stage2_write_permission_fault(
+    _: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v2_live_stage2_write_permission_fault()
+}
+fn smmu_v2_live_stage2_translation_fault(
+    _: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v2_live_stage2_translation_fault()
+}
+fn smmu_v2_live_stage2_access_flag_fault(
+    _: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v2_live_stage2_access_flag_fault()
+}
+fn smmu_v2_live_stage2_tlb_invalidate(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_live_stage2_tlb_invalidate()
+}
+fn smmu_v2_live_stream_mask(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_live_stream_mask()
+}
+fn smmu_v2_live_stage2_read_allocate_reserved(
+    _: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v2_live_stage2_read_allocate_reserved()
+}
+fn smmu_v2_live_stage2_write_allocate_reserved(
+    _: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v2_live_stage2_write_allocate_reserved()
+}
+fn smmu_v2_live_stage2_read_write_allocate_reserved(
+    _: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v2_live_stage2_read_write_allocate_reserved()
+}
+fn smmu_v2_live_stage2_4k_root_l2(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_live_stage2_4k_root_l2()
+}
+fn smmu_v2_live_stage2_64k_root_l1(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v2_live_stage2_64k_root_l1()
+}
 fn smmu_regime_layout_matrix(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     smmu::smmu_regime_layout_matrix()
 }
@@ -342,6 +407,53 @@ fn smmu_v3_live_stage2_block(context: &mut TestContext<'_, CurrentEnvironment>) 
 }
 fn smmu_v3_live_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     smmu::smmu_v3_live_stage1(context)
+}
+fn smmu_v3_live_stage1_16k(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_stage1_16k(context)
+}
+fn smmu_v3_live_stage1_64k(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_stage1_64k(context)
+}
+fn smmu_v3_live_stage1_big_endian(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_stage1_big_endian(context)
+}
+fn smmu_v3_live_stage1_privileged(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    smmu::smmu_v3_live_stage1_privileged(context)
+}
+fn smmu_v3_live_stage1_mair_index_7(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage1_mair_index_7(context)
+}
+fn smmu_v3_live_stage1_mair_index_1(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage1_mair_index_1(context)
+}
+fn smmu_v3_live_stage1_mair_index_2(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage1_mair_index_2(context)
+}
+fn smmu_v3_live_stage1_mair_index_3(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage1_mair_index_3(context)
+}
+fn smmu_v3_live_stage1_mair_index_4(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage1_mair_index_4(context)
+}
+fn smmu_v3_live_stage1_mair_index_5(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage1_mair_index_5(context)
+}
+fn smmu_v3_live_stage1_mair_index_6(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    smmu::smmu_v3_live_stage1_mair_index_6(context)
 }
 fn smmu_v3_live_capabilities(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     smmu::smmu_v3_live_capabilities()

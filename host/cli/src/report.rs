@@ -80,11 +80,7 @@ fn write_target(
     detail: Option<&str>,
 ) {
     let target = terminal::paint(color, Tone::Active, &format!("{:<14}", target.as_str()));
-    let outcome = terminal::paint(
-        color,
-        outcome_tone(outcome),
-        &format!("{outcome:<11}"),
-    );
+    let outcome = terminal::paint(color, outcome_tone(outcome), &format!("{outcome:<11}"));
     let passed = terminal::paint(
         color,
         count_tone(counts.passed, Tone::Success),
@@ -194,9 +190,7 @@ mod tests {
         ]);
 
         assert_eq!(text.matches("secure-el2").count(), 1);
-        assert!(text.contains(
-            "secure-el2     timeout     passed=64 failed=2 skipped=0"
-        ));
+        assert!(text.contains("secure-el2     timeout     passed=64 failed=2 skipped=0"));
         assert!(text.contains("total          passed=64 failed=2 skipped=0"));
     }
 
@@ -218,9 +212,7 @@ mod tests {
         ]);
 
         assert_eq!(text.matches("root-el3").count(), 1);
-        assert!(text.contains(
-            "root-el3       build-error passed=0 failed=0 skipped=0"
-        ));
+        assert!(text.contains("root-el3       build-error passed=0 failed=0 skipped=0"));
         assert!(!text.contains("first build failed"));
         assert!(!text.contains("second build failed"));
     }

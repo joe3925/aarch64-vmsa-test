@@ -5,6 +5,8 @@ pub const CACHE_VOLUME: &str = "aarch64-vmsa-fvp-cache";
 pub const DEFAULT_VMSA_URL: &str = "https://github.com/joe3925/aarch64-vmsa";
 
 pub const TF_A_REVISION: &str = "1d5aa939bc8d3d892e2ed9945fa50e36a1a924cc";
+pub const RD_TF_A_REVISION: &str = TF_A_REVISION;
+pub const SCP_REVISION: &str = "62bc3f079d1ae5780df1459d4c66de2dbee54359";
 pub const TF_A_TESTS_REVISION: &str = "3b3d800133081b48482b1205a32671b82bc2b640";
 pub const HAFNIUM_REVISION: &str = "ce12c6e53838f1cf07d50b616b72db57a81539a4";
 pub const TF_RMM_REVISION: &str = "13a82ef5f3bbe4181c8c73a898b6ccdd61e12dae";
@@ -12,6 +14,7 @@ pub const TF_RMM_REVISION: &str = "13a82ef5f3bbe4181c8c73a898b6ccdd61e12dae";
 pub const PREPARATION_TIMEOUT: Duration = Duration::from_secs(900);
 pub const BUILD_TIMEOUT: Duration = Duration::from_secs(300);
 pub const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+pub const RD_N2_STARTUP_TIMEOUT: Duration = Duration::from_secs(180);
 pub const REALM_STAGE2_STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 pub const SUITE_TIMEOUT: Duration = Duration::from_secs(300);
 pub const TEST_TIMEOUT: Duration = Duration::from_secs(15);
