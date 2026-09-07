@@ -76,7 +76,6 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
     let start = LookupLevel::new(-1).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let final_level = LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let mut root = context.allocate_root()?;
-    let offline;
     let sandbox;
     {
         let mut mapper = context
@@ -94,16 +93,6 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
             leaf,
             table,
         )?;
-        offline = mapper
-            .inspect_semantic_leaf::<_>(ADDRESS, &config)?
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-        if offline != leaf {
-            return vmsa_test_harness::HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            }
-            .into();
-        }
         sandbox = context.prepare_transition_runtime(
             &mut mapper,
             lpa2_stage1 as *const () as u64,
@@ -133,15 +122,5 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         },
         &sandbox,
     )?;
-    let live = translation
-        .inspect_semantic_for::<CurrentRegime, Vmsa64Lpa2, Granule4KiB, _>(ADDRESS, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if live != offline {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)
 }

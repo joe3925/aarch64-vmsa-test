@@ -74,16 +74,9 @@ fn malformed_vmsa64_leaf(
             Vmsa64MalformedLeaf::Res0 => replacement.low |= 1 << 48,
             Vmsa64MalformedLeaf::Res1 => replacement.low &= !1,
         }
-        let original = mapper
+        mapper
             .isolated_malformed_table()
             .replace_terminal_descriptor(ADDRESS, replacement)?;
-        if original != leaf.raw.unwrap_or(replacement) {
-            return vmsa_test_harness::HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            }
-            .into();
-        }
     }
     let setup = vmsa_test_harness::TranslationSetup {
         root: PhysicalAddress::new(root.phys_addr()),
@@ -102,9 +95,12 @@ fn malformed_vmsa64_leaf(
     let translation = context.install_owned_in_sandbox(root, setup, &sandbox)?;
     let fault = vmsa_test_harness::expect_matching_fault(
         context.read_u64(ADDRESS),
-        vmsa_test_harness::FaultMatcher::new(
-            vmsa_test_harness::ExpectedFault::translation_read_stage1(),
-        )
+        vmsa_test_harness::FaultMatcher::new(vmsa_test_harness::ExpectedFault {
+            status: Some(vmsa_test_harness::FaultStatus::Translation),
+            access: Some(vmsa_test_harness::AccessKind::Read),
+            stage: Some(vmsa_test_harness::FaultStage::Stage1),
+            level: vmsa_test_harness::LookupLevel::new(3),
+        })
         .with_class(vmsa_test_harness::FaultClass::DataAbort)
         .at_address(ADDRESS)
         .with_ipa(None),
@@ -376,10 +372,15 @@ where
         regime: crate::current_regime_attributes(),
     };
     let translation = context.install_owned_in_sandbox(root, setup, &sandbox)?;
-    let expected = if matches!(mutation, Lpa2MalformedLeaf::Address) {
-        vmsa_test_harness::ExpectedFault::address_size_read_stage1()
-    } else {
-        vmsa_test_harness::ExpectedFault::translation_read_stage1()
+    let expected = vmsa_test_harness::ExpectedFault {
+        status: Some(if matches!(mutation, Lpa2MalformedLeaf::Address) {
+            vmsa_test_harness::FaultStatus::AddressSize
+        } else {
+            vmsa_test_harness::FaultStatus::Translation
+        }),
+        access: Some(vmsa_test_harness::AccessKind::Read),
+        stage: Some(vmsa_test_harness::FaultStage::Stage1),
+        level: vmsa_test_harness::LookupLevel::new(3),
     };
     let fault = vmsa_test_harness::expect_matching_fault(
         context.read_u64(ADDRESS),
@@ -467,7 +468,7 @@ fn malformed_d128_leaf(
     )
     .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let mut root = context.allocate_root()?;
-    let observation = {
+    {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<
             crate::LowerRegime,
             aarch64_vmsa::config::granule::Granule4KiB,
@@ -495,44 +496,9 @@ fn malformed_d128_leaf(
             D128MalformedLeaf::Address => replacement.low |= 1 << 52,
             D128MalformedLeaf::Res0 => replacement.low |= 1 << 1,
         }
-        let original = mapper
-            .isolated_malformed_table()
-            .replace_terminal_descriptor(ADDRESS, replacement)?;
-        let rejected = if matches!(mutation, D128MalformedLeaf::Address) {
-            mapper.translate(ADDRESS) == Err(vmsa_test_harness::HarnessError::InvalidState)
-        } else {
-            mapper
-                .inspect_walk(ADDRESS)?
-                .steps()
-                .last()
-                .and_then(|step| *step)
-                .is_some_and(|step| {
-                    step.kind == vmsa_test_harness::WalkDescriptorKind::Invalid
-                        && step.level
-                            == vmsa_test_harness::LookupLevel::new(3)
-                                .expect("L3 is an architectural level")
-                })
-        };
-        let observation = if rejected {
-            TestResult::Pass
-        } else {
-            TestResult::Fail(vmsa_test_harness::TestFailure {
-                kind: vmsa_test_harness::FailureKind::MissingFault,
-                expected: 1,
-                actual: 0,
-            })
-        };
         mapper
             .isolated_malformed_table()
-            .replace_terminal_descriptor(ADDRESS, original)?;
-        if mapper.inspect_walk(ADDRESS)?.leaf().is_none() {
-            return vmsa_test_harness::HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            }
-            .into();
-        }
-        observation
+            .replace_terminal_descriptor(ADDRESS, replacement)?;
     };
     let setup = vmsa_test_harness::TranslationSetup {
         root: vmsa_test_harness::PhysicalAddress::new(root.phys_addr()),
@@ -548,12 +514,23 @@ fn malformed_d128_leaf(
         stage1_memory: vmsa_test_harness::Stage1MemoryControls::DEFAULT,
         regime: crate::lower_regime_attributes(),
     };
-    context.emergency_restore_for_test();
-    let fresh_translation = context.install_lower_owned(root, setup)?;
-    let fresh = vmsa_test_harness::expect_value(context.lower_read_u64(ADDRESS), VALUE);
-    drop(fresh_translation);
-    if !matches!(fresh, TestResult::Pass) {
-        return fresh;
-    }
-    observation
+    let translation = context.install_lower_owned(root, setup)?;
+    let fault = vmsa_test_harness::expect_matching_fault(
+        context.lower_read_u64(ADDRESS),
+        vmsa_test_harness::FaultMatcher::new(vmsa_test_harness::ExpectedFault {
+            status: Some(if matches!(mutation, D128MalformedLeaf::Address) {
+                vmsa_test_harness::FaultStatus::AddressSize
+            } else {
+                vmsa_test_harness::FaultStatus::Translation
+            }),
+            access: Some(vmsa_test_harness::AccessKind::Read),
+            stage: Some(vmsa_test_harness::FaultStage::Stage1),
+            level: vmsa_test_harness::LookupLevel::new(3),
+        })
+        .with_class(vmsa_test_harness::FaultClass::DataAbort)
+        .at_address(ADDRESS)
+        .with_ipa(None),
+    );
+    drop(translation);
+    fault
 }

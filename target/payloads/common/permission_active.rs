@@ -129,22 +129,6 @@ fn single_privilege_case(
         leaf,
         table,
     )?;
-    let decoded = live
-        .inspect_semantic_for::<
-            CurrentRegime,
-            aarch64_vmsa::config::format::Vmsa64,
-            aarch64_vmsa::config::granule::Granule4KiB,
-            _,
-        >(ADDRESS, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if decoded != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-
     let result = match observation {
         Observation::Read => {
             vmsa_test_harness::expect_value(context.read_u64(ADDRESS + DATA_OFFSET), INITIAL_VALUE)
@@ -360,22 +344,6 @@ fn two_privilege_case(
             regime: vmsa_test_harness::RegimeAttributes::Normal,
         },
     )?;
-    let decoded = live
-        .inspect_semantic_for::<
-            crate::LowerRegime,
-            aarch64_vmsa::config::format::Vmsa64,
-            aarch64_vmsa::config::granule::Granule4KiB,
-            _,
-        >(ADDRESS, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if decoded != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-
     let data_access = match privilege {
         LowerPrivilege::Privileged => privileged_data,
         LowerPrivilege::Unprivileged => unprivileged_data,

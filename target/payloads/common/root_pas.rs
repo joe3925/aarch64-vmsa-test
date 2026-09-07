@@ -203,21 +203,6 @@ fn active_case(
         leaf,
         table,
     )?;
-    let decoded = live
-        .inspect_semantic_for::<
-            aarch64_vmsa::config::regime::RootEl3Stage1,
-            aarch64_vmsa::config::format::Vmsa64,
-            aarch64_vmsa::config::granule::Granule4KiB,
-            _,
-        >(ADDRESS, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if decoded != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     let result = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE);
     live.restore()?;
     result

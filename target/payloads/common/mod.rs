@@ -1559,7 +1559,14 @@ impl AdapterCore {
                         )
                     }
                 }
-                .map_err(|_| AdapterError::ArchitecturalState)?;
+                .map_err(|error| {
+                    use core::fmt::Write;
+                    let _ = writeln!(
+                        self.reporter,
+                        "VMSA-INFRA CRUMB lower-d128-runtime-error={error:?}"
+                    );
+                    lower_runtime_adapter_error(error)
+                })?;
             } else {
                 let prepared = prepare_lower_runtime::<R>(
                     &mut self.memory,
@@ -1724,15 +1731,106 @@ impl AdapterCore {
         }
     }
 
-    pub fn switch_lower_stage1_root(
+    pub fn switch_lower_stage1_root<R>(
         &mut self,
         token: InstalledTranslation,
         root: vmsa_test_harness::PhysicalAddress,
         asid: vmsa_test_harness::Asid,
-    ) -> Result<InstalledTranslation, AdapterError> {
+    ) -> Result<InstalledTranslation, AdapterError>
+    where
+        R: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>
+            + vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule16KiB>
+            + vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule64KiB>,
+        aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
+            > + aarch64_vmsa::descriptor::HasLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule16KiB,
+            > + aarch64_vmsa::descriptor::HasLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule64KiB,
+            >,
+        aarch64_vmsa::config::format::Vmsa64Lpa2: aarch64_vmsa::descriptor::HasLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
+            > + aarch64_vmsa::descriptor::HasLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule16KiB,
+            > + aarch64_vmsa::descriptor::HasLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule64KiB,
+            >,
+        crate::LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
+            R,
+            aarch64_vmsa::config::granule::Granule4KiB,
+        >: Copy + PartialEq,
+        crate::LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
+            R,
+            aarch64_vmsa::config::granule::Granule16KiB,
+        >: Copy + PartialEq,
+        crate::LeafFieldsOf<
+            aarch64_vmsa::config::format::Vmsa64,
+            R,
+            aarch64_vmsa::config::granule::Granule64KiB,
+        >: Copy + PartialEq,
+        <aarch64_vmsa::config::format::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<R>,
+            aarch64_vmsa::config::granule::Granule4KiB,
+        >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule4KiB,
+                LeafFields = crate::LeafFieldsOf<
+                    aarch64_vmsa::config::format::Vmsa64,
+                    R,
+                    aarch64_vmsa::config::granule::Granule4KiB,
+                >,
+                TableFields = crate::TableFieldsOf<
+                    aarch64_vmsa::config::format::Vmsa64,
+                    R,
+                    aarch64_vmsa::config::granule::Granule4KiB,
+                >,
+            >,
+        <aarch64_vmsa::config::format::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<R>,
+            aarch64_vmsa::config::granule::Granule16KiB,
+        >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule16KiB,
+                LeafFields = crate::LeafFieldsOf<
+                    aarch64_vmsa::config::format::Vmsa64,
+                    R,
+                    aarch64_vmsa::config::granule::Granule16KiB,
+                >,
+                TableFields = crate::TableFieldsOf<
+                    aarch64_vmsa::config::format::Vmsa64,
+                    R,
+                    aarch64_vmsa::config::granule::Granule16KiB,
+                >,
+            >,
+        <aarch64_vmsa::config::format::Vmsa64Lpa2 as aarch64_vmsa::descriptor::HasLayout<
+            crate::StageOf<R>,
+            aarch64_vmsa::config::granule::Granule64KiB,
+        >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
+                crate::StageOf<R>,
+                aarch64_vmsa::config::granule::Granule64KiB,
+                LeafFields = crate::LeafFieldsOf<
+                    aarch64_vmsa::config::format::Vmsa64,
+                    R,
+                    aarch64_vmsa::config::granule::Granule64KiB,
+                >,
+                TableFields = crate::TableFieldsOf<
+                    aarch64_vmsa::config::format::Vmsa64,
+                    R,
+                    aarch64_vmsa::config::granule::Granule64KiB,
+                >,
+            >,
+    {
         let active = self
             .installed_lower_stage1
-            .as_mut()
+            .as_ref()
             .ok_or(AdapterError::TranslationTokenMismatch)?;
         if active.token != token || !matches!(active.saved, SavedTranslation::LowerStage1(_)) {
             return Err(AdapterError::TranslationTokenMismatch);
@@ -1741,13 +1839,37 @@ impl AdapterCore {
         if setup.stage != TranslationStage::Stage1 || root.get() & 0xfff != 0 {
             return Err(AdapterError::ArchitecturalState);
         }
+        setup.root = root;
+        setup.asid = Some(asid);
+        let lower_stack = self
+            .installed_lower_stack
+            .ok_or(AdapterError::ArchitecturalState)?;
+        let lower_stack_physical = self
+            .installed_lower_stack_physical
+            .ok_or(AdapterError::ArchitecturalState)?;
+        let lower_exception_stack = self
+            .installed_lower_exception_stack
+            .ok_or(AdapterError::ArchitecturalState)?;
+        let lower_exception_stack_physical = self
+            .installed_lower_exception_stack_physical
+            .ok_or(AdapterError::ArchitecturalState)?;
+        let transition_runtime_data = self.transition_runtime_data();
+        prepare_lower_runtime::<R>(
+            &mut self.memory,
+            setup,
+            self.lower_el_entry,
+            lower_stack,
+            lower_stack_physical,
+            lower_exception_stack,
+            lower_exception_stack_physical,
+            transition_runtime_data,
+        )
+        .map_err(lower_runtime_adapter_error)?;
         let ttbr = encode_table_base(root.get(), asid.0, setup.output_bits.get())?;
         // SAFETY: The active lower-stage guard exclusively owns EL1 translation state.
         if !unsafe { registers::switch_el1_ttbr0(ttbr) } {
             return Err(AdapterError::ArchitecturalState);
         }
-        setup.root = root;
-        setup.asid = Some(asid);
         self.generation = self
             .generation
             .checked_add(1)
@@ -1764,6 +1886,56 @@ impl AdapterCore {
                     .start_level
                     .map_or(u64::MAX, |level| level.get() as u64),
                 u64::from(asid.0),
+            ],
+        );
+        let active = self
+            .installed_lower_stage1
+            .as_mut()
+            .ok_or(AdapterError::TranslationTokenMismatch)?;
+        active.token = updated;
+        Ok(updated)
+    }
+
+    pub fn switch_stage2_root(
+        &mut self,
+        token: InstalledTranslation,
+        root: vmsa_test_harness::PhysicalAddress,
+        vmid: vmsa_test_harness::Vmid,
+    ) -> Result<InstalledTranslation, AdapterError> {
+        let active = self
+            .installed_stage2
+            .as_mut()
+            .ok_or(AdapterError::TranslationTokenMismatch)?;
+        if active.token != token || !matches!(active.saved, SavedTranslation::Stage2(_)) {
+            return Err(AdapterError::TranslationTokenMismatch);
+        }
+        let mut setup = token.setup();
+        if setup.stage != TranslationStage::Stage2 || root.get() & 0xfff != 0 {
+            return Err(AdapterError::ArchitecturalState);
+        }
+        let vttbr = encode_table_base(root.get(), vmid.0, setup.output_bits.get())?;
+        // SAFETY: The active stage-2 guard exclusively owns VTTBR_EL2.
+        if !unsafe { registers::switch_stage2_vttbr(vttbr) } {
+            return Err(AdapterError::ArchitecturalState);
+        }
+        setup.root = root;
+        setup.vmid = Some(vmid);
+        self.generation = self
+            .generation
+            .checked_add(1)
+            .ok_or(AdapterError::ArchitecturalState)?;
+        let updated = InstalledTranslation::new(
+            setup,
+            self.generation,
+            [
+                setup.root.get(),
+                setup.controls.bits(),
+                setup.input_bits.get() as u64,
+                setup.output_bits.get() as u64,
+                setup
+                    .start_level
+                    .map_or(u64::MAX, |level| level.get() as u64),
+                u64::from(vmid.0),
             ],
         );
         active.token = updated;
@@ -2887,7 +3059,17 @@ macro_rules! define_environment {
                 root: vmsa_test_harness::PhysicalAddress,
                 asid: vmsa_test_harness::Asid,
             ) -> Result<vmsa_test_harness::adapter::InstalledTranslation, Self::Error> {
-                self.core.switch_lower_stage1_root(installed, root, asid)
+                self.core
+                    .switch_lower_stage1_root::<$crate::LowerRegime>(installed, root, asid)
+            }
+
+            fn switch_stage2_root(
+                &mut self,
+                installed: vmsa_test_harness::adapter::InstalledTranslation,
+                root: vmsa_test_harness::PhysicalAddress,
+                vmid: vmsa_test_harness::Vmid,
+            ) -> Result<vmsa_test_harness::adapter::InstalledTranslation, Self::Error> {
+                self.core.switch_stage2_root(installed, root, vmid)
             }
 
             fn perform_access(

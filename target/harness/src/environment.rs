@@ -48,6 +48,12 @@ pub trait Environment {
         root: PhysicalAddress,
         asid: Asid,
     ) -> Result<InstalledTranslation, Self::Error>;
+    fn switch_stage2_root(
+        &mut self,
+        installed: InstalledTranslation,
+        root: PhysicalAddress,
+        vmid: crate::Vmid,
+    ) -> Result<InstalledTranslation, Self::Error>;
     fn perform_access(&mut self, request: AccessRequest) -> AccessResult;
     fn realm_rec_is_current(&self) -> bool {
         false

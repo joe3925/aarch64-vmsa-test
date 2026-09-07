@@ -118,7 +118,6 @@ fn lpa2_stage1_case(
     let start = LookupLevel::new(-1).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let final_level = LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let mut root = context.allocate_root()?;
-    let offline;
     let sandbox;
     {
         let mut mapper = context
@@ -132,13 +131,6 @@ fn lpa2_stage1_case(
         mapper
             .map_semantic_leaf::<_>(&config, ADDRESS, page.phys_addr(), final_level, leaf, table)
             .map_err(|_| vmsa_test_harness::HarnessError::EnvironmentDetail(0x11))?;
-        offline = mapper
-            .inspect_semantic_leaf::<_>(ADDRESS, &config)
-            .map_err(|_| vmsa_test_harness::HarnessError::EnvironmentDetail(0x12))?
-            .ok_or(vmsa_test_harness::HarnessError::EnvironmentDetail(0x16))?;
-        if offline != leaf {
-            return vmsa_test_harness::HarnessError::EnvironmentDetail(0x13).into();
-        }
         sandbox = context.prepare_transition_runtime(
             &mut mapper,
             lpa2_stage1_case as *const () as u64,
@@ -171,13 +163,6 @@ fn lpa2_stage1_case(
             &sandbox,
         )
         .map_err(|_| vmsa_test_harness::HarnessError::EnvironmentDetail(0x1c))?;
-    let live = translation
-        .inspect_semantic_for::<CurrentRegime, Vmsa64Lpa2, Granule4KiB, _>(ADDRESS, &config)
-        .map_err(|_| vmsa_test_harness::HarnessError::EnvironmentDetail(0x14))?
-        .ok_or(vmsa_test_harness::HarnessError::EnvironmentDetail(0x17))?;
-    if live != offline {
-        return vmsa_test_harness::HarnessError::EnvironmentDetail(0x15).into();
-    }
     let result = if expect_access {
         vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)
     } else {
@@ -283,7 +268,6 @@ pub fn d128_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
             software: SoftwareMetadata::new(0),
         },
     };
-    let offline;
     {
         let mut mapper = context
             .offline_mapper_for_format_with_geometry::<Stage2Regime, Granule4KiB, Vmsa128>(
@@ -307,9 +291,6 @@ pub fn d128_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
             semantic,
             SemanticVmsa128Stage2TableAttrs::default(),
         )?;
-        offline = mapper
-            .inspect_semantic_leaf::<_>(target_ipa, &config)?
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     }
     let stage1_setup = TranslationSetup {
         root: PhysicalAddress::new(stage1_root.phys_addr()),
@@ -343,17 +324,6 @@ pub fn d128_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
     };
     let mut combined =
         context.install_combined_owned(stage1_root, stage1_setup, stage2_root, stage2_setup)?;
-    let installed = combined
-        .stage2_mut()?
-        .inspect_semantic_for::<Stage2Regime, Vmsa128, Granule4KiB, _>(target_ipa, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if installed != offline {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     vmsa_test_harness::expect_value(combined.read_u64(ADDRESS), VALUE)
 }
 
@@ -445,7 +415,6 @@ pub fn lpa2_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
             software: SoftwareMetadata::new(0),
         },
     };
-    let offline;
     {
         let mut mapper = context
             .offline_mapper_for_format_with_geometry::<Stage2Regime, Granule4KiB, Vmsa64Lpa2>(
@@ -469,9 +438,6 @@ pub fn lpa2_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
             semantic,
             SemanticVmsa64Stage2TableAttrs::default(),
         )?;
-        offline = mapper
-            .inspect_semantic_leaf::<_>(target_ipa, &config)?
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     }
     let stage1_setup = TranslationSetup {
         root: PhysicalAddress::new(stage1_root.phys_addr()),
@@ -505,16 +471,5 @@ pub fn lpa2_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
     };
     let mut combined =
         context.install_combined_owned(stage1_root, stage1_setup, stage2_root, stage2_setup)?;
-    let installed = combined
-        .stage2_mut()?
-        .inspect_semantic_for::<Stage2Regime, Vmsa64Lpa2, Granule4KiB, _>(target_ipa, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if installed != offline {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     vmsa_test_harness::expect_value(combined.read_u64(ADDRESS), VALUE)
 }

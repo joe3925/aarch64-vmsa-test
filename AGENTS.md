@@ -12,6 +12,7 @@
 * `Unsupported` is valid only when live architectural feature registers report the capability absent after all required model and firmware configuration has been attempted.
 * Never hide, skip, reinterpret, or downgrade an untriaged failure.
 * Add coherent batches before compiling or booting. After a harness fix, rerun the affected batch and every impacted profile.
+* Run FVP test commands with `--build-conc 5 --max-conc 14` unless the user explicitly requests different concurrency settings.
 * Run validators, doctor, and the complete suite before declaring completion. Run the full suite again in a fresh invocation to detect retained-state or ordering bugs.
 * Verify the tested crate checkout remains unchanged.
   :::
@@ -30,3 +31,15 @@
 * Verify that vectors, exception stacks, runtime/linkage data, and fatal-report callbacks have the intended permissions. Keep page-table frames privileged even when command-owned EL0 data must be writable.
 * Make translation-control changes transactionally, including the required barriers and invalidation, and restore the original state symmetrically.
 * After a generic harness fix, rerun the affected launch family and then a fresh profile invocation to catch retained-state and ordering problems.
+
+## Registered Test Contract
+
+* This harness exists only to verify public crate behavior against FVP or real architectural hardware behavior. It must contain zero registered unit-test-style tests. Every registered test must execute an architectural operation and use its independently observed result in the pass/fail decision.
+* Every registered test must prove public crate behavior through an independent architectural observation made by the PE, SMMU, or FVP. Valid oracles are completed accesses, returned values, execution results, architectural translation results, faults and syndromes, and translation or invalidation effects observed by a later hardware operation.
+* Never register a test that can pass without its FVP or hardware operation running. Comparing two software values, checking a crate return value, inspecting crate-generated table memory, or successfully completing setup is never sufficient for a pass.
+* The crate may build, update, protect, remap, unmap, or reclaim the tables used to set up a test. Mapper results, crate walkers, semantic decoders, geometry calculations, software reference models, and a second harness implementation of crate logic must never decide whether a registered test passes.
+* A setup, installation, invalidation, restoration, or cleanup error is a harness/infrastructure failure. Do not turn an infrastructure error into evidence that the crate produced an architecturally incorrect descriptor.
+* Test architectural SKL behavior by having hardware walk deliberately skipped levels and observing the resulting translation or fault. Do not test which SKL planning policy the crate selected or compare the resulting software table shape with a harness oracle.
+* Only test descriptor fields when changing the field has an architecturally required and independently observable effect. Do not register tests whose only evidence is the encoded value of software metadata, cache allocation hints, contiguous hints, BBM `NT`, or other implementation-permitted hints.
+* Treat every SMMUv3 regime combined with `Vmsa128` as not live-testable until a model with a working SMMUv3 D128 translation path exists. Do not register semantic, walker, or raw-descriptor comparisons as substitutes for missing SMMUv3 D128 hardware behavior.
+* Keep each architectural matrix coordinate independently named so a failure in one format, granule, stage, regime, level, SKL value, permission, PAS, or invalidation scope does not suppress another coordinate.

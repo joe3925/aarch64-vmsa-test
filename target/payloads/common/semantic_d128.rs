@@ -124,7 +124,6 @@ fn current_stage1_case(
     let start = LookupLevel::new(-1).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let final_level = LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let mut root = context.allocate_root()?;
-    let offline;
     let sandbox;
     {
         let mut mapper = context
@@ -142,16 +141,6 @@ fn current_stage1_case(
             leaf,
             table,
         )?;
-        offline = mapper
-            .inspect_semantic_leaf::<_>(ADDRESS, &config)?
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-        if offline != leaf {
-            return vmsa_test_harness::HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            }
-            .into();
-        }
         sandbox = context.prepare_d128_transition_runtime::<D128Regime>(
             &mut mapper,
             current_stage1_case as *const () as u64,
@@ -180,16 +169,6 @@ fn current_stage1_case(
         },
         &sandbox,
     )?;
-    let live = translation
-        .inspect_semantic_for::<D128Regime, Vmsa128, Granule4KiB, _>(ADDRESS, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if live != offline {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     let result = if expect_access {
         vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)
     } else {

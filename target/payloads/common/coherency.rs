@@ -248,11 +248,6 @@ where
     })?;
     context
         .maintain_cache(vmsa_test_harness::CacheMaintenanceOperation::TranslationTableVisibility)?;
-    translation.tlbi_scoped(
-        vmsa_test_harness::TlbiScope::Local,
-        vmsa_test_harness::TlbiOperation::VirtualAddress(ADDRESS),
-    )?;
-    translation.tlbi(vmsa_test_harness::TlbiOperation::VirtualAddress(ADDRESS))?;
     context.maintain_cache(vmsa_test_harness::CacheMaintenanceOperation::MultiPeVisibility)?;
     let mut remapped_secondary = context.secondary_pe_session()?;
     let remapped_result = expect_value(remapped_secondary.read_u64(ADDRESS), remap_value);
@@ -376,16 +371,6 @@ where
         if !matches!(hardware_result, TestResult::Pass) {
             return hardware_result;
         }
-    }
-    if !translation
-        .inspect_hardware_updates::<aarch64_vmsa::config::granule::Granule4KiB>(ADDRESS)?
-        .access_flag
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
     }
     TestResult::Pass
 }

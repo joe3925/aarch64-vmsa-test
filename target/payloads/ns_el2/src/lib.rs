@@ -6,6 +6,8 @@ pub type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedTableFields<F
 
 #[path = "../../common/access.rs"]
 mod access;
+#[path = "../../common/address_boundaries.rs"]
+mod address_boundaries;
 #[path = "../../common/address_translation.rs"]
 mod address_translation;
 #[path = "../../common/alias_controls.rs"]
@@ -1072,6 +1074,47 @@ fn vmid_isolation(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResu
 fn combined_stage1_stage2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     combined_translation::combined_stage1_stage2(context)
 }
+
+fn combined_invalidation_order(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    combined_translation::combined_invalidation_order(context)
+}
+
+fn stage2_invalidation_ipa(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    combined_translation::stage2_invalidation_effect(
+        context,
+        combined_translation::Stage2InvalidationCase::Ipa,
+    )
+}
+
+fn stage2_invalidation_range_first(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    combined_translation::stage2_invalidation_effect(
+        context,
+        combined_translation::Stage2InvalidationCase::RangeFirst,
+    )
+}
+
+fn stage2_invalidation_range_last(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    combined_translation::stage2_invalidation_effect(
+        context,
+        combined_translation::Stage2InvalidationCase::RangeLast,
+    )
+}
+
+fn stage2_invalidation_full(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    combined_translation::stage2_invalidation_effect(
+        context,
+        combined_translation::Stage2InvalidationCase::Full,
+    )
+}
+
+fn stage2_invalidation_local(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    combined_translation::stage2_invalidation_effect(
+        context,
+        combined_translation::Stage2InvalidationCase::LocalIpa,
+    )
+}
 macro_rules! formats_live_handler {
     ($name:ident) => {
         fn $name(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
@@ -1114,9 +1157,68 @@ formats_live_handler!(active_lpa2_64k_l2);
 formats_live_handler!(active_lpa2_64k_l2_at);
 formats_live_handler!(active_lpa2_64k_l3);
 formats_live_handler!(active_lpa2_64k_l3_at);
+fn boundary_vmsa64_stage1_4k_l0(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::vmsa64_stage1_4k_l0(context)
+}
+fn boundary_vmsa64_stage1_4k_l1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::vmsa64_stage1_4k_l1(context)
+}
+fn boundary_vmsa64_stage1_16k_l0(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::vmsa64_stage1_16k_l0(context)
+}
+fn boundary_vmsa64_stage1_16k_l1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::vmsa64_stage1_16k_l1(context)
+}
+fn boundary_vmsa64_stage1_16k_l2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::vmsa64_stage1_16k_l2(context)
+}
+fn boundary_vmsa64_stage1_64k_l1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::vmsa64_stage1_64k_l1(context)
+}
+fn boundary_vmsa64_stage1_64k_l2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::vmsa64_stage1_64k_l2(context)
+}
+fn boundary_lpa2_stage1_4k_lneg1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::lpa2_stage1_4k_lneg1(context)
+}
+fn boundary_lpa2_stage1_16k_l0(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::lpa2_stage1_16k_l0(context)
+}
+fn boundary_lpa2_stage1_64k_l1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::lpa2_stage1_64k_l1(context)
+}
+fn boundary_d128_stage1_4k_lneg1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::d128_stage1_4k_lneg1(context)
+}
+fn boundary_d128_stage1_16k_l0(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::d128_stage1_16k_l0(context)
+}
+fn boundary_d128_stage1_64k_l1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    address_boundaries::d128_stage1_64k_l1(context)
+}
 fn active_stage2_vmsa64_4k_l1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     stage2_leaf_matrix::vmsa64_l1(context)
 }
+macro_rules! stage2_boundary_handler {
+    ($handler:ident, $case:ident) => {
+        fn $handler(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+            stage2_leaf_matrix::$case(context)
+        }
+    };
+}
+stage2_boundary_handler!(boundary_vmsa64_stage2_4k_l0, boundary_vmsa64_4k_l0);
+stage2_boundary_handler!(boundary_vmsa64_stage2_4k_l1, boundary_vmsa64_4k_l1);
+stage2_boundary_handler!(boundary_vmsa64_stage2_16k_l1, boundary_vmsa64_16k_l1);
+stage2_boundary_handler!(boundary_vmsa64_stage2_16k_l2, boundary_vmsa64_16k_l2);
+stage2_boundary_handler!(boundary_vmsa64_stage2_64k_l1, boundary_vmsa64_64k_l1);
+stage2_boundary_handler!(boundary_vmsa64_stage2_64k_l2, boundary_vmsa64_64k_l2);
+stage2_boundary_handler!(boundary_lpa2_stage2_4k_lneg1, boundary_lpa2_4k_lneg1);
+stage2_boundary_handler!(boundary_lpa2_stage2_16k_l0, boundary_lpa2_16k_l0);
+stage2_boundary_handler!(boundary_lpa2_stage2_64k_l1, boundary_lpa2_64k_l1);
+stage2_boundary_handler!(boundary_d128_stage2_4k_lneg1_first, boundary_d128_4k_lneg1_first);
+stage2_boundary_handler!(boundary_d128_stage2_4k_lneg1_last, boundary_d128_4k_lneg1_last);
+stage2_boundary_handler!(boundary_d128_stage2_16k_l0_last, boundary_d128_16k_l0_last);
+stage2_boundary_handler!(boundary_d128_stage2_64k_l1_last, boundary_d128_64k_l1_last);
 fn active_stage2_vmsa64_4k_l2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     stage2_leaf_matrix::vmsa64_l2(context)
 }
@@ -1180,6 +1282,44 @@ fn active_stage2_d128_4k_l2_at(context: &mut TestContext<'_, CurrentEnvironment>
 fn active_stage2_d128_4k_l3_at(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     stage2_leaf_matrix::d128_l3_at(context)
 }
+fn active_stage2_d128_4k_skl1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    stage2_leaf_matrix::d128_4k_skl1(context)
+}
+fn active_stage2_d128_4k_skl1_af_fault(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    stage2_leaf_matrix::d128_4k_skl1_af_fault(context)
+}
+fn active_stage2_d128_16k_skl1_af_fault(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    stage2_leaf_matrix::d128_16k_skl1_af_fault(context)
+}
+fn active_stage2_d128_4k_skl1_permission_fault(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    stage2_leaf_matrix::d128_4k_skl1_permission_fault(context)
+}
+fn active_stage2_d128_16k_skl1_permission_fault(
+    context: &mut TestContext<'_, CurrentEnvironment>,
+) -> TestResult {
+    stage2_leaf_matrix::d128_16k_skl1_permission_fault(context)
+}
+fn active_stage2_d128_4k_skl2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    stage2_leaf_matrix::d128_4k_skl2(context)
+}
+fn active_stage2_d128_4k_skl3(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    stage2_leaf_matrix::d128_4k_skl3(context)
+}
+fn active_stage2_d128_16k_skl1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    stage2_leaf_matrix::d128_16k_skl1(context)
+}
+fn active_stage2_d128_16k_skl2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    stage2_leaf_matrix::d128_16k_skl2(context)
+}
+fn active_stage2_d128_64k_skl1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
+    stage2_leaf_matrix::d128_64k_skl1(context)
+}
 macro_rules! stage2_matrix_handler {
     ($handler:ident, $case:ident) => {
         fn $handler(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
@@ -1239,6 +1379,16 @@ formats_live_handler!(active_d128_64k_l3);
 formats_live_handler!(active_d128_64k_l1_at);
 formats_live_handler!(active_d128_64k_l2_at);
 formats_live_handler!(active_d128_64k_l3_at);
+formats_live_handler!(active_d128_4k_max_skl);
+formats_live_handler!(active_d128_4k_skl1);
+formats_live_handler!(active_d128_4k_skl1_af_fault);
+formats_live_handler!(active_d128_16k_skl1_af_fault);
+formats_live_handler!(active_d128_4k_skl1_permission_fault);
+formats_live_handler!(active_d128_16k_skl1_permission_fault);
+formats_live_handler!(active_d128_4k_skl2);
+formats_live_handler!(active_d128_16k_max_skl);
+formats_live_handler!(active_d128_16k_skl1);
+formats_live_handler!(active_d128_64k_max_skl);
 fn mapper_16k(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     mapper_live::mapper_16k(context)
 }

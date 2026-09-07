@@ -1628,7 +1628,7 @@ pub unsafe fn install_el2_stage1_d128(
             "mov x15, #0x33",
             "bic x15, {old_tcr2}, x15",
             "msr S3_4_C2_C0_3, x15",
-            "msr TTBR0_EL2, x18",
+            "msr TTBR0_EL2, x27",
             "msr TCR_EL2, x21",
             "msr MAIR_EL2, x20",
             "tlbi alle2is",
@@ -1702,7 +1702,7 @@ pub unsafe fn install_el2_stage1_d128(
             in("x13") pire0,
             in("x16") stack_physical,
             in("x17") stack_virtual,
-            in("x18") recovery_root,
+            in("x27") recovery_root,
             in("x21") recovery_tcr,
             in("x20") recovery_mair,
             in("x22") recovery_vector,
@@ -1785,7 +1785,7 @@ pub unsafe fn restore_el2_stage1_d128(state: D128Stage1State) -> bool {
             "ldr x9, [sp], #16",
             "msr S3_4_C2_C0_3, x11",
             "msr TTBR0_EL2, x17",
-            "msr TCR_EL2, x18",
+            "msr TCR_EL2, x27",
             "msr MAIR_EL2, x21",
             "tlbi alle2is",
             "dsb ish",
@@ -1858,7 +1858,7 @@ pub unsafe fn restore_el2_stage1_d128(state: D128Stage1State) -> bool {
             previous_vbar = in(reg) state.previous_vbar,
             in("x16") stack_physical,
             in("x17") recovery_root,
-            in("x18") recovery_tcr,
+            in("x27") recovery_tcr,
             in("x21") recovery_mair,
             in("x11") recovery_tcr2,
             out("x8") _,
@@ -2351,6 +2351,26 @@ pub unsafe fn install_stage2(vttbr: u64, vtcr: u64) -> Option<Stage2State> {
         vtcr: old_vtcr,
         hcr: old_hcr,
     })
+}
+
+/// Switches the active EL2 stage-2 root and VMID without invalidating cached
+/// translations. The caller owns the already-installed stage-2 regime and is
+/// responsible for any architecturally required TLBI.
+pub unsafe fn switch_stage2_vttbr(vttbr: u64) -> bool {
+    if current_el() != 2 {
+        return false;
+    }
+    // SAFETY: The caller exclusively owns the installed EL2 stage-2 regime.
+    unsafe {
+        asm!(
+            "dsb ishst",
+            "msr VTTBR_EL2, {vttbr}",
+            "isb",
+            vttbr = in(reg) vttbr,
+            options(nostack, preserves_flags)
+        );
+    }
+    true
 }
 
 pub unsafe fn install_secure_stage2(

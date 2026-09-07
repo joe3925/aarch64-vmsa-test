@@ -2433,8 +2433,7 @@ where
     };
     if runtime_data[4] == 0
         || runtime_data[4] >= runtime_data[5]
-        || required_code.iter()
-        .any(|address| !contains_code(*address))
+        || required_code.iter().any(|address| !contains_code(*address))
     {
         return Err(HarnessError::TransitionPreparation(
             TransitionPreparationError::RecoveryRuntime,
@@ -2453,14 +2452,15 @@ where
     ];
 
     let linkage_page = G::align_down(vmsa_test_architecture::exception::linkage_data_address());
-    let runtime_pages = [G::align_down(runtime_data[0]), G::align_down(runtime_data[1])];
+    let runtime_pages = [
+        G::align_down(runtime_data[0]),
+        G::align_down(runtime_data[1]),
+    ];
 
     let is_state_page = |address: u64| state_pages.contains(&address);
 
     let is_data_window_page = |address: u64| {
-        runtime_pages.contains(&address)
-            || is_state_page(address)
-            || address == linkage_page
+        runtime_pages.contains(&address) || is_state_page(address) || address == linkage_page
     };
 
     let arena_start = G::align_down(unsafe { memory.as_ref() }.physical_base());
@@ -2473,8 +2473,8 @@ where
     let is_code_page = |address: u64| {
         (code_start..code_end).contains(&address)
             || aux_code.is_some_and(|(start, end)| (start..end).contains(&address))
-            && !is_data_window_page(address)
-            && !(arena_start..=arena_last).contains(&address)
+                && !is_data_window_page(address)
+                && !(arena_start..=arena_last).contains(&address)
     };
 
     macro_rules! ensure_data_page {
@@ -2555,7 +2555,10 @@ where
     for (start, end) in [
         (code_start, code_end),
         aux_code.unwrap_or((0, 0)),
-        (G::align_down(runtime_data[6]), G::align_down(runtime_data[7].saturating_add(G::SIZE - 1))),
+        (
+            G::align_down(runtime_data[6]),
+            G::align_down(runtime_data[7].saturating_add(G::SIZE - 1)),
+        ),
     ] {
         let mut address = start;
 
@@ -2814,7 +2817,10 @@ where
     for (start, end) in [
         (code_start, code_end),
         aux_code.unwrap_or((0, 0)),
-        (G::align_down(runtime_data[6]), G::align_down(runtime_data[7].saturating_add(page_size - 1))),
+        (
+            G::align_down(runtime_data[6]),
+            G::align_down(runtime_data[7].saturating_add(page_size - 1)),
+        ),
     ] {
         let mut address = start;
         while address < end {
@@ -4135,10 +4141,7 @@ where
                 G::align_down(payload_data[11].saturating_add(G::SIZE - 1)),
             ))
         };
-        for (start, end) in [
-            (code_start, code_end),
-            aux_code.unwrap_or((0, 0)),
-        ] {
+        for (start, end) in [(code_start, code_end), aux_code.unwrap_or((0, 0))] {
             let mut address = start;
             while address < end {
                 let sandbox_data = sandbox_regions.iter().any(|(input, _)| *input == address);
@@ -5053,6 +5056,31 @@ where
             .map_err(normalize_mapper_operation_error)
     }
 
+    pub fn map_d128_hardware_managed_leaf_maximum_skl_exact(
+        &mut self,
+        input: u64,
+        output: u64,
+        level: LookupLevel,
+        attributes: D128HardwareManagedAttributes,
+    ) -> Result<MapLeafResult, MapperOperationError> {
+        let (leaf, table) = Self::d128_fields_with_state(
+            attributes.permissions,
+            attributes.access_flag,
+            attributes.dirty,
+        )
+        .map_err(|_| MapperOperationError::Unexpected)?;
+        self.inner
+            .map_leaf_with_plan(
+                WalkInputAddr::new(input),
+                WalkOutputAddr::new(output),
+                Level::new(level.get()),
+                leaf,
+                aarch64_vmsa::mapper::MaxSklTablePlan::new(table),
+            )
+            .map(Self::d128_map_leaf_outcome)
+            .map_err(normalize_mapper_operation_error)
+    }
+
     pub fn map_hardware_managed_page(
         &mut self,
         input: u64,
@@ -5150,6 +5178,72 @@ where
                 Level::new(level.get()),
                 leaf,
                 table,
+            )
+            .map(|outcome| MapLeafResult {
+                tables_allocated: outcome.tables_allocated(),
+                level: LookupLevel::new(outcome.level().as_i8())
+                    .expect("mapper leaf levels are architectural"),
+                kind: match outcome.kind() {
+                    aarch64_vmsa::translation::walk::WalkLeafKind::Block => {
+                        WalkDescriptorKind::Block
+                    }
+                    aarch64_vmsa::translation::walk::WalkLeafKind::Page => WalkDescriptorKind::Page,
+                },
+                covered_size: outcome.covered_size(),
+            })
+            .map_err(normalize_mapper_operation_error)
+    }
+
+    pub fn map_d128_stage2_leaf_maximum_skl_exact(
+        &mut self,
+        input: u64,
+        output: u64,
+        level: LookupLevel,
+        attributes: MappingAttributes,
+    ) -> Result<MapLeafResult, MapperOperationError> {
+        let (leaf, table) =
+            d128_stage2_fields(attributes).map_err(|_| MapperOperationError::Unexpected)?;
+        self.inner
+            .map_leaf_with_plan(
+                WalkInputAddr::new(input),
+                WalkOutputAddr::new(output),
+                Level::new(level.get()),
+                leaf,
+                aarch64_vmsa::mapper::MaxSklTablePlan::new(table),
+            )
+            .map(|outcome| MapLeafResult {
+                tables_allocated: outcome.tables_allocated(),
+                level: LookupLevel::new(outcome.level().as_i8())
+                    .expect("mapper leaf levels are architectural"),
+                kind: match outcome.kind() {
+                    aarch64_vmsa::translation::walk::WalkLeafKind::Block => {
+                        WalkDescriptorKind::Block
+                    }
+                    aarch64_vmsa::translation::walk::WalkLeafKind::Page => WalkDescriptorKind::Page,
+                },
+                covered_size: outcome.covered_size(),
+            })
+            .map_err(normalize_mapper_operation_error)
+    }
+
+    pub fn map_d128_stage2_hardware_managed_leaf_maximum_skl_exact(
+        &mut self,
+        input: u64,
+        output: u64,
+        level: LookupLevel,
+        attributes: MappingAttributes,
+        access_flag: bool,
+    ) -> Result<MapLeafResult, MapperOperationError> {
+        let (mut leaf, table) =
+            d128_stage2_fields(attributes).map_err(|_| MapperOperationError::Unexpected)?;
+        leaf.access_flag = access_flag;
+        self.inner
+            .map_leaf_with_plan(
+                WalkInputAddr::new(input),
+                WalkOutputAddr::new(output),
+                Level::new(level.get()),
+                leaf,
+                aarch64_vmsa::mapper::MaxSklTablePlan::new(table),
             )
             .map(|outcome| MapLeafResult {
                 tables_allocated: outcome.tables_allocated(),

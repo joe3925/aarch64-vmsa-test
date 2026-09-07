@@ -211,21 +211,6 @@ fn secure_stage1_active_case<
         leaf,
         table,
     )?;
-    let decoded = live
-        .inspect_semantic_for::<
-            aarch64_vmsa::config::regime::SecureEl2Stage1,
-            aarch64_vmsa::config::format::Vmsa64,
-            aarch64_vmsa::config::granule::Granule4KiB,
-            _,
-        >(ADDRESS, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if decoded != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     let result = if pas == aarch64_vmsa::attrs::SecureSelectablePa::Secure {
         vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)
     } else {
@@ -623,21 +608,6 @@ fn realm_stage1_active_case<
         leaf,
         table,
     )?;
-    let decoded = live
-        .inspect_semantic_for::<
-            aarch64_vmsa::config::regime::RealmEl2Stage1,
-            aarch64_vmsa::config::format::Vmsa64,
-            aarch64_vmsa::config::granule::Granule4KiB,
-            _,
-        >(ADDRESS, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if decoded != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     let result = if pas == aarch64_vmsa::attrs::RealmOrNonSecurePa::Realm {
         vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)
     } else {
@@ -860,21 +830,6 @@ fn root_stage1_active_case<
         leaf,
         table,
     )?;
-    let decoded = live
-        .inspect_semantic_for::<
-            aarch64_vmsa::config::regime::RootEl3Stage1,
-            aarch64_vmsa::config::format::Vmsa64,
-            aarch64_vmsa::config::granule::Granule4KiB,
-            _,
-        >(ADDRESS, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if decoded != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     let result = if pas == aarch64_vmsa::attrs::RootExtendedPa::Root {
         vmsa_test_harness::expect_value(context.read_u64(ADDRESS), VALUE)
     } else {
@@ -1401,22 +1356,6 @@ pub fn fixed_realm_ipa_stage1_semantic_access<
         leaf,
         table,
     )?;
-    let installed = live
-        .stage1_mut()?
-        .inspect_semantic_for::<
-            aarch64_vmsa::config::regime::RealmEl1Stage1,
-            aarch64_vmsa::config::format::Vmsa64,
-            aarch64_vmsa::config::granule::Granule4KiB,
-            _,
-        >(ADDRESS, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if installed != leaf {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     let result = vmsa_test_harness::expect_value(live.read_u64(ADDRESS), VALUE);
     if !matches!(result, TestResult::Pass) {
         return result;

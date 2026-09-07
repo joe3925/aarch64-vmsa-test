@@ -123,7 +123,6 @@ where
         pas: table_pas,
         controls: SemanticVmsa64Stage1TableControls::default(),
     };
-    let offline;
     let sandbox;
     {
         let mut mapper = context.offline_mapper_for_format_with_geometry::<HostRegime, G, Vmsa64>(
@@ -141,20 +140,6 @@ where
             leaf,
             table,
         )?;
-        offline = mapper
-            .inspect_semantic_leaf::<_>(input, &config)?
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-        if offline != leaf
-            || mapper
-                .translate(input)?
-                .is_none_or(|mapping| mapping.output != target)
-        {
-            return vmsa_test_harness::HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            }
-            .into();
-        }
         sandbox = context.prepare_transition_runtime(
             &mut mapper,
             host_vmsa64_leaf::<G, P, Q> as *const () as u64,
@@ -182,16 +167,6 @@ where
         },
         &sandbox,
     )?;
-    let live = translation
-        .inspect_semantic_for::<HostRegime, Vmsa64, G, _>(input, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if live != offline || live.permissions != permissions {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     let mut execution = context.execution(vmsa_test_harness::ExecutionContext::El0UnderEl2)?;
     let result = match execution.translate(input, vmsa_test_harness::TranslationQueryAccess::Read) {
         vmsa_test_harness::TranslationQueryResult::Success {

@@ -3612,6 +3612,52 @@ impl<E: Environment> LiveTranslation<'_, E> {
         Ok(id)
     }
 
+    pub fn adopt_and_switch_stage2_root(
+        &mut self,
+        root: RootTableMemory,
+        vmid: crate::Vmid,
+    ) -> Result<TranslationRootId, HarnessError> {
+        let index = self
+            .roots
+            .iter()
+            .position(Option::is_none)
+            .ok_or(HarnessError::Memory)?;
+        let id = TranslationRootId(index as u8);
+        self.switch_stage2_root_address(crate::PhysicalAddress::new(root.phys_addr()), vmid)?;
+        self.roots[index] = Some(root);
+        Ok(id)
+    }
+
+    pub fn switch_stage2_root(
+        &mut self,
+        root: TranslationRootId,
+        vmid: crate::Vmid,
+    ) -> Result<(), HarnessError> {
+        let root = self
+            .roots
+            .get(root.0 as usize)
+            .and_then(Option::as_ref)
+            .ok_or(HarnessError::InvalidState)?;
+        self.switch_stage2_root_address(crate::PhysicalAddress::new(root.phys_addr()), vmid)
+    }
+
+    fn switch_stage2_root_address(
+        &mut self,
+        root: crate::PhysicalAddress,
+        vmid: crate::Vmid,
+    ) -> Result<(), HarnessError> {
+        if self.lower || self.setup.stage != crate::TranslationStage::Stage2 {
+            return Err(HarnessError::InvalidState);
+        }
+        let installed = self.installed.ok_or(HarnessError::InvalidState)?;
+        let updated = unsafe { self.environment.as_mut() }
+            .switch_stage2_root(installed, root, vmid)
+            .map_err(|_| HarnessError::Environment)?;
+        self.setup = updated.setup();
+        self.installed = Some(updated);
+        Ok(())
+    }
+
     pub fn switch_lower_stage1_root(
         &mut self,
         root: TranslationRootId,

@@ -8,7 +8,12 @@
 #include "vmsa_filter.h"
 #include "vmsa_test_abi.h"
 
-#define VMSA_ARENA_BYTES (1024U * 1024U)
+/*
+ * A legal D128 SKL=1 table combines two lookup strides.  The largest live
+ * case we can practically back on the current FVP is the 16 KiB-granule
+ * table, which requires 64 MiB plus the ordinary roots and data pages.
+ */
+#define VMSA_ARENA_BYTES (80U * 1024U * 1024U)
 #define VMSA_LOWER_STACK_BYTES (64U * 1024U)
 
 static uint8_t vmsa_arena[VMSA_ARENA_BYTES] __attribute__((aligned(4096)));

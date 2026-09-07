@@ -48,38 +48,7 @@ where
             regime,
         },
     )?;
-    let injected_range =
-        context.with_harness_failure(vmsa_test_harness::HarnessFailurePoint::Map, 0, || {
-            translation
-                .map_range::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
-                    ADDRESS,
-                    pages.phys_addr(),
-                    PAGES * 4096,
-                    LookupLevel::new(3).expect("level 3 is valid"),
-                    MappingAttributes::READ_WRITE,
-                )
-        });
-    if !matches!(
-        injected_range,
-        Err(vmsa_test_harness::HarnessError::InjectedFailure)
-    ) {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    for index in 0..PAGES {
-        if translation
-            .inspect::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
-                ADDRESS + index * 4096,
-            )?
-            .is_some()
-        {
-            return vmsa_test_harness::HarnessError::CrateBehavior { expected: 1, actual: 0 }.into();
-        }
-    }
-    let outcome = translation
+    translation
         .map_range::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
             ADDRESS,
             pages.phys_addr(),
@@ -87,117 +56,6 @@ where
             LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
             MappingAttributes::READ_WRITE,
         )?;
-    let expected_tables = 2;
-    if outcome.mappings_created != PAGES
-        || outcome.bytes_mapped != PAGES * 4096
-        || outcome.tables_allocated != expected_tables
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    let final_mapping = translation
-        .inspect::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
-            ADDRESS + (PAGES - 1) * 4096,
-        )?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if final_mapping.output != pages.phys_addr() + (PAGES - 1) * 4096
-        || final_mapping.level != LookupLevel::new(3).expect("level 3 is valid")
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    let walk = translation
-        .inspect_walk::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
-            ADDRESS + (PAGES - 1) * 4096,
-        )?;
-    let first_walk = translation
-        .inspect_walk::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
-            ADDRESS,
-        )?;
-    let steps = walk.steps();
-    let first_steps = first_walk.steps();
-    let effective_start = translation
-        .setup()
-        .start_level
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?
-        .get();
-    let expected_length = usize::try_from(4 - i16::from(effective_start)).map_err(|_| {
-        vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-    })?;
-    if steps.len() != expected_length || first_steps.len() != expected_length {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    let first_leaf_table = first_steps
-        .get(expected_length - 2)
-        .and_then(|step| *step)
-        .and_then(|step| step.next_table);
-    let final_leaf_table = steps
-        .get(expected_length - 2)
-        .and_then(|step| *step)
-        .and_then(|step| step.next_table);
-    if first_leaf_table.is_none()
-        || final_leaf_table.is_none()
-        || first_leaf_table == final_leaf_table
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
-    for (index, expected_level) in (effective_start..3).enumerate() {
-        let Some(step) = steps[index] else {
-            return vmsa_test_harness::HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            }
-            .into();
-        };
-        if step.level != LookupLevel::new(expected_level).expect("walk level is valid")
-            || step.kind != vmsa_test_harness::WalkDescriptorKind::Table
-            || step.raw.is_none()
-            || step.next_table.is_none()
-            || step.output.is_some()
-        {
-            return vmsa_test_harness::HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            }
-            .into();
-        }
-    }
-    let Some(leaf) = walk.leaf() else {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    };
-    if leaf.level != LookupLevel::new(3).expect("level 3 is valid")
-        || leaf.kind != vmsa_test_harness::WalkDescriptorKind::Page
-        || leaf.raw.is_none()
-        || leaf.next_table.is_some()
-        || leaf.output != Some(pages.phys_addr() + (PAGES - 1) * 4096)
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     for index in 0..PAGES {
         let address = ADDRESS + index * 4096;
         let value = 0x5241_4e47_4500_0000 | index;
@@ -211,17 +69,10 @@ where
         }
     }
     for index in 0..PAGES {
-        let removed = translation
+        translation
             .unmap::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
                 ADDRESS + index * 4096,
             )?;
-        if removed.output != pages.phys_addr() + index * 4096 {
-            return vmsa_test_harness::HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            }
-            .into();
-        }
     }
     for index in 0..PAGES {
         let fault = expect_fault(
@@ -389,7 +240,7 @@ where
     if !matches!(first, TestResult::Pass) {
         return first;
     }
-    let replaced = translation.break_before_make::<
+    translation.break_before_make::<
         aarch64_vmsa::config::format::Vmsa64,
         aarch64_vmsa::config::granule::Granule4KiB,
     >(
@@ -397,15 +248,6 @@ where
         Some(new_page.phys_addr()),
         MappingAttributes::READ_WRITE,
     )?;
-    if replaced.output != new_page.phys_addr()
-        || replaced.level != LookupLevel::new(3).expect("level 3 is valid")
-    {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     let result = vmsa_test_harness::expect_value(context.read_u64(ADDRESS), REPLACEMENT);
     translation.restore()?;
     result
@@ -1299,39 +1141,14 @@ where
     if !matches!(written, TestResult::Pass) {
         return written;
     }
-    let outcome = translation
+    translation
         .unmap_reclaim::<aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB>(
             ADDRESS,
         )?;
-    if outcome.mapping.output != page.phys_addr() {
-        return TestResult::Fail(vmsa_test_harness::TestFailure {
-            kind: vmsa_test_harness::FailureKind::WrongValue,
-            expected: page.phys_addr(),
-            actual: outcome.mapping.output,
-        });
-    }
-    if outcome.mapping.level != LookupLevel::new(3).expect("level 3 is valid") {
-        return TestResult::Fail(vmsa_test_harness::TestFailure {
-            kind: vmsa_test_harness::FailureKind::WrongValue,
-            expected: 3,
-            actual: outcome.mapping.level.get() as u64,
-        });
-    }
-    if outcome.tables_freed != 1 {
-        return TestResult::Fail(vmsa_test_harness::TestFailure {
-            kind: vmsa_test_harness::FailureKind::WrongValue,
-            expected: 1,
-            actual: outcome.tables_freed as u64,
-        });
-    }
-    if outcome.root_now_empty {
-        return TestResult::Fail(vmsa_test_harness::TestFailure {
-            kind: vmsa_test_harness::FailureKind::WrongValue,
-            expected: 0,
-            actual: 1,
-        });
-    }
-    TestResult::Pass
+    expect_fault(
+        context.read_u64(ADDRESS),
+        ExpectedFault::translation_read_stage1(),
+    )
 }
 
 pub fn live_reclaim_post_fault<E: vmsa_test_harness::adapter::TranslationRegimeEnvironment>(

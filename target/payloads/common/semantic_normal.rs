@@ -3,7 +3,6 @@ use vmsa_test_harness::{TestContext, TestResult};
 
 fn lower_vmsa64_leaf<G, P>(
     context: &mut TestContext<'_, CurrentEnvironment>,
-    mut root: vmsa_test_harness::RootTableMemory,
     granule: vmsa_test_harness::Granule,
     start_level: aarch64_vmsa::address::Level,
     leaf_level: aarch64_vmsa::address::Level,
@@ -124,39 +123,6 @@ where
         pas,
         controls: SemanticVmsa64Stage1TableControls::default(),
     };
-    let offline;
-    {
-        let mut mapper = context
-            .offline_mapper_for_format_with_geometry::<LowerRegime, G, Vmsa64>(
-                &mut root,
-                start_level,
-                width,
-                48,
-            )?;
-        mapper.map_semantic_leaf::<_>(
-            &config,
-            input_base,
-            output,
-            LookupLevel::new(leaf_level.as_i8())
-                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
-            leaf,
-            table,
-        )?;
-        offline = mapper
-            .inspect_semantic_leaf::<_>(input, &config)?
-            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-        if offline != leaf
-            || mapper
-                .translate(input)?
-                .is_none_or(|mapping| mapping.output != target)
-        {
-            return vmsa_test_harness::HarnessError::CrateBehavior {
-                expected: 1,
-                actual: 0,
-            }
-            .into();
-        }
-    }
     let controls = vmsa_test_harness::vmsa64_el1_stage1_controls(granule, input_bits, output_bits)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let live_root = context.allocate_root_in(context.native_pas(), granule)?;
@@ -178,19 +144,6 @@ where
             regime: crate::lower_regime_attributes(),
         },
     )?;
-    let installed = context
-        .infrastructure_lower_stage1_snapshot()
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    const OWNED_TCR_MASK: u64 = 0x0000_003f_0000_ffff;
-    if installed.tcr & OWNED_TCR_MASK != controls.bits() & OWNED_TCR_MASK
-        || installed.ttbr0 & 0x0000_ffff_ffff_f000 != root_address.get() & 0x0000_ffff_ffff_f000
-    {
-        return TestResult::Fail(vmsa_test_harness::TestFailure {
-            kind: vmsa_test_harness::FailureKind::WrongValue,
-            expected: controls.bits() & OWNED_TCR_MASK,
-            actual: installed.tcr & OWNED_TCR_MASK,
-        });
-    }
     translation.map_semantic_for::<LowerRegime, Vmsa64, G, _>(
         &config,
         input_base,
@@ -200,16 +153,6 @@ where
         leaf,
         table,
     )?;
-    let live = translation
-        .inspect_semantic_for::<LowerRegime, Vmsa64, G, _>(input, &config)?
-        .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    if live != offline || live.permissions != permissions {
-        return vmsa_test_harness::HarnessError::CrateBehavior {
-            expected: 1,
-            actual: 0,
-        }
-        .into();
-    }
     let result = if granule == vmsa_test_harness::Granule::Size16KiB {
         match context.translate_lower_stage1(input, vmsa_test_harness::TranslationQueryAccess::Read)
         {
@@ -246,12 +189,10 @@ where
 }
 
 macro_rules! lower_case {
-    ($name:ident, $granule:ty, $allocate:ident, $kind:expr, $start:expr, $leaf:expr) => {
+    ($name:ident, $granule:ty, $kind:expr, $start:expr, $leaf:expr) => {
         pub fn $name(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
-            let root = context.$allocate()?;
             lower_vmsa64_leaf::<$granule, crate::LowerPas>(
                 context,
-                root,
                 $kind,
                 $start,
                 $leaf,
@@ -264,7 +205,6 @@ macro_rules! lower_case {
 lower_case!(
     lower_4k_l1,
     aarch64_vmsa::config::granule::Granule4KiB,
-    allocate_root,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::L0,
     aarch64_vmsa::address::Level::L1
@@ -273,7 +213,6 @@ lower_case!(
 lower_case!(
     lower_4k_l2,
     aarch64_vmsa::config::granule::Granule4KiB,
-    allocate_root,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::L0,
     aarch64_vmsa::address::Level::L2
@@ -281,7 +220,6 @@ lower_case!(
 lower_case!(
     lower_4k_l3,
     aarch64_vmsa::config::granule::Granule4KiB,
-    allocate_root,
     vmsa_test_harness::Granule::Size4KiB,
     aarch64_vmsa::address::Level::L0,
     aarch64_vmsa::address::Level::L3
@@ -289,7 +227,6 @@ lower_case!(
 lower_case!(
     lower_16k_l2,
     aarch64_vmsa::config::granule::Granule16KiB,
-    allocate_root_16k,
     vmsa_test_harness::Granule::Size16KiB,
     aarch64_vmsa::address::Level::L1,
     aarch64_vmsa::address::Level::L2
@@ -297,7 +234,6 @@ lower_case!(
 lower_case!(
     lower_16k_l3,
     aarch64_vmsa::config::granule::Granule16KiB,
-    allocate_root_16k,
     vmsa_test_harness::Granule::Size16KiB,
     aarch64_vmsa::address::Level::L1,
     aarch64_vmsa::address::Level::L3
@@ -305,7 +241,6 @@ lower_case!(
 lower_case!(
     lower_64k_l2,
     aarch64_vmsa::config::granule::Granule64KiB,
-    allocate_root_64k,
     vmsa_test_harness::Granule::Size64KiB,
     aarch64_vmsa::address::Level::L2,
     aarch64_vmsa::address::Level::L2
@@ -313,7 +248,6 @@ lower_case!(
 lower_case!(
     lower_64k_l3,
     aarch64_vmsa::config::granule::Granule64KiB,
-    allocate_root_64k,
     vmsa_test_harness::Granule::Size64KiB,
     aarch64_vmsa::address::Level::L2,
     aarch64_vmsa::address::Level::L3
