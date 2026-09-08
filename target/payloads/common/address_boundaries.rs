@@ -6,6 +6,7 @@ fn stage1_boundary<F, G, P>(
     granule: vmsa_test_harness::Granule,
     start_level: aarch64_vmsa::address::Level,
     input_width: u8,
+    output_width: u8,
     format: vmsa_test_harness::TranslationFormat,
     controls: vmsa_test_harness::TranslationControls,
     pas: P,
@@ -55,7 +56,7 @@ where
     let last = (1u64 << input_width) - granule.bytes() as u64 + 8;
     let input_bits = AddressBits::new(input_width)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-    let output_bits = AddressBits::new(48)
+    let output_bits = AddressBits::new(output_width)
         .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
     let config = LiveVmsaConfig {
         mair: 0x44,
@@ -156,6 +157,41 @@ where
             }
         }
     }
+    let high_input = granule.bytes() as u64 + 8;
+    let high_output_page = (1u64 << output_width) - granule.bytes() as u64;
+    translation.map_semantic_for::<LowerRegime, F, G, _>(
+        &config,
+        high_input & !(granule.bytes() as u64 - 1),
+        high_output_page,
+        LookupLevel::new(3).ok_or(vmsa_test_harness::HarnessError::InvalidState)?,
+        leaf,
+        table,
+    )?;
+    match context.translate_lower_stage1(high_input, TranslationQueryAccess::Read) {
+        vmsa_test_harness::TranslationQueryResult::Success { physical_address, .. }
+            if physical_address == high_output_page + 8 => {}
+        vmsa_test_harness::TranslationQueryResult::Success { physical_address, .. } => {
+            return TestResult::Fail(vmsa_test_harness::TestFailure {
+                kind: vmsa_test_harness::FailureKind::WrongValue,
+                expected: high_output_page + 8,
+                actual: physical_address,
+            });
+        }
+        vmsa_test_harness::TranslationQueryResult::Fault { raw, .. } => {
+            return TestResult::Fail(vmsa_test_harness::TestFailure {
+                kind: vmsa_test_harness::FailureKind::WrongValue,
+                expected: high_output_page + 8,
+                actual: raw,
+            });
+        }
+        vmsa_test_harness::TranslationQueryResult::Unsupported => {
+            return vmsa_test_harness::HarnessError::CrateBehavior {
+                expected: high_output_page + 8,
+                actual: u64::MAX,
+            }
+            .into();
+        }
+    }
     let first_result = vmsa_test_harness::expect_value(context.lower_read_u64(first), FIRST_VALUE);
     if !matches!(first_result, TestResult::Pass) {
         return first_result;
@@ -166,26 +202,26 @@ where
 }
 
 macro_rules! boundary_case {
-    ($name:ident, $granule_type:ty, $granule:expr, $level:expr, $width:expr) => {
+    ($name:ident, $granule_type:ty, $granule:expr, $level:expr, $width:expr, $output:expr) => {
         pub fn $name(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
             let bits = vmsa_test_harness::AddressBits::new($width)
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-            let controls = vmsa_test_harness::vmsa64_el1_stage1_controls($granule, bits, vmsa_test_harness::AddressBits::new(48).unwrap())
+            let controls = vmsa_test_harness::vmsa64_el1_stage1_controls($granule, bits, vmsa_test_harness::AddressBits::new($output).unwrap())
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             stage1_boundary::<aarch64_vmsa::config::format::Vmsa64, $granule_type, crate::LowerPas>(
-                context, $granule, $level, $width, vmsa_test_harness::TranslationFormat::Vmsa64, controls, crate::lower_pas(),
+                context, $granule, $level, $width, $output, vmsa_test_harness::TranslationFormat::Vmsa64, controls, crate::lower_pas(),
             )
         }
     };
 }
 
-boundary_case!(vmsa64_stage1_4k_l0, aarch64_vmsa::config::granule::Granule4KiB, vmsa_test_harness::Granule::Size4KiB, aarch64_vmsa::address::Level::L0, 48);
-boundary_case!(vmsa64_stage1_4k_l1, aarch64_vmsa::config::granule::Granule4KiB, vmsa_test_harness::Granule::Size4KiB, aarch64_vmsa::address::Level::L1, 39);
-boundary_case!(vmsa64_stage1_16k_l0, aarch64_vmsa::config::granule::Granule16KiB, vmsa_test_harness::Granule::Size16KiB, aarch64_vmsa::address::Level::L0, 48);
-boundary_case!(vmsa64_stage1_16k_l1, aarch64_vmsa::config::granule::Granule16KiB, vmsa_test_harness::Granule::Size16KiB, aarch64_vmsa::address::Level::L1, 47);
-boundary_case!(vmsa64_stage1_16k_l2, aarch64_vmsa::config::granule::Granule16KiB, vmsa_test_harness::Granule::Size16KiB, aarch64_vmsa::address::Level::L2, 36);
-boundary_case!(vmsa64_stage1_64k_l1, aarch64_vmsa::config::granule::Granule64KiB, vmsa_test_harness::Granule::Size64KiB, aarch64_vmsa::address::Level::L1, 48);
-boundary_case!(vmsa64_stage1_64k_l2, aarch64_vmsa::config::granule::Granule64KiB, vmsa_test_harness::Granule::Size64KiB, aarch64_vmsa::address::Level::L2, 42);
+boundary_case!(vmsa64_stage1_4k_l0, aarch64_vmsa::config::granule::Granule4KiB, vmsa_test_harness::Granule::Size4KiB, aarch64_vmsa::address::Level::L0, 48, 48);
+boundary_case!(vmsa64_stage1_4k_l1, aarch64_vmsa::config::granule::Granule4KiB, vmsa_test_harness::Granule::Size4KiB, aarch64_vmsa::address::Level::L1, 39, 48);
+boundary_case!(vmsa64_stage1_16k_l0, aarch64_vmsa::config::granule::Granule16KiB, vmsa_test_harness::Granule::Size16KiB, aarch64_vmsa::address::Level::L0, 48, 48);
+boundary_case!(vmsa64_stage1_16k_l1, aarch64_vmsa::config::granule::Granule16KiB, vmsa_test_harness::Granule::Size16KiB, aarch64_vmsa::address::Level::L1, 47, 48);
+boundary_case!(vmsa64_stage1_16k_l2, aarch64_vmsa::config::granule::Granule16KiB, vmsa_test_harness::Granule::Size16KiB, aarch64_vmsa::address::Level::L2, 36, 48);
+boundary_case!(vmsa64_stage1_64k_l1, aarch64_vmsa::config::granule::Granule64KiB, vmsa_test_harness::Granule::Size64KiB, aarch64_vmsa::address::Level::L1, 48, 48);
+boundary_case!(vmsa64_stage1_64k_l2, aarch64_vmsa::config::granule::Granule64KiB, vmsa_test_harness::Granule::Size64KiB, aarch64_vmsa::address::Level::L2, 42, 48);
 
 macro_rules! lpa2_boundary_case {
     ($name:ident, $granule_type:ty, $granule:expr, $level:expr) => {
@@ -195,7 +231,7 @@ macro_rules! lpa2_boundary_case {
             let controls = vmsa_test_harness::lpa2_el1_stage1_controls($granule, bits, bits)
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             stage1_boundary::<aarch64_vmsa::config::format::Vmsa64Lpa2, $granule_type, crate::LowerPas>(
-                context, $granule, $level, 52, vmsa_test_harness::TranslationFormat::Vmsa64Lpa2, controls, crate::lower_pas(),
+                context, $granule, $level, 52, 52, vmsa_test_harness::TranslationFormat::Vmsa64Lpa2, controls, crate::lower_pas(),
             )
         }
     };
