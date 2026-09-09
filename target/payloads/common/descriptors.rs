@@ -262,7 +262,7 @@ fn d128_stage2_leaf(
             actual: 0,
         })?,
         access_flag: true,
-        force_no_execute: false,
+        force_no_xs: false,
         contiguous: false,
         assured_only: false,
         permissions: PermissionIndices {

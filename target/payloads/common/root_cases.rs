@@ -78,22 +78,23 @@ where
     >: Copy,
 {
     use aarch64_vmsa::attrs::{
-        Cacheability, D128Stage1AliasKind, DataAccess, DirtyState, LiveVmsaConfig,
+        Cacheability, D128Stage1AliasKind, DataRights, DirtyState, LiveVmsaConfig,
         MemoryAttributes, RootExtendedPa, SemanticStage1LeafAttrs,
         SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs, Shareability,
-        SoftwareMetadata, Stage1EffectivePermissions, Stage1PermissionRegisters, Stage2MemoryMode,
+        SoftwareMetadata, Stage1PermissionRegisters, Stage1Permissions, Stage2MemoryMode,
     };
-    let permissions = Stage1EffectivePermissions {
-        privileged_data: DataAccess::ReadOnly,
-        unprivileged_data: DataAccess::None,
-        privileged_execute: false,
-        unprivileged_execute: false,
-        privileged_gcs: false,
-        unprivileged_gcs: false,
-    };
+    let permissions = Stage1Permissions::new(
+        DataRights::Read,
+        DataRights::None,
+        false,
+        false,
+        false,
+        false,
+    );
     let config = LiveVmsaConfig {
         mair: 0x0000_0000_0000_0044,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings {
             base: aarch64_vmsa::attrs::Stage1BasePermissions::Indirect(
                 aarch64_vmsa::attrs::Stage1PermissionRegisters {

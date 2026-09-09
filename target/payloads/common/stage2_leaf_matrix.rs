@@ -31,7 +31,7 @@ fn active_standard_leaf_case<F, G, R>(
     input_hint: u64,
     controls: vmsa_test_harness::TranslationControls,
     observation: Observation,
-    permissions: aarch64_vmsa::attrs::Stage2Permission,
+    permissions: aarch64_vmsa::attrs::Stage2Permissions,
     operation: ActivePermissionOperation,
 ) -> TestResult
 where
@@ -56,7 +56,7 @@ where
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
-                aarch64_vmsa::attrs::Stage2Permission,
+                aarch64_vmsa::attrs::Stage2Permissions,
                 crate::Stage2Pas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
             >,
@@ -128,6 +128,7 @@ where
     let semantic_config = aarch64_vmsa::attrs::LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
@@ -279,49 +280,16 @@ where
         context.install_combined_owned(stage1_root, stage1_setup, stage2_root, stage2_setup)?;
     match observation {
         Observation::Access => match operation {
-            ActivePermissionOperation::Read
-                if matches!(
-                    permissions,
-                    aarch64_vmsa::attrs::Stage2Permission::ReadOnly { .. }
-                        | aarch64_vmsa::attrs::Stage2Permission::ReadWrite { .. }
-                ) =>
-            {
+            ActivePermissionOperation::Read if permissions.data.permits_read() => {
                 vmsa_test_harness::expect_value(combined.read_u64(VA_BASE + 8), VALUE)
             }
-            ActivePermissionOperation::Write
-                if matches!(
-                    permissions,
-                    aarch64_vmsa::attrs::Stage2Permission::ReadWrite { .. }
-                ) =>
-            {
+            ActivePermissionOperation::Write if permissions.data.permits_write() => {
                 vmsa_test_harness::expect_completed(combined.write_u64(VA_BASE + 8, VALUE + 1))
             }
-            ActivePermissionOperation::Execute
-                if matches!(
-                    permissions,
-                    aarch64_vmsa::attrs::Stage2Permission::ReadOnly {
-                        privileged_execute: true,
-                        ..
-                    } | aarch64_vmsa::attrs::Stage2Permission::ReadWrite {
-                        privileged_execute: true,
-                        ..
-                    }
-                ) =>
-            {
+            ActivePermissionOperation::Execute if permissions.execute.privileged() => {
                 vmsa_test_harness::expect_value(combined.execute(VA_BASE + 8), 1)
             }
-            ActivePermissionOperation::ExecuteEl0
-                if matches!(
-                    permissions,
-                    aarch64_vmsa::attrs::Stage2Permission::ReadOnly {
-                        unprivileged_execute: true,
-                        ..
-                    } | aarch64_vmsa::attrs::Stage2Permission::ReadWrite {
-                        unprivileged_execute: true,
-                        ..
-                    }
-                ) =>
-            {
+            ActivePermissionOperation::ExecuteEl0 if permissions.execute.unprivileged() => {
                 vmsa_test_harness::expect_value(combined.el0_execute(VA_BASE + 8), 1)
             }
             ActivePermissionOperation::Read => vmsa_test_harness::expect_matching_fault(
@@ -459,7 +427,7 @@ where
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
-                aarch64_vmsa::attrs::Stage2Permission,
+                aarch64_vmsa::attrs::Stage2Permissions,
                 crate::Stage2Pas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
             >,
@@ -479,21 +447,22 @@ where
         input_hint,
         controls,
         observation,
-        match aarch64_vmsa::attrs::DataAccess::ReadWrite {
-            aarch64_vmsa::attrs::DataAccess::None => {
-                aarch64_vmsa::attrs::Stage2Permission::NoAccess
+        match aarch64_vmsa::attrs::DataRights::ReadWrite {
+            aarch64_vmsa::attrs::DataRights::None => {
+                aarch64_vmsa::attrs::Stage2Permissions::no_access()
             }
-            aarch64_vmsa::attrs::DataAccess::ReadOnly => {
-                aarch64_vmsa::attrs::Stage2Permission::ReadOnly {
-                    privileged_execute: false,
-                    unprivileged_execute: false,
-                }
+            aarch64_vmsa::attrs::DataRights::Write => {
+                aarch64_vmsa::attrs::Stage2Permissions::special_write_only()
             }
-            aarch64_vmsa::attrs::DataAccess::ReadWrite => {
-                aarch64_vmsa::attrs::Stage2Permission::ReadWrite {
-                    privileged_execute: false,
-                    unprivileged_execute: false,
-                }
+            aarch64_vmsa::attrs::DataRights::Read => {
+                aarch64_vmsa::attrs::Stage2Permissions::read_only(
+                    aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+                )
+            }
+            aarch64_vmsa::attrs::DataRights::ReadWrite => {
+                aarch64_vmsa::attrs::Stage2Permissions::read_write(
+                    aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+                )
             }
         },
         ActivePermissionOperation::Read,
@@ -524,25 +493,25 @@ where
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
     <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage2,
-            G,
-            LeafFields = crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
-            TableFields = crate::TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
-        >,
+                aarch64_vmsa::translation::Stage2,
+                G,
+                LeafFields = crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
+                TableFields = crate::TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
+            >,
     crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>: Copy,
     F: vmsa_test_harness::AttributeCodecCompat<
-        R,
-        G,
-        aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
-        SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
-            aarch64_vmsa::attrs::Stage2Permission,
-            crate::Stage2Pas,
-            aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
+            R,
+            G,
+            aarch64_vmsa::attrs::LiveVmsaConfig<crate::Stage2Pas>,
+            SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
+                aarch64_vmsa::attrs::Stage2Permissions,
+                crate::Stage2Pas,
+                aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
+            >,
+            SemanticTable = aarch64_vmsa::attrs::SemanticVmsa64Stage2TableAttrs,
+            RawLeaf = crate::LeafFieldsOf<F, R, G>,
+            RawTable = crate::TableFieldsOf<F, R, G>,
         >,
-        SemanticTable = aarch64_vmsa::attrs::SemanticVmsa64Stage2TableAttrs,
-        RawLeaf = crate::LeafFieldsOf<F, R, G>,
-        RawTable = crate::TableFieldsOf<F, R, G>,
-    >,
 {
     let last_page = (1u64 << input_bits) - granule.bytes() as u64;
     for input in [0, last_page] {
@@ -570,8 +539,14 @@ macro_rules! standard_boundary_case {
         pub(super) fn $name(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
             let input = vmsa_test_harness::AddressBits::new($width)
                 .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
-            let output = vmsa_test_harness::AddressBits::new(if matches!($format, vmsa_test_harness::TranslationFormat::Vmsa64) { 48 } else { 52 })
-                .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
+            let output = vmsa_test_harness::AddressBits::new(
+                if matches!($format, vmsa_test_harness::TranslationFormat::Vmsa64) {
+                    48
+                } else {
+                    52
+                },
+            )
+            .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             let controls = vmsa_test_harness::$controls(
                 $granule,
                 input,
@@ -581,25 +556,148 @@ macro_rules! standard_boundary_case {
             )
             .ok_or(vmsa_test_harness::HarnessError::InvalidState)?;
             standard_boundary::<$format_type, $granule_type, Stage2Regime>(
-                context, $granule, $format, $level, $width, output.get(), controls,
+                context,
+                $granule,
+                $format,
+                $level,
+                $width,
+                output.get(),
+                controls,
             )
         }
     };
 }
 
-standard_boundary_case!(boundary_vmsa64_4k_l0, aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB, vmsa_test_harness::TranslationFormat::Vmsa64, vmsa_test_harness::Granule::Size4KiB, aarch64_vmsa::address::Level::L0, 48, vmsa64_stage2_controls);
-standard_boundary_case!(boundary_vmsa64_4k_l1, aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB, vmsa_test_harness::TranslationFormat::Vmsa64, vmsa_test_harness::Granule::Size4KiB, aarch64_vmsa::address::Level::L1, 39, vmsa64_stage2_controls);
-standard_boundary_case!(boundary_vmsa64_4k_l2, aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB, vmsa_test_harness::TranslationFormat::Vmsa64, vmsa_test_harness::Granule::Size4KiB, aarch64_vmsa::address::Level::L2, 30, vmsa64_stage2_controls);
-standard_boundary_case!(boundary_vmsa64_4k_l3, aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule4KiB, vmsa_test_harness::TranslationFormat::Vmsa64, vmsa_test_harness::Granule::Size4KiB, aarch64_vmsa::address::Level::L3, 21, vmsa64_stage2_controls);
-standard_boundary_case!(boundary_vmsa64_16k_l1, aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule16KiB, vmsa_test_harness::TranslationFormat::Vmsa64, vmsa_test_harness::Granule::Size16KiB, aarch64_vmsa::address::Level::L1, 47, vmsa64_stage2_controls);
-standard_boundary_case!(boundary_vmsa64_16k_l2, aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule16KiB, vmsa_test_harness::TranslationFormat::Vmsa64, vmsa_test_harness::Granule::Size16KiB, aarch64_vmsa::address::Level::L2, 36, vmsa64_stage2_controls);
-standard_boundary_case!(boundary_vmsa64_16k_l3, aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule16KiB, vmsa_test_harness::TranslationFormat::Vmsa64, vmsa_test_harness::Granule::Size16KiB, aarch64_vmsa::address::Level::L3, 24, vmsa64_stage2_controls);
-standard_boundary_case!(boundary_vmsa64_64k_l1, aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule64KiB, vmsa_test_harness::TranslationFormat::Vmsa64, vmsa_test_harness::Granule::Size64KiB, aarch64_vmsa::address::Level::L1, 48, vmsa64_stage2_controls);
-standard_boundary_case!(boundary_vmsa64_64k_l2, aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule64KiB, vmsa_test_harness::TranslationFormat::Vmsa64, vmsa_test_harness::Granule::Size64KiB, aarch64_vmsa::address::Level::L2, 42, vmsa64_stage2_controls);
-standard_boundary_case!(boundary_vmsa64_64k_l3, aarch64_vmsa::config::format::Vmsa64, aarch64_vmsa::config::granule::Granule64KiB, vmsa_test_harness::TranslationFormat::Vmsa64, vmsa_test_harness::Granule::Size64KiB, aarch64_vmsa::address::Level::L3, 28, vmsa64_stage2_controls);
-standard_boundary_case!(boundary_lpa2_4k_lneg1, aarch64_vmsa::config::format::Vmsa64Lpa2, aarch64_vmsa::config::granule::Granule4KiB, vmsa_test_harness::TranslationFormat::Vmsa64Lpa2, vmsa_test_harness::Granule::Size4KiB, aarch64_vmsa::address::Level::NEG1, 52, lpa2_stage2_controls);
-standard_boundary_case!(boundary_lpa2_16k_l0, aarch64_vmsa::config::format::Vmsa64Lpa2, aarch64_vmsa::config::granule::Granule16KiB, vmsa_test_harness::TranslationFormat::Vmsa64Lpa2, vmsa_test_harness::Granule::Size16KiB, aarch64_vmsa::address::Level::L0, 52, lpa2_stage2_controls);
-standard_boundary_case!(boundary_lpa2_64k_l1, aarch64_vmsa::config::format::Vmsa64Lpa2, aarch64_vmsa::config::granule::Granule64KiB, vmsa_test_harness::TranslationFormat::Vmsa64Lpa2, vmsa_test_harness::Granule::Size64KiB, aarch64_vmsa::address::Level::L1, 52, lpa2_stage2_controls);
+standard_boundary_case!(
+    boundary_vmsa64_4k_l0,
+    aarch64_vmsa::config::format::Vmsa64,
+    aarch64_vmsa::config::granule::Granule4KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64,
+    vmsa_test_harness::Granule::Size4KiB,
+    aarch64_vmsa::address::Level::L0,
+    48,
+    vmsa64_stage2_controls
+);
+standard_boundary_case!(
+    boundary_vmsa64_4k_l1,
+    aarch64_vmsa::config::format::Vmsa64,
+    aarch64_vmsa::config::granule::Granule4KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64,
+    vmsa_test_harness::Granule::Size4KiB,
+    aarch64_vmsa::address::Level::L1,
+    39,
+    vmsa64_stage2_controls
+);
+standard_boundary_case!(
+    boundary_vmsa64_4k_l2,
+    aarch64_vmsa::config::format::Vmsa64,
+    aarch64_vmsa::config::granule::Granule4KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64,
+    vmsa_test_harness::Granule::Size4KiB,
+    aarch64_vmsa::address::Level::L2,
+    30,
+    vmsa64_stage2_controls
+);
+standard_boundary_case!(
+    boundary_vmsa64_4k_l3,
+    aarch64_vmsa::config::format::Vmsa64,
+    aarch64_vmsa::config::granule::Granule4KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64,
+    vmsa_test_harness::Granule::Size4KiB,
+    aarch64_vmsa::address::Level::L3,
+    21,
+    vmsa64_stage2_controls
+);
+standard_boundary_case!(
+    boundary_vmsa64_16k_l1,
+    aarch64_vmsa::config::format::Vmsa64,
+    aarch64_vmsa::config::granule::Granule16KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64,
+    vmsa_test_harness::Granule::Size16KiB,
+    aarch64_vmsa::address::Level::L1,
+    47,
+    vmsa64_stage2_controls
+);
+standard_boundary_case!(
+    boundary_vmsa64_16k_l2,
+    aarch64_vmsa::config::format::Vmsa64,
+    aarch64_vmsa::config::granule::Granule16KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64,
+    vmsa_test_harness::Granule::Size16KiB,
+    aarch64_vmsa::address::Level::L2,
+    36,
+    vmsa64_stage2_controls
+);
+standard_boundary_case!(
+    boundary_vmsa64_16k_l3,
+    aarch64_vmsa::config::format::Vmsa64,
+    aarch64_vmsa::config::granule::Granule16KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64,
+    vmsa_test_harness::Granule::Size16KiB,
+    aarch64_vmsa::address::Level::L3,
+    24,
+    vmsa64_stage2_controls
+);
+standard_boundary_case!(
+    boundary_vmsa64_64k_l1,
+    aarch64_vmsa::config::format::Vmsa64,
+    aarch64_vmsa::config::granule::Granule64KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64,
+    vmsa_test_harness::Granule::Size64KiB,
+    aarch64_vmsa::address::Level::L1,
+    48,
+    vmsa64_stage2_controls
+);
+standard_boundary_case!(
+    boundary_vmsa64_64k_l2,
+    aarch64_vmsa::config::format::Vmsa64,
+    aarch64_vmsa::config::granule::Granule64KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64,
+    vmsa_test_harness::Granule::Size64KiB,
+    aarch64_vmsa::address::Level::L2,
+    42,
+    vmsa64_stage2_controls
+);
+standard_boundary_case!(
+    boundary_vmsa64_64k_l3,
+    aarch64_vmsa::config::format::Vmsa64,
+    aarch64_vmsa::config::granule::Granule64KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64,
+    vmsa_test_harness::Granule::Size64KiB,
+    aarch64_vmsa::address::Level::L3,
+    28,
+    vmsa64_stage2_controls
+);
+standard_boundary_case!(
+    boundary_lpa2_4k_lneg1,
+    aarch64_vmsa::config::format::Vmsa64Lpa2,
+    aarch64_vmsa::config::granule::Granule4KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64Lpa2,
+    vmsa_test_harness::Granule::Size4KiB,
+    aarch64_vmsa::address::Level::NEG1,
+    52,
+    lpa2_stage2_controls
+);
+standard_boundary_case!(
+    boundary_lpa2_16k_l0,
+    aarch64_vmsa::config::format::Vmsa64Lpa2,
+    aarch64_vmsa::config::granule::Granule16KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64Lpa2,
+    vmsa_test_harness::Granule::Size16KiB,
+    aarch64_vmsa::address::Level::L0,
+    52,
+    lpa2_stage2_controls
+);
+standard_boundary_case!(
+    boundary_lpa2_64k_l1,
+    aarch64_vmsa::config::format::Vmsa64Lpa2,
+    aarch64_vmsa::config::granule::Granule64KiB,
+    vmsa_test_harness::TranslationFormat::Vmsa64Lpa2,
+    vmsa_test_harness::Granule::Size64KiB,
+    aarch64_vmsa::address::Level::L1,
+    52,
+    lpa2_stage2_controls
+);
 
 fn vmsa64_leaf(
     context: &mut TestContext<'_, CurrentEnvironment>,
@@ -635,7 +733,7 @@ fn vmsa64_leaf(
 
 fn vmsa64_permission_case(
     context: &mut TestContext<'_, CurrentEnvironment>,
-    data: aarch64_vmsa::attrs::DataAccess,
+    data: aarch64_vmsa::attrs::DataRights,
     execute: bool,
     operation: ActivePermissionOperation,
 ) -> TestResult {
@@ -663,7 +761,10 @@ fn vmsa64_permission_case(
         1u64 << 42,
         controls,
         Observation::Access,
-        aarch64_vmsa::attrs::Stage2Permission::direct(data, execute, execute),
+        aarch64_vmsa::attrs::Stage2Permissions::direct(
+            data,
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(execute, execute),
+        ),
         operation,
     )
 }
@@ -676,7 +777,7 @@ macro_rules! stage2_permission_cases {
             ) -> TestResult {
                 vmsa64_permission_case(
                     context,
-                    aarch64_vmsa::attrs::DataAccess::$data,
+                    aarch64_vmsa::attrs::DataRights::$data,
                     $execute,
                     ActivePermissionOperation::$operation,
                 )
@@ -688,12 +789,12 @@ macro_rules! stage2_permission_cases {
 stage2_permission_cases!(
     permission_none_read, None, false, Read;
     permission_none_write, None, false, Write;
-    permission_ro_read, ReadOnly, false, Read;
-    permission_ro_write, ReadOnly, false, Write;
+    permission_ro_read, Read, false, Read;
+    permission_ro_write, Read, false, Write;
     permission_rw_read, ReadWrite, false, Read;
     permission_rw_write, ReadWrite, false, Write;
-    permission_x_execute, ReadOnly, true, Execute;
-    permission_xn_execute, ReadOnly, false, Execute;
+    permission_x_execute, Read, true, Execute;
+    permission_xn_execute, Read, false, Execute;
 );
 
 fn vmsa64_xnx_permission_case(
@@ -726,10 +827,12 @@ fn vmsa64_xnx_permission_case(
         1u64 << 42,
         controls,
         Observation::Access,
-        aarch64_vmsa::attrs::Stage2Permission::direct(
-            aarch64_vmsa::attrs::DataAccess::ReadOnly,
-            privileged_execute,
-            unprivileged_execute,
+        aarch64_vmsa::attrs::Stage2Permissions::direct(
+            aarch64_vmsa::attrs::DataRights::Read,
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(
+                privileged_execute,
+                unprivileged_execute,
+            ),
         ),
         operation,
     )
@@ -1430,12 +1533,48 @@ macro_rules! d128_stage2_boundary_case {
         }
     };
 }
-d128_stage2_boundary_case!(boundary_d128_4k_lneg1_first, aarch64_vmsa::config::granule::Granule4KiB, vmsa_test_harness::Granule::Size4KiB, aarch64_vmsa::address::Level::NEG1, false);
-d128_stage2_boundary_case!(boundary_d128_4k_lneg1_last, aarch64_vmsa::config::granule::Granule4KiB, vmsa_test_harness::Granule::Size4KiB, aarch64_vmsa::address::Level::NEG1, true);
-d128_stage2_boundary_case!(boundary_d128_16k_l0_first, aarch64_vmsa::config::granule::Granule16KiB, vmsa_test_harness::Granule::Size16KiB, aarch64_vmsa::address::Level::L0, false);
-d128_stage2_boundary_case!(boundary_d128_16k_l0_last, aarch64_vmsa::config::granule::Granule16KiB, vmsa_test_harness::Granule::Size16KiB, aarch64_vmsa::address::Level::L0, true);
-d128_stage2_boundary_case!(boundary_d128_64k_l1_first, aarch64_vmsa::config::granule::Granule64KiB, vmsa_test_harness::Granule::Size64KiB, aarch64_vmsa::address::Level::L1, false);
-d128_stage2_boundary_case!(boundary_d128_64k_l1_last, aarch64_vmsa::config::granule::Granule64KiB, vmsa_test_harness::Granule::Size64KiB, aarch64_vmsa::address::Level::L1, true);
+d128_stage2_boundary_case!(
+    boundary_d128_4k_lneg1_first,
+    aarch64_vmsa::config::granule::Granule4KiB,
+    vmsa_test_harness::Granule::Size4KiB,
+    aarch64_vmsa::address::Level::NEG1,
+    false
+);
+d128_stage2_boundary_case!(
+    boundary_d128_4k_lneg1_last,
+    aarch64_vmsa::config::granule::Granule4KiB,
+    vmsa_test_harness::Granule::Size4KiB,
+    aarch64_vmsa::address::Level::NEG1,
+    true
+);
+d128_stage2_boundary_case!(
+    boundary_d128_16k_l0_first,
+    aarch64_vmsa::config::granule::Granule16KiB,
+    vmsa_test_harness::Granule::Size16KiB,
+    aarch64_vmsa::address::Level::L0,
+    false
+);
+d128_stage2_boundary_case!(
+    boundary_d128_16k_l0_last,
+    aarch64_vmsa::config::granule::Granule16KiB,
+    vmsa_test_harness::Granule::Size16KiB,
+    aarch64_vmsa::address::Level::L0,
+    true
+);
+d128_stage2_boundary_case!(
+    boundary_d128_64k_l1_first,
+    aarch64_vmsa::config::granule::Granule64KiB,
+    vmsa_test_harness::Granule::Size64KiB,
+    aarch64_vmsa::address::Level::L1,
+    false
+);
+d128_stage2_boundary_case!(
+    boundary_d128_64k_l1_last,
+    aarch64_vmsa::config::granule::Granule64KiB,
+    vmsa_test_harness::Granule::Size64KiB,
+    aarch64_vmsa::address::Level::L1,
+    true
+);
 
 fn d128_4k_leaf(
     context: &mut TestContext<'_, CurrentEnvironment>,
@@ -1884,7 +2023,7 @@ alternate_leaf_pair!(
 
 fn alternate_vmsa64_permission_case(
     context: &mut TestContext<'_, CurrentEnvironment>,
-    data: aarch64_vmsa::attrs::DataAccess,
+    data: aarch64_vmsa::attrs::DataRights,
     execute: bool,
     operation: ActivePermissionOperation,
 ) -> TestResult {
@@ -1912,7 +2051,10 @@ fn alternate_vmsa64_permission_case(
         1u64 << 42,
         controls,
         Observation::Access,
-        aarch64_vmsa::attrs::Stage2Permission::direct(data, execute, execute),
+        aarch64_vmsa::attrs::Stage2Permissions::direct(
+            data,
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(execute, execute),
+        ),
         operation,
     )
 }
@@ -1925,7 +2067,7 @@ macro_rules! alternate_permission_cases {
             ) -> TestResult {
                 alternate_vmsa64_permission_case(
                     context,
-                    aarch64_vmsa::attrs::DataAccess::$data,
+                    aarch64_vmsa::attrs::DataRights::$data,
                     $execute,
                     ActivePermissionOperation::$operation,
                 )
@@ -1937,12 +2079,12 @@ macro_rules! alternate_permission_cases {
 alternate_permission_cases!(
     alternate_permission_none_read, None, false, Read;
     alternate_permission_none_write, None, false, Write;
-    alternate_permission_ro_read, ReadOnly, false, Read;
-    alternate_permission_ro_write, ReadOnly, false, Write;
+    alternate_permission_ro_read, Read, false, Read;
+    alternate_permission_ro_write, Read, false, Write;
     alternate_permission_rw_read, ReadWrite, false, Read;
     alternate_permission_rw_write, ReadWrite, false, Write;
-    alternate_permission_x_execute, ReadOnly, true, Execute;
-    alternate_permission_xn_execute, ReadOnly, false, Execute;
+    alternate_permission_x_execute, Read, true, Execute;
+    alternate_permission_xn_execute, Read, false, Execute;
 );
 
 fn alternate_vmsa64_xnx_permission_case(
@@ -1975,10 +2117,12 @@ fn alternate_vmsa64_xnx_permission_case(
         1u64 << 42,
         controls,
         Observation::Access,
-        aarch64_vmsa::attrs::Stage2Permission::direct(
-            aarch64_vmsa::attrs::DataAccess::ReadOnly,
-            privileged_execute,
-            unprivileged_execute,
+        aarch64_vmsa::attrs::Stage2Permissions::direct(
+            aarch64_vmsa::attrs::DataRights::Read,
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(
+                privileged_execute,
+                unprivileged_execute,
+            ),
         ),
         operation,
     )

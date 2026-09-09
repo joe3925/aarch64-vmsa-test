@@ -276,12 +276,12 @@ where
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<crate::CurrentPas>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
-                aarch64_vmsa::attrs::Stage1EffectivePermissions,
+                aarch64_vmsa::attrs::Stage1Permissions,
                 crate::CurrentPas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
             SemanticTable = aarch64_vmsa::attrs::SemanticStage1TableAttrs<
-                aarch64_vmsa::attrs::SinglePrivilegeTablePermissionLimits,
+                aarch64_vmsa::attrs::SinglePrivilegeTableRestrictions,
                 crate::CurrentTablePas,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1TableControls,
             >,

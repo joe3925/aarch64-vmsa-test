@@ -14,11 +14,11 @@ fn vmsa64_update_case(
     observation: UpdateObservation,
 ) -> TestResult {
     use aarch64_vmsa::attrs::{
-        AllocationHints, CachePolicy, Cacheability, D128Stage1AliasKind, DataAccess,
+        AllocationHints, CachePolicy, Cacheability, D128Stage1AliasKind, DataRights,
         DirtyBitManagement, LiveVmsaConfig, MemoryAttributes, MemoryTransience,
         SemanticStage1LeafAttrs, SemanticStage1TableAttrs, SemanticVmsa64Stage1LeafControls,
-        SemanticVmsa64Stage1TableControls, Shareability, SinglePrivilegeTablePermissionLimits,
-        SoftwareMetadata, Stage1EffectivePermissions, Stage2MemoryMode,
+        SemanticVmsa64Stage1TableControls, Shareability, SinglePrivilegeTableRestrictions,
+        SoftwareMetadata, Stage1Permissions, Stage2MemoryMode,
     };
     use vmsa_test_harness::{
         AccessKind, AddressBits, ExpectedFault, FaultClass, FaultMatcher, FaultStage, FaultStatus,
@@ -39,6 +39,7 @@ fn vmsa64_update_case(
     let config = LiveVmsaConfig {
         mair: 0x0000_00ff,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -59,18 +60,18 @@ fn vmsa64_update_case(
                 allocation: AllocationHints::ReadWriteAllocate,
             },
         },
-        permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions {
-            privileged_data: if dirty_managed {
-                DataAccess::ReadOnly
+        permissions: aarch64_vmsa::attrs::Stage1Permissions::new(
+            if dirty_managed {
+                DataRights::Read
             } else {
-                DataAccess::ReadWrite
+                DataRights::ReadWrite
             },
-            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
-            privileged_execute: false,
-            unprivileged_execute: false,
-            privileged_gcs: false,
-            unprivileged_gcs: false,
-        },
+            aarch64_vmsa::attrs::DataRights::None,
+            false,
+            false,
+            false,
+            false,
+        ),
         pas: crate::current_pas(),
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,
@@ -87,8 +88,8 @@ fn vmsa64_update_case(
         },
     };
     let table = SemanticStage1TableAttrs {
-        permission_limits: SinglePrivilegeTablePermissionLimits {
-            data_limit: DataAccess::ReadWrite,
+        restrictions: SinglePrivilegeTableRestrictions {
+            data_limit: DataRights::ReadWrite,
             execute_limit: true,
         },
         pas: crate::current_table_pas(),
@@ -189,12 +190,11 @@ fn d128_update_case(
     observation: UpdateObservation,
 ) -> TestResult {
     use aarch64_vmsa::attrs::{
-        AllocationHints, CachePolicy, Cacheability, D128Stage1AliasKind, DataAccess, DirtyState,
+        AllocationHints, CachePolicy, Cacheability, D128Stage1AliasKind, DataRights, DirtyState,
         LiveVmsaConfig, MemoryAttributes, MemoryTransience, SemanticStage1LeafAttrs,
         SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs, Shareability,
-        SoftwareMetadata, Stage1BasePermissions, Stage1EffectivePermissions,
-        Stage1PermissionOverlays, Stage1PermissionRegisters, Stage1PermissionSettings,
-        Stage2MemoryMode,
+        SoftwareMetadata, Stage1BasePermissions, Stage1PermissionOverlays,
+        Stage1PermissionRegisters, Stage1PermissionSettings, Stage1Permissions, Stage2MemoryMode,
     };
     use vmsa_test_harness::{
         AccessKind, AddressBits, ExpectedFault, FaultClass, FaultMatcher, FaultStage, FaultStatus,
@@ -211,6 +211,7 @@ fn d128_update_case(
     let config = LiveVmsaConfig {
         mair: 0x0000_00ff,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: Stage1PermissionSettings {
             base: Stage1BasePermissions::Indirect(Stage1PermissionRegisters {
                 privileged: 0xcccc_cccc_cccc_ccca,
@@ -238,14 +239,14 @@ fn d128_update_case(
                 allocation: AllocationHints::ReadWriteAllocate,
             },
         },
-        permissions: Stage1EffectivePermissions {
-            privileged_data: DataAccess::ReadWrite,
-            unprivileged_data: DataAccess::ReadWrite,
-            privileged_execute: false,
-            unprivileged_execute: false,
-            privileged_gcs: false,
-            unprivileged_gcs: false,
-        },
+        permissions: Stage1Permissions::new(
+            DataRights::ReadWrite,
+            DataRights::ReadWrite,
+            false,
+            false,
+            false,
+            false,
+        ),
         pas: crate::lower_pas(),
         controls: SemanticVmsa128Stage1LeafControls {
             bbm_nt: false,
@@ -385,7 +386,7 @@ fn d128_stage2_update_case(
         Cacheability, D128Stage1AliasKind, DirtyState, LiveVmsaConfig, MemoryAttributes,
         SemanticStage2LeafAttrs, SemanticVmsa128Stage2LeafControls,
         SemanticVmsa128Stage2TableAttrs, Shareability, SoftwareMetadata, Stage2MemoryAttributes,
-        Stage2MemoryMode, Stage2Permission, Stage2PermissionRegisters,
+        Stage2MemoryMode, Stage2PermissionRegisters, Stage2Permissions,
     };
     use vmsa_test_harness::{
         AccessKind, AddressBits, Asid, ExpectedFault, FaultClass, FaultMatcher, FaultStage,
@@ -402,6 +403,7 @@ fn d128_stage2_update_case(
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings {
             base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
@@ -421,17 +423,16 @@ fn d128_stage2_update_case(
             inner: Cacheability::NonCacheable,
             outer: Cacheability::NonCacheable,
         }),
-        permissions: Stage2Permission::ReadWrite {
-            privileged_execute: false,
-            unprivileged_execute: false,
-        },
+        permissions: Stage2Permissions::read_write(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+        ),
         output_address_space: crate::stage2_pas(),
         controls: SemanticVmsa128Stage2LeafControls {
             bbm_nt: false,
             dirty_state: DirtyState::Clean,
             shareability: Shareability::InnerShareable,
             access_flag,
-            force_no_execute: false,
+            force_no_xs: false,
             contiguous: false,
             assured_only: false,
             software: SoftwareMetadata::new(0),

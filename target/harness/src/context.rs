@@ -2684,7 +2684,7 @@ where
                 .map_err(|_| HarnessError::InvalidState)?;
             mapping
                 .map(|mapping| {
-                    aarch64_vmsa::mapper::decode_semantic_leaf::<F, R, G, Cfg>(
+                    <F as crate::AttributeCodecCompat<R, G, Cfg>>::decode_leaf(
                         config,
                         mapping.level(),
                         *mapping.fields(),
@@ -2725,28 +2725,34 @@ where
     {
         self.failures.check(HarnessFailurePoint::Map)?;
         self.with_mapper_for::<R, F, G, _>(|mapper| {
+            let raw_leaf = <F as crate::AttributeCodecCompat<R, G, Cfg>>::encode_leaf(
+                config,
+                aarch64_vmsa::address::Level::new(level.get()),
+                leaf,
+            )
+            .map_err(|error| {
+                HarnessError::Attribute(crate::translation::normalize_attribute_error(error))
+            })?;
+            let raw_table = <F as crate::AttributeCodecCompat<R, G, Cfg>>::encode_table(
+                config,
+                aarch64_vmsa::address::Level::new(level.get()),
+                table,
+            )
+            .map_err(|error| {
+                HarnessError::Attribute(crate::translation::normalize_attribute_error(error))
+            })?;
             mapper
-                .map_semantic_leaf::<Cfg>(
-                    config,
+                .map_leaf(
                     aarch64_vmsa::translation::WalkInputAddr::new(input),
                     aarch64_vmsa::translation::WalkOutputAddr::new(output),
                     aarch64_vmsa::address::Level::new(level.get()),
-                    leaf,
-                    table,
+                    raw_leaf,
+                    raw_table,
                 )
                 .map(|_| ())
-                .map_err(|error| match error {
-                    aarch64_vmsa::mapper::SemanticMapperError::Attribute(error) => {
-                        HarnessError::Attribute(crate::translation::normalize_attribute_error(
-                            error,
-                        ))
-                    }
-                    aarch64_vmsa::mapper::SemanticMapperError::Mapper(_) => {
-                        HarnessError::CrateBehavior {
-                            expected: 1,
-                            actual: 0,
-                        }
-                    }
+                .map_err(|_| HarnessError::CrateBehavior {
+                    expected: 1,
+                    actual: 0,
                 })
         })
     }

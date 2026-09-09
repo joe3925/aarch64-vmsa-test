@@ -15,11 +15,10 @@ fn single_privilege_case(
     observation: Observation,
 ) -> TestResult {
     use aarch64_vmsa::attrs::{
-        Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
+        Cacheability, D128Stage1AliasKind, DataRights, DirtyBitManagement, LiveVmsaConfig,
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
-        SinglePrivilegeTablePermissionLimits, SoftwareMetadata, Stage1EffectivePermissions,
-        Stage2MemoryMode,
+        SinglePrivilegeTableRestrictions, SoftwareMetadata, Stage1Permissions, Stage2MemoryMode,
     };
     use vmsa_test_harness::{
         AccessKind, AddressBits, ExpectedFault, FaultClass, FaultMatcher, FaultStage, FaultStatus,
@@ -48,6 +47,7 @@ fn single_privilege_case(
     let config = LiveVmsaConfig {
         mair: 0x0000_ff44,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -55,18 +55,18 @@ fn single_privilege_case(
         shareability: Shareability::InnerShareable,
         output_pas: (),
     };
-    let permissions = aarch64_vmsa::attrs::Stage1EffectivePermissions {
-        privileged_data: if writable {
-            DataAccess::ReadWrite
+    let permissions = aarch64_vmsa::attrs::Stage1Permissions::new(
+        if writable {
+            DataRights::ReadWrite
         } else {
-            DataAccess::ReadOnly
+            DataRights::Read
         },
-        unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
-        privileged_execute: executable,
-        unprivileged_execute: false,
-        privileged_gcs: false,
-        unprivileged_gcs: false,
-    };
+        aarch64_vmsa::attrs::DataRights::None,
+        executable,
+        false,
+        false,
+        false,
+    );
     let leaf = SemanticStage1LeafAttrs {
         memory: MemoryAttributes::Normal {
             inner: Cacheability::NonCacheable,
@@ -85,8 +85,8 @@ fn single_privilege_case(
         },
     };
     let table = SemanticStage1TableAttrs {
-        permission_limits: SinglePrivilegeTablePermissionLimits {
-            data_limit: DataAccess::ReadWrite,
+        restrictions: SinglePrivilegeTableRestrictions {
+            data_limit: DataRights::ReadWrite,
             execute_limit: true,
         },
         pas: (),
@@ -216,19 +216,18 @@ enum LowerObservation {
 
 fn two_privilege_case(
     context: &mut TestContext<'_, CurrentEnvironment>,
-    privileged_data: aarch64_vmsa::attrs::DataAccess,
-    unprivileged_data: aarch64_vmsa::attrs::DataAccess,
+    privileged_data: aarch64_vmsa::attrs::DataRights,
+    unprivileged_data: aarch64_vmsa::attrs::DataRights,
     privileged_execute: bool,
     unprivileged_execute: bool,
     privilege: LowerPrivilege,
     observation: LowerObservation,
 ) -> TestResult {
     use aarch64_vmsa::attrs::{
-        Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
+        Cacheability, D128Stage1AliasKind, DataRights, DirtyBitManagement, LiveVmsaConfig,
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
-        SoftwareMetadata, Stage1EffectivePermissions, Stage2MemoryMode,
-        TwoPrivilegeTablePermissionLimits,
+        SoftwareMetadata, Stage1Permissions, Stage2MemoryMode, TwoPrivilegeTableRestrictions,
     };
     use vmsa_test_harness::{
         AccessKind, AddressBits, Asid, ExpectedFault, FaultClass, FaultMatcher, FaultStage,
@@ -265,6 +264,7 @@ fn two_privilege_case(
     let config = LiveVmsaConfig {
         mair: 0x0000_ff44,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -272,14 +272,14 @@ fn two_privilege_case(
         shareability: Shareability::InnerShareable,
         output_pas: (),
     };
-    let permissions = Stage1EffectivePermissions {
+    let permissions = Stage1Permissions::new(
         privileged_data,
         unprivileged_data,
         privileged_execute,
         unprivileged_execute,
-        privileged_gcs: false,
-        unprivileged_gcs: false,
-    };
+        false,
+        false,
+    );
     let leaf = SemanticStage1LeafAttrs {
         memory: MemoryAttributes::Normal {
             inner: Cacheability::NonCacheable,
@@ -298,9 +298,9 @@ fn two_privilege_case(
         },
     };
     let table = SemanticStage1TableAttrs {
-        permission_limits: TwoPrivilegeTablePermissionLimits {
-            privileged_data_limit: DataAccess::ReadWrite,
-            unprivileged_data_limit: DataAccess::ReadWrite,
+        restrictions: TwoPrivilegeTableRestrictions {
+            privileged_data_limit: DataRights::ReadWrite,
+            unprivileged_data_limit: DataRights::ReadWrite,
             privileged_execute_limit: true,
             unprivileged_execute_limit: true,
         },
@@ -353,14 +353,14 @@ fn two_privilege_case(
         LowerPrivilege::Unprivileged => unprivileged_execute,
     };
     let result = match (privilege, observation) {
-        (LowerPrivilege::Privileged, LowerObservation::Read) if data_access != DataAccess::None => {
+        (LowerPrivilege::Privileged, LowerObservation::Read) if data_access != DataRights::None => {
             vmsa_test_harness::expect_value(
                 context.lower_read_u64(ADDRESS + DATA_OFFSET),
                 INITIAL_VALUE,
             )
         }
         (LowerPrivilege::Unprivileged, LowerObservation::Read)
-            if data_access != DataAccess::None =>
+            if data_access != DataRights::None =>
         {
             vmsa_test_harness::expect_value(
                 context.el0_read_u64(ADDRESS + DATA_OFFSET),
@@ -368,14 +368,14 @@ fn two_privilege_case(
             )
         }
         (LowerPrivilege::Privileged, LowerObservation::Write)
-            if data_access == DataAccess::ReadWrite =>
+            if data_access == DataRights::ReadWrite =>
         {
             vmsa_test_harness::expect_completed(
                 context.lower_write_u64(ADDRESS + DATA_OFFSET, WRITTEN_VALUE),
             )
         }
         (LowerPrivilege::Unprivileged, LowerObservation::Write)
-            if data_access == DataAccess::ReadWrite =>
+            if data_access == DataRights::ReadWrite =>
         {
             vmsa_test_harness::expect_completed(
                 context.el0_write_u64(ADDRESS + DATA_OFFSET, WRITTEN_VALUE),
@@ -454,8 +454,8 @@ macro_rules! two_data_case {
         pub(super) fn $name(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
             two_privilege_case(
                 context,
-                aarch64_vmsa::attrs::DataAccess::$pd,
-                aarch64_vmsa::attrs::DataAccess::$ud,
+                aarch64_vmsa::attrs::DataRights::$pd,
+                aarch64_vmsa::attrs::DataRights::$ud,
                 false,
                 false,
                 LowerPrivilege::$privilege,
@@ -473,22 +473,22 @@ two_data_case!(p_rw_u_rw_pr, ReadWrite, ReadWrite, Privileged, Read);
 two_data_case!(p_rw_u_rw_pw, ReadWrite, ReadWrite, Privileged, Write);
 two_data_case!(p_rw_u_rw_ur, ReadWrite, ReadWrite, Unprivileged, Read);
 two_data_case!(p_rw_u_rw_uw, ReadWrite, ReadWrite, Unprivileged, Write);
-two_data_case!(p_ro_u_none_pr, ReadOnly, None, Privileged, Read);
-two_data_case!(p_ro_u_none_pw, ReadOnly, None, Privileged, Write);
-two_data_case!(p_ro_u_none_ur, ReadOnly, None, Unprivileged, Read);
-two_data_case!(p_ro_u_none_uw, ReadOnly, None, Unprivileged, Write);
-two_data_case!(p_ro_u_ro_pr, ReadOnly, ReadOnly, Privileged, Read);
-two_data_case!(p_ro_u_ro_pw, ReadOnly, ReadOnly, Privileged, Write);
-two_data_case!(p_ro_u_ro_ur, ReadOnly, ReadOnly, Unprivileged, Read);
-two_data_case!(p_ro_u_ro_uw, ReadOnly, ReadOnly, Unprivileged, Write);
+two_data_case!(p_ro_u_none_pr, Read, None, Privileged, Read);
+two_data_case!(p_ro_u_none_pw, Read, None, Privileged, Write);
+two_data_case!(p_ro_u_none_ur, Read, None, Unprivileged, Read);
+two_data_case!(p_ro_u_none_uw, Read, None, Unprivileged, Write);
+two_data_case!(p_ro_u_ro_pr, Read, Read, Privileged, Read);
+two_data_case!(p_ro_u_ro_pw, Read, Read, Privileged, Write);
+two_data_case!(p_ro_u_ro_ur, Read, Read, Unprivileged, Read);
+two_data_case!(p_ro_u_ro_uw, Read, Read, Unprivileged, Write);
 
 macro_rules! two_execute_case {
     ($name:ident, $px:literal, $ux:literal, $privilege:ident) => {
         pub(super) fn $name(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
             two_privilege_case(
                 context,
-                aarch64_vmsa::attrs::DataAccess::ReadOnly,
-                aarch64_vmsa::attrs::DataAccess::ReadOnly,
+                aarch64_vmsa::attrs::DataRights::Read,
+                aarch64_vmsa::attrs::DataRights::Read,
                 $px,
                 $ux,
                 LowerPrivilege::$privilege,

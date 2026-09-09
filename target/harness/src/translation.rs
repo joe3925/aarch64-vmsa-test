@@ -950,16 +950,10 @@ fn arena_table_access(memory: NonNull<TestMemory>) -> OffsetTableAccess {
 
 /// Compatibility surface used by payloads while preserving the crate's public
 /// semantic attribute families as the source of truth.
-pub trait AttributeCodecCompat<R, G, Cfg>: aarch64_vmsa::attrs::AttributeCodec<R, G, Cfg>
+pub trait AttributeCodecCompat<R, G, Cfg>
 where
-    R: PeTranslationRegime,
+    R: TranslationRegime,
     G: aarch64_vmsa::address::TranslationGranule,
-    Self: aarch64_vmsa::attrs::SemanticAttributeTypes<
-            R::Stage,
-            R,
-            Leaf = Self::SemanticLeaf,
-            Table = Self::SemanticTable,
-        >,
 {
     type SemanticLeaf;
     type SemanticTable;
@@ -976,15 +970,26 @@ where
         level: Level,
         attrs: Self::SemanticTable,
     ) -> Result<Self::RawTable, aarch64_vmsa::attrs::AttrError>;
+    fn decode_leaf(
+        config: &Cfg,
+        level: Level,
+        raw: Self::RawLeaf,
+    ) -> Result<Self::SemanticLeaf, aarch64_vmsa::attrs::AttrError>;
+    fn decode_table(
+        config: &Cfg,
+        level: Level,
+        raw: Self::RawTable,
+    ) -> Result<Self::SemanticTable, aarch64_vmsa::attrs::AttrError>;
 }
 
 impl<F, R, G, Cfg> AttributeCodecCompat<R, G, Cfg> for F
 where
-    R: PeTranslationRegime,
+    R: TranslationRegime,
     G: aarch64_vmsa::address::TranslationGranule,
-    F: aarch64_vmsa::attrs::AttributeCodec<R, G, Cfg>
-        + aarch64_vmsa::regime::HasRegimeLayout<R, G>
-        + HasLayout<R::Stage, G>,
+    F: aarch64_vmsa::regime::HasRegimeLayout<R, G>
+        + HasLayout<R::Stage, G>
+        + aarch64_vmsa::attrs::SemanticAttributeTypes<R::Stage, R>,
+    R::Stage: aarch64_vmsa::attrs::AttributeCodec<F, R, G, Cfg>,
 {
     type SemanticLeaf = aarch64_vmsa::attrs::SemanticLeafAttrs<F, R>;
     type SemanticTable = aarch64_vmsa::attrs::SemanticTableAttrs<F, R>;
@@ -996,7 +1001,9 @@ where
         level: Level,
         attrs: Self::SemanticLeaf,
     ) -> Result<Self::RawLeaf, aarch64_vmsa::attrs::AttrError> {
-        <F as aarch64_vmsa::attrs::AttributeCodec<R, G, Cfg>>::encode_leaf(config, level, attrs)
+        <R::Stage as aarch64_vmsa::attrs::AttributeCodec<F, R, G, Cfg>>::encode_leaf(
+            config, level, attrs,
+        )
     }
 
     fn encode_table(
@@ -1004,7 +1011,29 @@ where
         level: Level,
         attrs: Self::SemanticTable,
     ) -> Result<Self::RawTable, aarch64_vmsa::attrs::AttrError> {
-        <F as aarch64_vmsa::attrs::AttributeCodec<R, G, Cfg>>::encode_table(config, level, attrs)
+        <R::Stage as aarch64_vmsa::attrs::AttributeCodec<F, R, G, Cfg>>::encode_table(
+            config, level, attrs,
+        )
+    }
+
+    fn decode_leaf(
+        config: &Cfg,
+        level: Level,
+        raw: Self::RawLeaf,
+    ) -> Result<Self::SemanticLeaf, aarch64_vmsa::attrs::AttrError> {
+        <R::Stage as aarch64_vmsa::attrs::AttributeCodec<F, R, G, Cfg>>::decode_leaf(
+            config, level, raw,
+        )
+    }
+
+    fn decode_table(
+        config: &Cfg,
+        level: Level,
+        raw: Self::RawTable,
+    ) -> Result<Self::SemanticTable, aarch64_vmsa::attrs::AttrError> {
+        <R::Stage as aarch64_vmsa::attrs::AttributeCodec<F, R, G, Cfg>>::decode_table(
+            config, level, raw,
+        )
     }
 }
 
@@ -1414,25 +1443,25 @@ macro_rules! stage2_test_regime {
 stage2_test_regime!(aarch64_vmsa::config::regime::NonSecureEl2Stage2);
 stage2_test_regime!(
     aarch64_vmsa::config::regime::NonSecureEl2Stage2<
-        aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+        aarch64_vmsa::config::stage2::XnxStage2PermissionModel,
     >
 );
 stage2_test_regime!(aarch64_vmsa::config::regime::SecureEl2SecureIpaStage2);
 stage2_test_regime!(
     aarch64_vmsa::config::regime::SecureEl2SecureIpaStage2<
-        aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+        aarch64_vmsa::config::stage2::XnxStage2PermissionModel,
     >
 );
 stage2_test_regime!(aarch64_vmsa::config::regime::SecureEl2NonSecureIpaStage2);
 stage2_test_regime!(
     aarch64_vmsa::config::regime::SecureEl2NonSecureIpaStage2<
-        aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+        aarch64_vmsa::config::stage2::XnxStage2PermissionModel,
     >
 );
 stage2_test_regime!(aarch64_vmsa::config::regime::RealmEl2Stage2);
 stage2_test_regime!(
     aarch64_vmsa::config::regime::RealmEl2Stage2<
-        aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+        aarch64_vmsa::config::stage2::XnxStage2PermissionModel,
     >
 );
 
@@ -2163,7 +2192,7 @@ fn d128_stage2_fields(
             shareability: RawShareability::from_bits(0b11)
                 .map_err(|_| HarnessError::InvalidState)?,
             access_flag: true,
-            force_no_execute: false,
+            force_no_xs: false,
             contiguous: false,
             assured_only: false,
             permissions: PermissionIndices {
@@ -3471,26 +3500,30 @@ where
             >,
         LeafFieldsOf<F, R, G>: Copy,
     {
+        let raw_leaf = <F as AttributeCodecCompat<R, G, Cfg>>::encode_leaf(
+            config,
+            Level::new(level.get()),
+            leaf,
+        )
+        .map_err(|error| HarnessError::Attribute(normalize_attribute_error(error)))?;
+        let raw_table = <F as AttributeCodecCompat<R, G, Cfg>>::encode_table(
+            config,
+            Level::new(level.get()),
+            table,
+        )
+        .map_err(|error| HarnessError::Attribute(normalize_attribute_error(error)))?;
         self.inner
-            .map_semantic_leaf::<Cfg>(
-                config,
+            .map_leaf(
                 WalkInputAddr::new(input),
                 WalkOutputAddr::new(output),
                 Level::new(level.get()),
-                leaf,
-                table,
+                raw_leaf,
+                raw_table,
             )
             .map(|_| ())
-            .map_err(|error| match error {
-                aarch64_vmsa::mapper::SemanticMapperError::Attribute(error) => {
-                    HarnessError::Attribute(normalize_attribute_error(error))
-                }
-                aarch64_vmsa::mapper::SemanticMapperError::Mapper(_) => {
-                    HarnessError::CrateBehavior {
-                        expected: 1,
-                        actual: 0,
-                    }
-                }
+            .map_err(|_| HarnessError::CrateBehavior {
+                expected: 1,
+                actual: 0,
             })
     }
 
@@ -3519,7 +3552,7 @@ where
             .map_err(|_| HarnessError::InvalidState)?;
         mapping
             .map(|mapping| {
-                aarch64_vmsa::mapper::decode_semantic_leaf::<F, R, G, Cfg>(
+                <F as AttributeCodecCompat<R, G, Cfg>>::decode_leaf(
                     config,
                     mapping.level(),
                     *mapping.fields(),

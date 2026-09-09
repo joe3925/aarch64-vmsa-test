@@ -4,11 +4,10 @@ use vmsa_test_harness::{TestContext, TestResult};
 pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
+        Cacheability, D128Stage1AliasKind, DataRights, DirtyBitManagement, LiveVmsaConfig,
         MemoryAttributes, RootExtendedPa, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
-        SinglePrivilegeTablePermissionLimits, SoftwareMetadata, Stage1EffectivePermissions,
-        Stage2MemoryMode,
+        SinglePrivilegeTableRestrictions, SoftwareMetadata, Stage1Permissions, Stage2MemoryMode,
     };
     use aarch64_vmsa::config::format::Vmsa64Lpa2;
     use aarch64_vmsa::config::granule::Granule4KiB;
@@ -33,6 +32,7 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
     let config = LiveVmsaConfig {
         mair: 0x44,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -45,14 +45,14 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
             inner: Cacheability::NonCacheable,
             outer: Cacheability::NonCacheable,
         },
-        permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions {
-            privileged_data: DataAccess::ReadWrite,
-            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
-            privileged_execute: false,
-            unprivileged_execute: false,
-            privileged_gcs: false,
-            unprivileged_gcs: false,
-        },
+        permissions: aarch64_vmsa::attrs::Stage1Permissions::new(
+            DataRights::ReadWrite,
+            aarch64_vmsa::attrs::DataRights::None,
+            false,
+            false,
+            false,
+            false,
+        ),
         pas: RootExtendedPa::Root,
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,
@@ -65,8 +65,8 @@ pub fn lpa2_stage1(context: &mut TestContext<'_, CurrentEnvironment>) -> TestRes
         },
     };
     let table = SemanticStage1TableAttrs {
-        permission_limits: SinglePrivilegeTablePermissionLimits {
-            data_limit: DataAccess::ReadWrite,
+        restrictions: SinglePrivilegeTableRestrictions {
+            data_limit: DataRights::ReadWrite,
             execute_limit: true,
         },
         pas: (),

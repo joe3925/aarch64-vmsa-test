@@ -1,3 +1,4 @@
+use vmsa_test_harness::AttributeCodecCompat as AttributeCodec;
 use vmsa_test_harness::{HarnessError, TestResult};
 
 fn failed(expected: u64, actual: u64) -> TestResult {
@@ -50,10 +51,9 @@ pub fn descriptor_endian_storage() -> TestResult {
 pub fn smmu_v2_stage2_exact_vector() -> TestResult {
     use aarch64_vmsa::address::{Level, PhysAddr};
     use aarch64_vmsa::attrs::{
-        AttributeCodec, Cacheability, LiveVmsaConfig, MemoryAttributes,
-        SemanticSmmuV2Stage2LeafControls, SemanticStage2LeafAttrs, Shareability,
-        SmmuV2AllocationHint, SoftwareMetadata, Stage2MemoryAttributes, Stage2MemoryMode,
-        Stage2Permission,
+        Cacheability, LiveVmsaConfig, MemoryAttributes, SemanticSmmuV2Stage2LeafControls,
+        SemanticStage2LeafAttrs, Shareability, SmmuV2AllocationHint, SoftwareMetadata,
+        Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permissions,
     };
     use aarch64_vmsa::config::format::LittleEndian;
     use aarch64_vmsa::config::format::Vmsa64;
@@ -66,6 +66,7 @@ pub fn smmu_v2_stage2_exact_vector() -> TestResult {
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -79,14 +80,16 @@ pub fn smmu_v2_stage2_exact_vector() -> TestResult {
     };
     let semantic = SemanticStage2LeafAttrs {
         memory: Stage2MemoryAttributes::Combined(normal_nc),
-        permissions: Stage2Permission::ReadWrite {
-            privileged_execute: false,
-            unprivileged_execute: false,
-        },
+        permissions: Stage2Permissions::read_write(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+        ),
         output_address_space: (),
         controls: SemanticSmmuV2Stage2LeafControls {
             shareability: Shareability::InnerShareable,
             access_flag: true,
+            dirty: aarch64_vmsa::attrs::DirtyControl::Direct(
+                aarch64_vmsa::attrs::DirtyBitManagement::SoftwareManaged,
+            ),
             contiguous: true,
             read_allocate: SmmuV2AllocationHint::Allocate,
             write_allocate: SmmuV2AllocationHint::NoAllocate,
@@ -226,7 +229,7 @@ pub fn smmu_descriptor_interpretations() -> TestResult {
 
 pub fn smmu_regime_metadata() -> TestResult {
     use aarch64_vmsa::config::regime::{smmu_v2, smmu_v3};
-    use aarch64_vmsa::config::stage2::{Stage2Permissions, Stage2XnxPermissions};
+    use aarch64_vmsa::config::stage2::{StandardStage2PermissionModel, XnxStage2PermissionModel};
     use aarch64_vmsa::descriptor::{SmmuV2Descriptors, SmmuV3Descriptors};
     use aarch64_vmsa::regime::{
         IpaSpace, RegimeOwner, Stage1Regime, Stage2Regime, TranslationSpace,
@@ -314,11 +317,11 @@ pub fn smmu_regime_metadata() -> TestResult {
     macro_rules! v3_stage2 {
         ($regime:ident, $space:expr, $ipa:expr) => {{
             check!(stage2::<
-                smmu_v3::$regime<Stage2Permissions>,
+                smmu_v3::$regime<StandardStage2PermissionModel>,
                 SmmuV3Descriptors,
             >($space, $ipa,));
             check!(stage2::<
-                smmu_v3::$regime<Stage2XnxPermissions>,
+                smmu_v3::$regime<XnxStage2PermissionModel>,
                 SmmuV3Descriptors,
             >($space, $ipa,));
         }};
@@ -647,12 +650,11 @@ pub fn smmu_stage1_descriptor_matrix() -> TestResult {
 pub fn smmu_v3_stage1_d128_semantic_matrix() -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        AttrError, AttributeCodec, DataAccess, DeviceMemoryType, DirtyState, LiveVmsaConfig,
-        MemoryAttributes, RealmOrNonSecurePa, SecureSelectablePa, SemanticStage1LeafAttrs,
+        AttrError, DataRights, DeviceMemoryType, DirtyState, LiveVmsaConfig, MemoryAttributes,
+        RealmOrNonSecurePa, SecureSelectablePa, SemanticStage1LeafAttrs,
         SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs, Shareability,
-        SoftwareMetadata, Stage1BasePermissions, Stage1EffectivePermissions,
-        Stage1PermissionOverlays, Stage1PermissionRegisters, Stage1PermissionSettings,
-        Stage2MemoryMode,
+        SoftwareMetadata, Stage1BasePermissions, Stage1PermissionOverlays,
+        Stage1PermissionRegisters, Stage1PermissionSettings, Stage1Permissions, Stage2MemoryMode,
     };
     use aarch64_vmsa::config::format::{BigEndian, LittleEndian, NativeEndian, Vmsa128};
     use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
@@ -674,6 +676,7 @@ pub fn smmu_v3_stage1_d128_semantic_matrix() -> TestResult {
             LiveVmsaConfig {
                 mair: 0,
                 mair2: None,
+                smmu_v3_aie: false,
                 stage1_permissions: $permissions,
                 stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
                 stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -683,14 +686,14 @@ pub fn smmu_v3_stage1_d128_semantic_matrix() -> TestResult {
             }
         };
     }
-    let permissions = Stage1EffectivePermissions {
-        privileged_data: DataAccess::ReadWrite,
-        unprivileged_data: DataAccess::None,
-        privileged_execute: false,
-        unprivileged_execute: false,
-        privileged_gcs: false,
-        unprivileged_gcs: false,
-    };
+    let permissions = Stage1Permissions::new(
+        DataRights::ReadWrite,
+        DataRights::None,
+        false,
+        false,
+        false,
+        false,
+    );
     let mut failures = 0u64;
     macro_rules! round_trip {
         ($format:ty, $regime:ty, $granule:ty, $leaf_pas:expr, $table_pas:expr, $global:expr) => {{
@@ -868,12 +871,11 @@ pub fn smmu_v3_stage1_d128_semantic_matrix() -> TestResult {
 pub fn smmu_vmsa64_stage1_semantic_matrix() -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        AttributeCodec, DataAccess, DeviceMemoryType, DirtyBitManagement, DirtyControl,
-        LiveVmsaConfig, MemoryAttributes, RealmOrNonSecurePa, SecureSelectablePa,
-        SemanticStage1LeafAttrs, SemanticStage1TableAttrs, SemanticVmsa64Stage1LeafControls,
-        SemanticVmsa64Stage1TableControls, Shareability, SinglePrivilegeTablePermissionLimits,
-        SoftwareMetadata, Stage1EffectivePermissions, Stage2MemoryMode,
-        TwoPrivilegeTablePermissionLimits,
+        DataRights, DeviceMemoryType, DirtyBitManagement, DirtyControl, LiveVmsaConfig,
+        MemoryAttributes, RealmOrNonSecurePa, SecureSelectablePa, SemanticStage1LeafAttrs,
+        SemanticStage1TableAttrs, SemanticVmsa64Stage1LeafControls,
+        SemanticVmsa64Stage1TableControls, Shareability, SinglePrivilegeTableRestrictions,
+        SoftwareMetadata, Stage1Permissions, Stage2MemoryMode, TwoPrivilegeTableRestrictions,
     };
     use aarch64_vmsa::config::format::{BigEndian, LittleEndian, NativeEndian, Vmsa64, Vmsa64Lpa2};
     use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
@@ -882,6 +884,7 @@ pub fn smmu_vmsa64_stage1_semantic_matrix() -> TestResult {
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -889,22 +892,22 @@ pub fn smmu_vmsa64_stage1_semantic_matrix() -> TestResult {
         shareability: Shareability::InnerShareable,
         output_pas: (),
     };
-    let permissions = Stage1EffectivePermissions {
-        privileged_data: DataAccess::ReadWrite,
-        unprivileged_data: DataAccess::None,
-        privileged_execute: false,
-        unprivileged_execute: false,
-        privileged_gcs: false,
-        unprivileged_gcs: false,
-    };
-    let stream_limits = TwoPrivilegeTablePermissionLimits {
-        privileged_data_limit: DataAccess::ReadWrite,
-        unprivileged_data_limit: DataAccess::None,
+    let permissions = Stage1Permissions::new(
+        DataRights::ReadWrite,
+        DataRights::None,
+        false,
+        false,
+        false,
+        false,
+    );
+    let stream_limits = TwoPrivilegeTableRestrictions {
+        privileged_data_limit: DataRights::ReadWrite,
+        unprivileged_data_limit: DataRights::None,
         privileged_execute_limit: false,
         unprivileged_execute_limit: false,
     };
-    let privileged_limits = SinglePrivilegeTablePermissionLimits {
-        data_limit: DataAccess::ReadWrite,
+    let privileged_limits = SinglePrivilegeTableRestrictions {
+        data_limit: DataRights::ReadWrite,
         execute_limit: false,
     };
     let mut failures = 0u64;
@@ -944,7 +947,7 @@ pub fn smmu_vmsa64_stage1_semantic_matrix() -> TestResult {
                 Err(_) => failures += 1,
             }
             let table = SemanticStage1TableAttrs {
-                permission_limits: $limits,
+                restrictions: $limits,
                 pas: $table_pas,
                 controls: SemanticVmsa64Stage1TableControls {
                     access_flag: true,
@@ -1173,6 +1176,7 @@ fn smmu_v2_raw_fields(
         permissions: Stage2Ap::from_bits(0b11).map_err(|_| HarnessError::InvalidState)?,
         shareability: RawShareability::from_bits(0b11).map_err(|_| HarnessError::InvalidState)?,
         access_flag: true,
+        dirty_bit_modifier: false,
         contiguous: true,
         execute_never: true,
         software: FourBit::new(0b1010).map_err(|_| HarnessError::InvalidState)?,
@@ -1569,7 +1573,7 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
         dirty: Stage2Dirty::new(false),
         shareability: inner,
         access_flag: true,
-        force_no_execute: true,
+        force_no_xs: true,
         contiguous: true,
         assured_only: true,
         permissions: PermissionIndices {
@@ -1615,8 +1619,7 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
         outer);
     stage2_leaf_mutation!(1 << 10, |f: &mut RawVmsa128Stage2LeafAttrs| f.access_flag =
         false);
-    stage2_leaf_mutation!(1 << 11, |f: &mut RawVmsa128Stage2LeafAttrs| f
-        .force_no_execute =
+    stage2_leaf_mutation!(1 << 11, |f: &mut RawVmsa128Stage2LeafAttrs| f.force_no_xs =
         false);
     stage2_leaf_mutation!(0x3ffu128 << 91, |f: &mut RawVmsa128Stage2LeafAttrs| f
         .software =
@@ -2181,11 +2184,11 @@ pub fn smmu_v2_stage2_table_granules() -> TestResult {
 pub fn smmu_v2_stage2_semantic_matrix() -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        AllocationHints, AttrError, AttributeCodec, CachePolicy, Cacheability, DeviceMemoryType,
-        LiveVmsaConfig, MemoryAttributes, MemoryTransience, SemanticSmmuV2Stage2LeafControls,
+        AllocationHints, AttrError, CachePolicy, Cacheability, DeviceMemoryType, LiveVmsaConfig,
+        MemoryAttributes, MemoryTransience, SemanticSmmuV2Stage2LeafControls,
         SemanticStage2LeafAttrs, SemanticVmsa64Stage2TableAttrs, Shareability,
         SmmuV2AllocationHint, SoftwareMetadata, Stage2MemoryAttributes, Stage2MemoryMode,
-        Stage2Permission,
+        Stage2Permissions,
     };
     use aarch64_vmsa::config::format::Vmsa64;
     use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
@@ -2195,6 +2198,7 @@ pub fn smmu_v2_stage2_semantic_matrix() -> TestResult {
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -2228,23 +2232,19 @@ pub fn smmu_v2_stage2_semantic_matrix() -> TestResult {
         }
     }
     let permissions = [
-        Stage2Permission::NoAccess,
-        Stage2Permission::ReadOnly {
-            privileged_execute: false,
-            unprivileged_execute: false,
-        },
-        Stage2Permission::ReadOnly {
-            privileged_execute: true,
-            unprivileged_execute: true,
-        },
-        Stage2Permission::ReadWrite {
-            privileged_execute: false,
-            unprivileged_execute: false,
-        },
-        Stage2Permission::ReadWrite {
-            privileged_execute: true,
-            unprivileged_execute: true,
-        },
+        Stage2Permissions::no_access(),
+        Stage2Permissions::read_only(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+        ),
+        Stage2Permissions::read_only(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(true, true),
+        ),
+        Stage2Permissions::read_write(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+        ),
+        Stage2Permissions::read_write(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(true, true),
+        ),
     ];
     let allocations = [
         SmmuV2AllocationHint::UsePreviousStage,
@@ -2296,6 +2296,9 @@ pub fn smmu_v2_stage2_semantic_matrix() -> TestResult {
                                             controls: SemanticSmmuV2Stage2LeafControls {
                                                 shareability,
                                                 access_flag,
+                                                dirty: aarch64_vmsa::attrs::DirtyControl::Direct(
+                                                    aarch64_vmsa::attrs::DirtyBitManagement::SoftwareManaged,
+                                                ),
                                                 contiguous,
                                                 read_allocate,
                                                 write_allocate,
@@ -2324,27 +2327,23 @@ pub fn smmu_v2_stage2_semantic_matrix() -> TestResult {
     }
 
     for invalid in [
-        Stage2Permission::WriteOnly,
-        Stage2Permission::MostlyReadOnly(aarch64_vmsa::attrs::MostlyReadOnly::Unqualified),
-        Stage2Permission::MostlyReadOnly(aarch64_vmsa::attrs::MostlyReadOnly::TopLevel1),
-        Stage2Permission::MostlyReadOnly(aarch64_vmsa::attrs::MostlyReadOnly::TopLevel0),
-        Stage2Permission::MostlyReadOnly(aarch64_vmsa::attrs::MostlyReadOnly::TopLevels0And1),
-        Stage2Permission::ReadOnly {
-            privileged_execute: true,
-            unprivileged_execute: false,
-        },
-        Stage2Permission::ReadOnly {
-            privileged_execute: false,
-            unprivileged_execute: true,
-        },
-        Stage2Permission::ReadWrite {
-            privileged_execute: true,
-            unprivileged_execute: false,
-        },
-        Stage2Permission::ReadWrite {
-            privileged_execute: false,
-            unprivileged_execute: true,
-        },
+        Stage2Permissions::special_write_only(),
+        Stage2Permissions::mostly_read_only(aarch64_vmsa::attrs::TopLevelRequirements::NONE),
+        Stage2Permissions::mostly_read_only(aarch64_vmsa::attrs::TopLevelRequirements::TOP_LEVEL1),
+        Stage2Permissions::mostly_read_only(aarch64_vmsa::attrs::TopLevelRequirements::TOP_LEVEL0),
+        Stage2Permissions::mostly_read_only(aarch64_vmsa::attrs::TopLevelRequirements::BOTH),
+        Stage2Permissions::read_only(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(true, false),
+        ),
+        Stage2Permissions::read_only(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, true),
+        ),
+        Stage2Permissions::read_write(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(true, false),
+        ),
+        Stage2Permissions::read_write(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, true),
+        ),
     ] {
         let semantic = SemanticStage2LeafAttrs {
             memory: Stage2MemoryAttributes::Combined(MemoryAttributes::Normal {
@@ -2356,6 +2355,9 @@ pub fn smmu_v2_stage2_semantic_matrix() -> TestResult {
             controls: SemanticSmmuV2Stage2LeafControls {
                 shareability: Shareability::InnerShareable,
                 access_flag: true,
+                dirty: aarch64_vmsa::attrs::DirtyControl::Direct(
+                    aarch64_vmsa::attrs::DirtyBitManagement::SoftwareManaged,
+                ),
                 contiguous: false,
                 read_allocate: allocations[0],
                 write_allocate: allocations[0],
@@ -2424,10 +2426,10 @@ pub fn smmu_v2_stage2_semantic_matrix() -> TestResult {
 pub fn smmu_v2_stage2_semantic_errors() -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        AttrError, AttributeCodec, Cacheability, FwbStage2Memory, LiveVmsaConfig, MemoryAttributes,
+        AttrError, Cacheability, FwbStage2Memory, LiveVmsaConfig, MemoryAttributes,
         SemanticSmmuV2Stage2LeafControls, SemanticStage2LeafAttrs, SemanticVmsa64Stage2TableAttrs,
         Shareability, SmmuV2AllocationHint, SoftwareMetadata, Stage2MemoryAttributes,
-        Stage2MemoryMode, Stage2Permission,
+        Stage2MemoryMode, Stage2Permissions,
     };
     use aarch64_vmsa::config::format::Vmsa64;
     use aarch64_vmsa::config::granule::Granule4KiB;
@@ -2439,6 +2441,7 @@ pub fn smmu_v2_stage2_semantic_errors() -> TestResult {
     let mut config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -2449,6 +2452,9 @@ pub fn smmu_v2_stage2_semantic_errors() -> TestResult {
     let controls = |software| SemanticSmmuV2Stage2LeafControls {
         shareability: Shareability::InnerShareable,
         access_flag: true,
+        dirty: aarch64_vmsa::attrs::DirtyControl::Direct(
+            aarch64_vmsa::attrs::DirtyBitManagement::SoftwareManaged,
+        ),
         contiguous: false,
         read_allocate: SmmuV2AllocationHint::UsePreviousStage,
         write_allocate: SmmuV2AllocationHint::UsePreviousStage,
@@ -2460,10 +2466,9 @@ pub fn smmu_v2_stage2_semantic_errors() -> TestResult {
     });
     let semantic = |memory, software| SemanticStage2LeafAttrs {
         memory,
-        permissions: Stage2Permission::ReadWrite {
-            privileged_execute: false,
-            unprivileged_execute: false,
-        },
+        permissions: Stage2Permissions::read_write(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+        ),
         output_address_space: (),
         controls: controls(software),
     };
@@ -2543,7 +2548,7 @@ pub fn smmu_v2_stage2_semantic_errors() -> TestResult {
             aarch64_vmsa::attrs::DeviceMemoryType::NonGatheringReorderingEarlyAck,
         ),
         FwbStage2Memory::Device(aarch64_vmsa::attrs::DeviceMemoryType::GatheringReorderingEarlyAck),
-        FwbStage2Memory::ForceNormalNonCacheable,
+        FwbStage2Memory::PreserveDeviceOrForceNormalNonCacheable,
         FwbStage2Memory::ForceNormalWriteBack,
         FwbStage2Memory::UseStage1,
         FwbStage2Memory::ForceNormalWriteBackNoTagAccess,
@@ -2604,16 +2609,16 @@ pub fn smmu_v2_stage2_semantic_errors() -> TestResult {
 pub fn smmu_v3_stage2_semantic_matrix() -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        AllocationHints, AttrError, AttributeCodec, CachePolicy, Cacheability, DirtyBitManagement,
-        DirtyControl, LiveVmsaConfig, MemoryAttributes, MemoryTransience, RealmOrNonSecurePa,
-        SecureSelectablePa, SemanticStage2LeafAttrs, SemanticVmsa64Stage2LeafControls,
-        SemanticVmsa64Stage2TableAttrs, Shareability, SoftwareMetadata, Stage2MemoryAttributes,
-        Stage2MemoryMode, Stage2Permission,
+        AllocationHints, AttrError, CachePolicy, Cacheability, DirtyBitManagement, DirtyControl,
+        LiveVmsaConfig, MemoryAttributes, MemoryTransience, RealmOrNonSecurePa, SecureSelectablePa,
+        SemanticStage2LeafAttrs, SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs,
+        Shareability, SoftwareMetadata, Stage2MemoryAttributes, Stage2MemoryMode,
+        Stage2Permissions,
     };
     use aarch64_vmsa::config::format::{BigEndian, LittleEndian, NativeEndian, Vmsa64, Vmsa64Lpa2};
     use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
     use aarch64_vmsa::config::regime::smmu_v3;
-    use aarch64_vmsa::config::stage2::{Stage2Permissions, Stage2XnxPermissions};
+    use aarch64_vmsa::config::stage2::{StandardStage2PermissionModel, XnxStage2PermissionModel};
 
     let memory = Stage2MemoryAttributes::Combined(MemoryAttributes::Normal {
         inner: Cacheability::Cacheable {
@@ -2640,6 +2645,7 @@ pub fn smmu_v3_stage2_semantic_matrix() -> TestResult {
             LiveVmsaConfig {
                 mair: 0,
                 mair2: None,
+                smmu_v3_aie: false,
                 stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
                 stage2_permissions: direct,
                 stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -2721,10 +2727,9 @@ pub fn smmu_v3_stage2_semantic_matrix() -> TestResult {
             );
         }};
     }
-    let rw = Stage2Permission::ReadWrite {
-        privileged_execute: false,
-        unprivileged_execute: false,
-    };
+    let rw = Stage2Permissions::read_write(
+        aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+    );
     macro_rules! all_granules {
         ($format:ty, $regime:ty, $config:expr, $pas:expr, $permissions:expr) => {{
             round_trip!($format, $regime, Granule4KiB, $config, $pas, $permissions);
@@ -2755,40 +2760,39 @@ pub fn smmu_v3_stage2_semantic_matrix() -> TestResult {
         }};
     }
     all_endian_granules!(
-        smmu_v3::NonSecureIpaStage2<Stage2Permissions>,
+        smmu_v3::NonSecureIpaStage2<StandardStage2PermissionModel>,
         config!(()),
         (),
         rw
     );
     all_endian_granules!(
-        smmu_v3::NonSecureIpaStage2<Stage2XnxPermissions>,
+        smmu_v3::NonSecureIpaStage2<XnxStage2PermissionModel>,
         config!(()),
         (),
-        Stage2Permission::ReadWrite {
-            privileged_execute: true,
-            unprivileged_execute: false,
-        }
+        Stage2Permissions::read_write(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(true, false)
+        )
     );
     all_endian_granules!(
-        smmu_v3::SecureIpaStage2<Stage2Permissions>,
+        smmu_v3::SecureIpaStage2<StandardStage2PermissionModel>,
         config!(SecureSelectablePa::Secure),
         SecureSelectablePa::Secure,
         rw
     );
     all_endian_granules!(
-        smmu_v3::SecureStreamNonSecureIpaStage2<Stage2Permissions>,
+        smmu_v3::SecureStreamNonSecureIpaStage2<StandardStage2PermissionModel>,
         config!(SecureSelectablePa::NonSecure),
         SecureSelectablePa::NonSecure,
         rw
     );
     all_endian_granules!(
-        smmu_v3::RealmIpaStage2<Stage2Permissions>,
+        smmu_v3::RealmIpaStage2<StandardStage2PermissionModel>,
         config!(()),
         RealmOrNonSecurePa::Realm,
         rw
     );
     all_endian_granules!(
-        smmu_v3::RealmIpaStage2<Stage2Permissions>,
+        smmu_v3::RealmIpaStage2<StandardStage2PermissionModel>,
         config!(()),
         RealmOrNonSecurePa::NonSecure,
         rw
@@ -2804,17 +2808,17 @@ pub fn smmu_v3_stage2_semantic_matrix() -> TestResult {
 pub fn smmu_v3_stage2_d128_semantic_matrix() -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        AllocationHints, AttrError, AttributeCodec, CachePolicy, Cacheability, DirtyState,
-        LiveVmsaConfig, MemoryAttributes, MemoryTransience, RealmOrNonSecurePa, SecureSelectablePa,
+        AllocationHints, AttrError, CachePolicy, Cacheability, DirtyState, LiveVmsaConfig,
+        MemoryAttributes, MemoryTransience, RealmOrNonSecurePa, SecureSelectablePa,
         SemanticStage2LeafAttrs, SemanticVmsa128Stage2LeafControls,
         SemanticVmsa128Stage2TableAttrs, Shareability, SoftwareMetadata, Stage2BasePermissions,
-        Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permission, Stage2PermissionRegisters,
-        Stage2PermissionSettings,
+        Stage2MemoryAttributes, Stage2MemoryMode, Stage2PermissionRegisters,
+        Stage2PermissionSettings, Stage2Permissions,
     };
     use aarch64_vmsa::config::format::{BigEndian, LittleEndian, NativeEndian, Vmsa128};
     use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
     use aarch64_vmsa::config::regime::smmu_v3;
-    use aarch64_vmsa::config::stage2::{Stage2Permissions, Stage2XnxPermissions};
+    use aarch64_vmsa::config::stage2::{StandardStage2PermissionModel, XnxStage2PermissionModel};
 
     let memory = Stage2MemoryAttributes::Combined(MemoryAttributes::Normal {
         inner: Cacheability::Cacheable {
@@ -2833,15 +2837,14 @@ pub fn smmu_v3_stage2_d128_semantic_matrix() -> TestResult {
         dirty_state: DirtyState::Dirty,
         shareability: Shareability::InnerShareable,
         access_flag: true,
-        force_no_execute: true,
+        force_no_xs: true,
         contiguous: true,
         assured_only: true,
         software: SoftwareMetadata::new(0x2aa),
     };
-    let permissions = Stage2Permission::ReadWrite {
-        privileged_execute: true,
-        unprivileged_execute: false,
-    };
+    let permissions = Stage2Permissions::read_write(
+        aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(true, false),
+    );
     let indirect = Stage2PermissionSettings {
         base: Stage2BasePermissions::Indirect(Stage2PermissionRegisters {
             s2pir_el2: 0xfedc_ba98_7654_3210,
@@ -2853,6 +2856,7 @@ pub fn smmu_v3_stage2_d128_semantic_matrix() -> TestResult {
             LiveVmsaConfig {
                 mair: 0,
                 mair2: None,
+                smmu_v3_aie: false,
                 stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
                 stage2_permissions: $permissions,
                 stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -2952,21 +2956,21 @@ pub fn smmu_v3_stage2_d128_semantic_matrix() -> TestResult {
         ($format:ty) => {{
             round_trip!(
                 $format,
-                smmu_v3::NonSecureIpaStage2<Stage2Permissions>,
+                smmu_v3::NonSecureIpaStage2<StandardStage2PermissionModel>,
                 Granule4KiB,
                 config!((), indirect),
                 ()
             );
             round_trip!(
                 $format,
-                smmu_v3::NonSecureIpaStage2<Stage2Permissions>,
+                smmu_v3::NonSecureIpaStage2<StandardStage2PermissionModel>,
                 Granule16KiB,
                 config!((), indirect),
                 ()
             );
             round_trip!(
                 $format,
-                smmu_v3::NonSecureIpaStage2<Stage2Permissions>,
+                smmu_v3::NonSecureIpaStage2<StandardStage2PermissionModel>,
                 Granule64KiB,
                 config!((), indirect),
                 ()
@@ -2982,14 +2986,14 @@ pub fn smmu_v3_stage2_d128_semantic_matrix() -> TestResult {
         ($regime:ident, $config:expr, $pas:expr) => {{
             round_trip!(
                 Vmsa128,
-                smmu_v3::$regime<Stage2Permissions>,
+                smmu_v3::$regime<StandardStage2PermissionModel>,
                 Granule4KiB,
                 $config,
                 $pas
             );
             round_trip!(
                 Vmsa128,
-                smmu_v3::$regime<Stage2XnxPermissions>,
+                smmu_v3::$regime<XnxStage2PermissionModel>,
                 Granule4KiB,
                 $config,
                 $pas
@@ -3014,21 +3018,21 @@ pub fn smmu_v3_stage2_d128_semantic_matrix() -> TestResult {
     );
     round_trip!(
         Vmsa128,
-        smmu_v3::SecureIpaStage2<Stage2Permissions>,
+        smmu_v3::SecureIpaStage2<StandardStage2PermissionModel>,
         Granule4KiB,
         config!(SecureSelectablePa::NonSecure, indirect),
         SecureSelectablePa::NonSecure
     );
     round_trip!(
         Vmsa128,
-        smmu_v3::SecureStreamNonSecureIpaStage2<Stage2Permissions>,
+        smmu_v3::SecureStreamNonSecureIpaStage2<StandardStage2PermissionModel>,
         Granule4KiB,
         config!(SecureSelectablePa::Secure, indirect),
         SecureSelectablePa::Secure
     );
     round_trip!(
         Vmsa128,
-        smmu_v3::RealmIpaStage2<Stage2Permissions>,
+        smmu_v3::RealmIpaStage2<StandardStage2PermissionModel>,
         Granule4KiB,
         config!((), indirect),
         RealmOrNonSecurePa::NonSecure
@@ -3310,7 +3314,7 @@ pub fn smmu_v2_stage2_mapper_walker() -> TestResult {
         Cacheability, LiveVmsaConfig, MemoryAttributes, SemanticSmmuV2Stage2LeafControls,
         SemanticStage2LeafAttrs, SemanticVmsa64Stage2TableAttrs, Shareability,
         SmmuV2AllocationHint, SoftwareMetadata, Stage2MemoryAttributes, Stage2MemoryMode,
-        Stage2Permission,
+        Stage2Permissions,
     };
     use aarch64_vmsa::config::format::Vmsa64;
     use aarch64_vmsa::config::granule::Granule4KiB;
@@ -3353,6 +3357,7 @@ pub fn smmu_v2_stage2_mapper_walker() -> TestResult {
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -3365,14 +3370,16 @@ pub fn smmu_v2_stage2_mapper_walker() -> TestResult {
             inner: Cacheability::NonCacheable,
             outer: Cacheability::NonCacheable,
         }),
-        permissions: Stage2Permission::ReadWrite {
-            privileged_execute: false,
-            unprivileged_execute: false,
-        },
+        permissions: Stage2Permissions::read_write(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+        ),
         output_address_space: (),
         controls: SemanticSmmuV2Stage2LeafControls {
             shareability: Shareability::InnerShareable,
             access_flag: true,
+            dirty: aarch64_vmsa::attrs::DirtyControl::Direct(
+                aarch64_vmsa::attrs::DirtyBitManagement::SoftwareManaged,
+            ),
             contiguous: true,
             read_allocate: SmmuV2AllocationHint::Allocate,
             write_allocate: SmmuV2AllocationHint::NoAllocate,
@@ -3433,12 +3440,12 @@ pub fn smmu_v3_stage2_mapper_walker() -> TestResult {
         AllocationHints, CachePolicy, Cacheability, DirtyBitManagement, DirtyControl,
         LiveVmsaConfig, MemoryAttributes, MemoryTransience, SemanticStage2LeafAttrs,
         SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, Shareability,
-        SoftwareMetadata, Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permission,
+        SoftwareMetadata, Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permissions,
     };
     use aarch64_vmsa::config::format::Vmsa64;
     use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::config::regime::smmu_v3::NonSecureIpaStage2;
-    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
+    use aarch64_vmsa::config::stage2::XnxStage2PermissionModel;
     use aarch64_vmsa::mapper::Mapper;
     use aarch64_vmsa::table::{RootTableGeometry, TableAddr};
     use aarch64_vmsa::translation::{WalkInputAddr, WalkOutputAddr};
@@ -3457,7 +3464,7 @@ pub fn smmu_v3_stage2_mapper_walker() -> TestResult {
         core::ptr::write_bytes(l2 as *mut u8, 0, 4096);
         core::ptr::write_bytes(l3 as *mut u8, 0, 4096);
     }
-    type Regime = NonSecureIpaStage2<Stage2XnxPermissions>;
+    type Regime = NonSecureIpaStage2<XnxStage2PermissionModel>;
     let root = RootTableGeometry::<Vmsa64, Granule4KiB>::new_at_level(
         TableAddr::new(l1).map_err(|_| HarnessError::InvalidState)?,
         Level::L1,
@@ -3479,6 +3486,7 @@ pub fn smmu_v3_stage2_mapper_walker() -> TestResult {
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -3495,10 +3503,9 @@ pub fn smmu_v3_stage2_mapper_walker() -> TestResult {
             },
             outer: Cacheability::NonCacheable,
         }),
-        permissions: Stage2Permission::ReadWrite {
-            privileged_execute: true,
-            unprivileged_execute: false,
-        },
+        permissions: Stage2Permissions::read_write(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(true, false),
+        ),
         output_address_space: (),
         controls: SemanticVmsa64Stage2LeafControls {
             shareability: Shareability::InnerShareable,
@@ -3559,12 +3566,11 @@ pub fn smmu_v3_stage2_mapper_walker() -> TestResult {
 pub fn smmu_v3_stage1_d128_mapper_walker() -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        DataAccess, DeviceMemoryType, DirtyState, LiveVmsaConfig, MemoryAttributes,
+        DataRights, DeviceMemoryType, DirtyState, LiveVmsaConfig, MemoryAttributes,
         RealmOrNonSecurePa, SecureSelectablePa, SemanticStage1LeafAttrs,
         SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs, Shareability,
-        SoftwareMetadata, Stage1BasePermissions, Stage1EffectivePermissions,
-        Stage1PermissionOverlays, Stage1PermissionRegisters, Stage1PermissionSettings,
-        Stage2MemoryMode,
+        SoftwareMetadata, Stage1BasePermissions, Stage1PermissionOverlays,
+        Stage1PermissionRegisters, Stage1PermissionSettings, Stage1Permissions, Stage2MemoryMode,
     };
     use aarch64_vmsa::config::format::{BigEndian, LittleEndian, NativeEndian, Vmsa128};
     use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
@@ -3587,6 +3593,7 @@ pub fn smmu_v3_stage1_d128_mapper_walker() -> TestResult {
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: indirect,
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -3594,14 +3601,14 @@ pub fn smmu_v3_stage1_d128_mapper_walker() -> TestResult {
         shareability: Shareability::InnerShareable,
         output_pas: (),
     };
-    let permissions = Stage1EffectivePermissions {
-        privileged_data: DataAccess::ReadWrite,
-        unprivileged_data: DataAccess::None,
-        privileged_execute: false,
-        unprivileged_execute: false,
-        privileged_gcs: false,
-        unprivileged_gcs: false,
-    };
+    let permissions = Stage1Permissions::new(
+        DataRights::ReadWrite,
+        DataRights::None,
+        false,
+        false,
+        false,
+        false,
+    );
     let mut failures = 0u64;
 
     macro_rules! exercise {
@@ -3856,11 +3863,10 @@ pub fn smmu_v3_stage1_d128_mapper_walker() -> TestResult {
 pub fn smmu_vmsa64_stage1_mapper_walker() -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        DataAccess, DeviceMemoryType, DirtyBitManagement, DirtyControl, LiveVmsaConfig,
+        DataRights, DeviceMemoryType, DirtyBitManagement, DirtyControl, LiveVmsaConfig,
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
-        SoftwareMetadata, Stage1EffectivePermissions, Stage2MemoryMode,
-        TwoPrivilegeTablePermissionLimits,
+        SoftwareMetadata, Stage1Permissions, Stage2MemoryMode, TwoPrivilegeTableRestrictions,
     };
     use aarch64_vmsa::config::format::{BigEndian, LittleEndian, NativeEndian, Vmsa64, Vmsa64Lpa2};
     use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
@@ -3872,6 +3878,7 @@ pub fn smmu_vmsa64_stage1_mapper_walker() -> TestResult {
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -3881,14 +3888,14 @@ pub fn smmu_vmsa64_stage1_mapper_walker() -> TestResult {
     };
     let leaf = SemanticStage1LeafAttrs {
         memory: MemoryAttributes::Device(DeviceMemoryType::NonGatheringNonReorderingNoEarlyAck),
-        permissions: Stage1EffectivePermissions {
-            privileged_data: DataAccess::ReadWrite,
-            unprivileged_data: DataAccess::None,
-            privileged_execute: false,
-            unprivileged_execute: false,
-            privileged_gcs: false,
-            unprivileged_gcs: false,
-        },
+        permissions: Stage1Permissions::new(
+            DataRights::ReadWrite,
+            DataRights::None,
+            false,
+            false,
+            false,
+            false,
+        ),
         pas: (),
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,
@@ -3901,9 +3908,9 @@ pub fn smmu_vmsa64_stage1_mapper_walker() -> TestResult {
         },
     };
     let table = SemanticStage1TableAttrs {
-        permission_limits: TwoPrivilegeTablePermissionLimits {
-            privileged_data_limit: DataAccess::ReadWrite,
-            unprivileged_data_limit: DataAccess::None,
+        restrictions: TwoPrivilegeTableRestrictions {
+            privileged_data_limit: DataRights::ReadWrite,
+            unprivileged_data_limit: DataRights::None,
             privileged_execute_limit: false,
             unprivileged_execute_limit: false,
         },
@@ -4061,12 +4068,12 @@ pub fn smmu_v3_stage2_vmsa64_mapper_matrix() -> TestResult {
         Cacheability, DirtyBitManagement, DirtyControl, LiveVmsaConfig, MemoryAttributes,
         RealmOrNonSecurePa, SecureSelectablePa, SemanticStage2LeafAttrs,
         SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, Shareability,
-        SoftwareMetadata, Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permission,
+        SoftwareMetadata, Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permissions,
     };
     use aarch64_vmsa::config::format::{BigEndian, LittleEndian, NativeEndian, Vmsa64, Vmsa64Lpa2};
     use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
     use aarch64_vmsa::config::regime::smmu_v3;
-    use aarch64_vmsa::config::stage2::{Stage2Permissions, Stage2XnxPermissions};
+    use aarch64_vmsa::config::stage2::{StandardStage2PermissionModel, XnxStage2PermissionModel};
     use aarch64_vmsa::mapper::{Mapper, MapperError, SemanticMapperError};
     use aarch64_vmsa::table::{RootTableGeometry, TableAddr};
     use aarch64_vmsa::translation::{WalkEntry, WalkInputAddr, WalkOutputAddr, Walker};
@@ -4077,6 +4084,7 @@ pub fn smmu_v3_stage2_vmsa64_mapper_matrix() -> TestResult {
             LiveVmsaConfig {
                 mair: 0,
                 mair2: None,
+                smmu_v3_aie: false,
                 stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
                 stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
                 stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -4414,18 +4422,26 @@ pub fn smmu_v3_stage2_vmsa64_mapper_matrix() -> TestResult {
             );
         }};
     }
-    let direct = Stage2Permission::ReadWrite {
-        privileged_execute: false,
-        unprivileged_execute: false,
-    };
-    let xnx = Stage2Permission::ReadWrite {
-        privileged_execute: true,
-        unprivileged_execute: false,
-    };
+    let direct = Stage2Permissions::read_write(
+        aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+    );
+    let xnx = Stage2Permissions::read_write(
+        aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(true, false),
+    );
     macro_rules! both_models {
         ($regime:ident, $config:expr, $pas:expr) => {{
-            all_formats!(smmu_v3::$regime<Stage2Permissions>, $config, $pas, direct);
-            all_formats!(smmu_v3::$regime<Stage2XnxPermissions>, $config, $pas, xnx);
+            all_formats!(
+                smmu_v3::$regime<StandardStage2PermissionModel>,
+                $config,
+                $pas,
+                direct
+            );
+            all_formats!(
+                smmu_v3::$regime<XnxStage2PermissionModel>,
+                $config,
+                $pas,
+                xnx
+            );
         }};
     }
     both_models!(NonSecureIpaStage2, config!(()), ());
@@ -4450,13 +4466,13 @@ fn smmu_v3_stage2_d128_mapper_matrix_part(part: u8) -> TestResult {
         Cacheability, DirtyState, LiveVmsaConfig, MemoryAttributes, RealmOrNonSecurePa,
         SecureSelectablePa, SemanticStage2LeafAttrs, SemanticVmsa128Stage2LeafControls,
         SemanticVmsa128Stage2TableAttrs, Shareability, SoftwareMetadata, Stage2BasePermissions,
-        Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permission, Stage2PermissionRegisters,
-        Stage2PermissionSettings,
+        Stage2MemoryAttributes, Stage2MemoryMode, Stage2PermissionRegisters,
+        Stage2PermissionSettings, Stage2Permissions,
     };
     use aarch64_vmsa::config::format::{BigEndian, LittleEndian, NativeEndian, Vmsa128};
     use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
     use aarch64_vmsa::config::regime::smmu_v3;
-    use aarch64_vmsa::config::stage2::{Stage2Permissions, Stage2XnxPermissions};
+    use aarch64_vmsa::config::stage2::{StandardStage2PermissionModel, XnxStage2PermissionModel};
     use aarch64_vmsa::mapper::{Mapper, MapperError, SemanticMapperError};
     use aarch64_vmsa::table::{RootTableGeometry, TableAddr};
     use aarch64_vmsa::translation::{WalkEntry, WalkInputAddr, WalkOutputAddr, Walker};
@@ -4473,6 +4489,7 @@ fn smmu_v3_stage2_d128_mapper_matrix_part(part: u8) -> TestResult {
             LiveVmsaConfig {
                 mair: 0,
                 mair2: None,
+                smmu_v3_aie: false,
                 stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
                 stage2_permissions: indirect,
                 stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -4532,7 +4549,7 @@ fn smmu_v3_stage2_d128_mapper_matrix_part(part: u8) -> TestResult {
                     dirty_state: DirtyState::Dirty,
                     shareability: Shareability::InnerShareable,
                     access_flag: true,
-                    force_no_execute: true,
+                    force_no_xs: true,
                     contiguous: true,
                     assured_only: true,
                     software: SoftwareMetadata::new(0x2aa),
@@ -4788,25 +4805,23 @@ fn smmu_v3_stage2_d128_mapper_matrix_part(part: u8) -> TestResult {
             );
         }};
     }
-    let direct = Stage2Permission::ReadWrite {
-        privileged_execute: false,
-        unprivileged_execute: false,
-    };
-    let xnx = Stage2Permission::ReadWrite {
-        privileged_execute: true,
-        unprivileged_execute: false,
-    };
+    let direct = Stage2Permissions::read_write(
+        aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+    );
+    let xnx = Stage2Permissions::read_write(
+        aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(true, false),
+    );
     macro_rules! both_models {
         ($regime:ident, $config:expr, $pas:expr, $all_tables:expr) => {{
             all_formats!(
-                smmu_v3::$regime<Stage2Permissions>,
+                smmu_v3::$regime<StandardStage2PermissionModel>,
                 $config,
                 $pas,
                 direct,
                 $all_tables
             );
             all_formats!(
-                smmu_v3::$regime<Stage2XnxPermissions>,
+                smmu_v3::$regime<XnxStage2PermissionModel>,
                 $config,
                 $pas,
                 xnx,
@@ -5046,10 +5061,10 @@ pub fn smmu_v2_live_stage2_64k_root_l1() -> TestResult {
 fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
     use aarch64_vmsa::address::{Level, PhysAddr};
     use aarch64_vmsa::attrs::{
-        AttributeCodec, Cacheability, LiveVmsaConfig, MemoryAttributes,
-        SemanticSmmuV2Stage2LeafControls, SemanticStage2LeafAttrs, SemanticVmsa64Stage2TableAttrs,
-        Shareability, SmmuV2AllocationHint, SoftwareMetadata, Stage2MemoryAttributes,
-        Stage2MemoryMode, Stage2Permission,
+        Cacheability, LiveVmsaConfig, MemoryAttributes, SemanticSmmuV2Stage2LeafControls,
+        SemanticStage2LeafAttrs, SemanticVmsa64Stage2TableAttrs, Shareability,
+        SmmuV2AllocationHint, SoftwareMetadata, Stage2MemoryAttributes, Stage2MemoryMode,
+        Stage2Permissions,
     };
     use aarch64_vmsa::config::format::{BigEndian, LittleEndian, Vmsa64};
     use aarch64_vmsa::config::granule::Granule4KiB;
@@ -5107,6 +5122,7 @@ fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -5118,19 +5134,17 @@ fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
         access_flag: true,
         software: SoftwareMetadata::new(0),
     };
-    let mut source_permissions = Stage2Permission::ReadWrite {
-        privileged_execute: false,
-        unprivileged_execute: false,
-    };
+    let mut source_permissions = Stage2Permissions::read_write(
+        aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+    );
     let mut destination_permissions = source_permissions;
     if case == SmmuV2LiveCase::ReadPermissionFault {
-        source_permissions = Stage2Permission::NoAccess;
+        source_permissions = Stage2Permissions::no_access();
     }
     if case == SmmuV2LiveCase::WritePermissionFault {
-        destination_permissions = Stage2Permission::ReadOnly {
-            privileged_execute: false,
-            unprivileged_execute: false,
-        };
+        destination_permissions = Stage2Permissions::read_only(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+        );
     }
     let leaf = |permissions| SemanticStage2LeafAttrs {
         memory: Stage2MemoryAttributes::Combined(MemoryAttributes::Normal {
@@ -5142,6 +5156,9 @@ fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
         controls: SemanticSmmuV2Stage2LeafControls {
             shareability: Shareability::InnerShareable,
             access_flag: case != SmmuV2LiveCase::AccessFlagFault,
+            dirty: aarch64_vmsa::attrs::DirtyControl::Direct(
+                aarch64_vmsa::attrs::DirtyBitManagement::SoftwareManaged,
+            ),
             contiguous: false,
             read_allocate: SmmuV2AllocationHint::NoAllocate,
             write_allocate: SmmuV2AllocationHint::NoAllocate,
@@ -5823,7 +5840,7 @@ pub fn smmu_v3_live_capabilities() -> TestResult {
 
 #[derive(Clone, Copy)]
 struct SmmuLiveFaultSetup {
-    destination_permission: Option<aarch64_vmsa::attrs::Stage2Permission>,
+    destination_permission: Option<aarch64_vmsa::attrs::Stage2Permissions>,
     expected_event: Option<u8>,
     destination_access_flag: bool,
     install_destination: bool,
@@ -5926,10 +5943,9 @@ impl SmmuLiveFaultSetup {
     };
 
     const PERMISSION: Self = Self {
-        destination_permission: Some(aarch64_vmsa::attrs::Stage2Permission::ReadOnly {
-            privileged_execute: false,
-            unprivileged_execute: false,
-        }),
+        destination_permission: Some(aarch64_vmsa::attrs::Stage2Permissions::read_only(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+        )),
         expected_event: Some(0x13),
         ..Self::NONE
     };
@@ -5967,14 +5983,25 @@ where
     R: aarch64_vmsa::regime::Stage2Regime,
     P: Copy,
     F: SmmuLiveVmsa64Format
-        + aarch64_vmsa::attrs::AttributeCodec<R, G, aarch64_vmsa::attrs::LiveVmsaConfig<P>>
-        + aarch64_vmsa::regime::HasRegimeLayout<R, G>
+        + AttributeCodec<
+            R,
+            G,
+            aarch64_vmsa::attrs::LiveVmsaConfig<P>,
+            SemanticLeaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
+                aarch64_vmsa::attrs::Stage2Permissions,
+                P,
+                aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
+            >,
+            SemanticTable = aarch64_vmsa::attrs::SemanticVmsa64Stage2TableAttrs,
+            RawLeaf = aarch64_vmsa::low_level::raw::RawVmsa64Stage2LeafAttrs,
+            RawTable = aarch64_vmsa::low_level::raw::RawVmsa64Stage2TableAttrs,
+        > + aarch64_vmsa::regime::HasRegimeLayout<R, G>
         + aarch64_vmsa::descriptor::DescriptorFormat<Raw = u64>
         + aarch64_vmsa::attrs::SemanticAttributeTypes<
             <R as aarch64_vmsa::regime::TranslationRegime>::Stage,
             R,
             Leaf = aarch64_vmsa::attrs::SemanticStage2LeafAttrs<
-                aarch64_vmsa::attrs::Stage2Permission,
+                aarch64_vmsa::attrs::Stage2Permissions,
                 P,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage2LeafControls,
             >,
@@ -6034,10 +6061,10 @@ where
 {
     use aarch64_vmsa::address::{Level, PhysAddr};
     use aarch64_vmsa::attrs::{
-        AllocationHints, AttributeCodec, CachePolicy, Cacheability, DirtyBitManagement,
-        DirtyControl, LiveVmsaConfig, MemoryAttributes, MemoryTransience, SemanticStage2LeafAttrs,
+        AllocationHints, CachePolicy, Cacheability, DirtyBitManagement, DirtyControl,
+        LiveVmsaConfig, MemoryAttributes, MemoryTransience, SemanticStage2LeafAttrs,
         SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, Shareability,
-        SoftwareMetadata, Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permission,
+        SoftwareMetadata, Stage2MemoryAttributes, Stage2MemoryMode, Stage2Permissions,
     };
     use aarch64_vmsa::descriptor::{DescriptorFormat, DescriptorLayout};
     use aarch64_vmsa::regime::HasRegimeLayout;
@@ -6180,6 +6207,7 @@ where
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -6200,10 +6228,9 @@ where
                 allocation: AllocationHints::ReadWriteAllocate,
             },
         }),
-        permissions: Stage2Permission::ReadWrite {
-            privileged_execute: false,
-            unprivileged_execute: false,
-        },
+        permissions: Stage2Permissions::read_write(
+            aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+        ),
         output_address_space: output_pas,
         controls: SemanticVmsa64Stage2LeafControls {
             shareability: Shareability::InnerShareable,
@@ -6381,6 +6408,7 @@ where
         let d128_config = LiveVmsaConfig {
             mair: config.mair,
             mair2: config.mair2,
+            smmu_v3_aie: false,
             stage1_permissions: config.stage1_permissions,
             stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings {
                 base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
@@ -6409,17 +6437,16 @@ where
                     allocation: AllocationHints::ReadWriteAllocate,
                 },
             }),
-            permissions: Stage2Permission::ReadWrite {
-                privileged_execute: false,
-                unprivileged_execute: false,
-            },
+            permissions: Stage2Permissions::read_write(
+                aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+            ),
             output_address_space: (),
             controls: SemanticVmsa128Stage2LeafControls {
                 bbm_nt: false,
                 dirty_state: DirtyState::Dirty,
                 shareability: Shareability::InnerShareable,
                 access_flag: true,
-                force_no_execute: false,
+                force_no_xs: false,
                 contiguous: false,
                 assured_only: false,
                 software: SoftwareMetadata::new(0),
@@ -7429,13 +7456,13 @@ pub fn smmu_v3_live_secure_stream_nonsecure_stage2(
     use aarch64_vmsa::config::format::LittleEndian;
     use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::config::regime::smmu_v3::SecureStreamNonSecureIpaStage2;
-    use aarch64_vmsa::config::stage2::Stage2Permissions;
+    use aarch64_vmsa::config::stage2::StandardStage2PermissionModel;
 
     let vtcr = 16u64 | (2 << 6) | (1 << 8) | (1 << 10) | (3 << 12) | (5 << 16);
     smmu_v3_live_stage2_for::<
         aarch64_vmsa::config::format::Vmsa64<LittleEndian>,
         Granule4KiB,
-        SecureStreamNonSecureIpaStage2<Stage2Permissions>,
+        SecureStreamNonSecureIpaStage2<StandardStage2PermissionModel>,
         SecureSelectablePa,
     >(
         context,
@@ -7454,17 +7481,17 @@ pub fn smmu_v3_live_secure_stream_nonsecure_stage2(
 pub fn smmu_v3_live_secure_stream_nonsecure_stage2_xnx(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult {
-    use aarch64_vmsa::attrs::{SecureSelectablePa, Stage2Permission};
+    use aarch64_vmsa::attrs::{SecureSelectablePa, Stage2Permissions};
     use aarch64_vmsa::config::format::LittleEndian;
     use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::config::regime::smmu_v3::SecureStreamNonSecureIpaStage2;
-    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
+    use aarch64_vmsa::config::stage2::XnxStage2PermissionModel;
 
     let vtcr = 16u64 | (2 << 6) | (1 << 8) | (1 << 10) | (3 << 12) | (5 << 16);
     smmu_v3_live_stage2_for::<
         aarch64_vmsa::config::format::Vmsa64<LittleEndian>,
         Granule4KiB,
-        SecureStreamNonSecureIpaStage2<Stage2XnxPermissions>,
+        SecureStreamNonSecureIpaStage2<XnxStage2PermissionModel>,
         SecureSelectablePa,
     >(
         context,
@@ -7472,10 +7499,9 @@ pub fn smmu_v3_live_secure_stream_nonsecure_stage2_xnx(
         true,
         false,
         SmmuLiveFaultSetup {
-            destination_permission: Some(Stage2Permission::ReadWrite {
-                privileged_execute: true,
-                unprivileged_execute: false,
-            }),
+            destination_permission: Some(Stage2Permissions::read_write(
+                aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(true, false),
+            )),
             ..SmmuLiveFaultSetup::NONE
         },
         false,

@@ -92,11 +92,11 @@ pub const fn current_d128_controls(
 }
 pub type Stage2Regime = aarch64_vmsa::config::regime::NonSecureEl2Stage2;
 pub type Stage2XnxRegime = aarch64_vmsa::config::regime::NonSecureEl2Stage2<
-    aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+    aarch64_vmsa::config::stage2::XnxStage2PermissionModel,
 >;
 pub type AlternateStage2Regime = aarch64_vmsa::config::regime::NonSecureEl2Stage2;
 pub type AlternateStage2XnxRegime = aarch64_vmsa::config::regime::NonSecureEl2Stage2<
-    aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+    aarch64_vmsa::config::stage2::XnxStage2PermissionModel,
 >;
 pub type Stage2Pas = ();
 pub const fn stage2_pas() -> Stage2Pas {}
@@ -152,30 +152,30 @@ fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult 
     use aarch64_vmsa::config::regime::{
         NonSecureEl1Stage1, NonSecureEl2HostStage1, NonSecureEl2Stage1, NonSecureEl2Stage2,
     };
-    use aarch64_vmsa::config::stage2::Stage2Permissions;
-    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
+    use aarch64_vmsa::config::stage2::StandardStage2PermissionModel;
+    use aarch64_vmsa::config::stage2::XnxStage2PermissionModel;
     let current = aarch64_vmsa::arch::VmsaFeatures::current();
     features::regime_result(features::require_regimes!(&current;
         NonSecureEl2Stage1,
         NonSecureEl1Stage1,
         NonSecureEl2HostStage1,
-        NonSecureEl2Stage2<Stage2Permissions>,
-        NonSecureEl2Stage2<Stage2XnxPermissions>,
+        NonSecureEl2Stage2<StandardStage2PermissionModel>,
+        NonSecureEl2Stage2<XnxStage2PermissionModel>,
     ))
 }
 fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     use aarch64_vmsa::config::regime::{
         NonSecureEl1Stage1, NonSecureEl2HostStage1, NonSecureEl2Stage1, NonSecureEl2Stage2,
     };
-    use aarch64_vmsa::config::stage2::Stage2Permissions;
-    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
+    use aarch64_vmsa::config::stage2::StandardStage2PermissionModel;
+    use aarch64_vmsa::config::stage2::XnxStage2PermissionModel;
     let current = &aarch64_vmsa::arch::VmsaFeatures::current();
     features::regime_result(
         features::require_all_formats!(current; NonSecureEl2Stage1)
             && features::require_all_formats!(current; NonSecureEl1Stage1)
             && features::require_all_formats!(current; NonSecureEl2HostStage1)
-            && features::require_all_formats!(current; NonSecureEl2Stage2<Stage2Permissions>)
-            && features::require_all_formats!(current; NonSecureEl2Stage2<Stage2XnxPermissions>),
+            && features::require_all_formats!(current; NonSecureEl2Stage2<StandardStage2PermissionModel>)
+            && features::require_all_formats!(current; NonSecureEl2Stage2<XnxStage2PermissionModel>),
     )
 }
 fn raw_field_bounds(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
@@ -1215,8 +1215,14 @@ stage2_boundary_handler!(boundary_vmsa64_stage2_64k_l2, boundary_vmsa64_64k_l2);
 stage2_boundary_handler!(boundary_lpa2_stage2_4k_lneg1, boundary_lpa2_4k_lneg1);
 stage2_boundary_handler!(boundary_lpa2_stage2_16k_l0, boundary_lpa2_16k_l0);
 stage2_boundary_handler!(boundary_lpa2_stage2_64k_l1, boundary_lpa2_64k_l1);
-stage2_boundary_handler!(boundary_d128_stage2_4k_lneg1_first, boundary_d128_4k_lneg1_first);
-stage2_boundary_handler!(boundary_d128_stage2_4k_lneg1_last, boundary_d128_4k_lneg1_last);
+stage2_boundary_handler!(
+    boundary_d128_stage2_4k_lneg1_first,
+    boundary_d128_4k_lneg1_first
+);
+stage2_boundary_handler!(
+    boundary_d128_stage2_4k_lneg1_last,
+    boundary_d128_4k_lneg1_last
+);
 stage2_boundary_handler!(boundary_d128_stage2_16k_l0_last, boundary_d128_16k_l0_last);
 stage2_boundary_handler!(boundary_d128_stage2_64k_l1_last, boundary_d128_64k_l1_last);
 fn active_stage2_vmsa64_4k_l2(context: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {

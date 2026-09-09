@@ -1,5 +1,7 @@
 #![no_std]
 
+use vmsa_test_harness::AttributeCodecCompat as AttributeCodec;
+
 pub type StageOf<R> = <R as aarch64_vmsa::regime::TranslationRegime>::Stage;
 pub type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedLeafFields<F, R, G>;
 pub type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedTableFields<F, R, G>;
@@ -75,19 +77,19 @@ fn security_state_membership(context: &mut TestContext<'_, CurrentEnvironment>) 
 }
 fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     use aarch64_vmsa::config::regime::{RealmEl1Stage1, RealmEl2Stage2};
-    use aarch64_vmsa::config::stage2::Stage2Permissions;
-    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
+    use aarch64_vmsa::config::stage2::StandardStage2PermissionModel;
+    use aarch64_vmsa::config::stage2::XnxStage2PermissionModel;
     let current = aarch64_vmsa::arch::VmsaFeatures::current();
     features::regime_result(features::require_regimes!(&current;
         RealmEl1Stage1,
-        RealmEl2Stage2<Stage2Permissions>,
-        RealmEl2Stage2<Stage2XnxPermissions>,
+        RealmEl2Stage2<StandardStage2PermissionModel>,
+        RealmEl2Stage2<XnxStage2PermissionModel>,
     ))
 }
 fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     use aarch64_vmsa::config::regime::{RealmEl1Stage1, RealmEl2Stage2};
-    use aarch64_vmsa::config::stage2::Stage2Permissions;
-    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
+    use aarch64_vmsa::config::stage2::StandardStage2PermissionModel;
+    use aarch64_vmsa::config::stage2::XnxStage2PermissionModel;
     let current = &aarch64_vmsa::arch::VmsaFeatures::current();
     macro_rules! check {
         ($regime:ty) => {
@@ -97,10 +99,10 @@ fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> Test
     }
     features::regime_result(
         check!(RealmEl1Stage1)
-            && features::require_base_format!(current; RealmEl2Stage2<Stage2Permissions>)
-            && features::require_live_format_agreement!(current; RealmEl2Stage2<Stage2Permissions>, stage2 = true)
-            && features::require_base_format!(current; RealmEl2Stage2<Stage2XnxPermissions>)
-            && features::require_live_format_agreement!(current; RealmEl2Stage2<Stage2XnxPermissions>, stage2 = true),
+            && features::require_base_format!(current; RealmEl2Stage2<StandardStage2PermissionModel>)
+            && features::require_live_format_agreement!(current; RealmEl2Stage2<StandardStage2PermissionModel>, stage2 = true)
+            && features::require_base_format!(current; RealmEl2Stage2<XnxStage2PermissionModel>)
+            && features::require_live_format_agreement!(current; RealmEl2Stage2<XnxStage2PermissionModel>, stage2 = true),
     )
 }
 
@@ -162,6 +164,7 @@ pub extern "C" fn vmsa_test_realm_stage2_plan() -> u64 {
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -181,16 +184,12 @@ pub extern "C" fn vmsa_test_realm_stage2_plan() -> u64 {
     if semantic.output_address_space == RealmOrNonSecurePa::Realm {
         checks |= 1 << 2;
     }
-    if let aarch64_vmsa::attrs::Stage2Permission::ReadWrite {
-        privileged_execute,
-        unprivileged_execute,
-    } = semantic.permissions
-    {
+    if semantic.permissions.data == aarch64_vmsa::attrs::DataRights::ReadWrite {
         checks |= 1 << 3;
-        if !privileged_execute {
+        if !semantic.permissions.execute.privileged() {
             checks |= 1 << 4;
         }
-        if !unprivileged_execute {
+        if !semantic.permissions.execute.unprivileged() {
             checks |= 1 << 5;
         }
     }
@@ -372,15 +371,15 @@ fn fixed_realm_ipa_stage1_semantic_access(
 ) -> TestResult {
     use aarch64_vmsa::address::Level;
     use aarch64_vmsa::attrs::{
-        AttributeCodec, Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement,
-        LiveVmsaConfig, MemoryAttributes, SemanticStage1LeafAttrs,
-        SemanticVmsa64Stage1LeafControls, Shareability, SoftwareMetadata,
-        Stage1EffectivePermissions, Stage2MemoryMode,
+        Cacheability, D128Stage1AliasKind, DataRights, DirtyBitManagement, LiveVmsaConfig,
+        MemoryAttributes, SemanticStage1LeafAttrs, SemanticVmsa64Stage1LeafControls, Shareability,
+        SoftwareMetadata, Stage1Permissions, Stage2MemoryMode,
     };
     use aarch64_vmsa::config::granule::Granule4KiB;
     let config = LiveVmsaConfig {
         mair: 0x44,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -393,14 +392,14 @@ fn fixed_realm_ipa_stage1_semantic_access(
             inner: Cacheability::NonCacheable,
             outer: Cacheability::NonCacheable,
         },
-        permissions: Stage1EffectivePermissions {
-            privileged_data: DataAccess::ReadWrite,
-            unprivileged_data: DataAccess::ReadWrite,
-            privileged_execute: false,
-            unprivileged_execute: false,
-            privileged_gcs: false,
-            unprivileged_gcs: false,
-        },
+        permissions: Stage1Permissions::new(
+            DataRights::ReadWrite,
+            DataRights::ReadWrite,
+            false,
+            false,
+            false,
+            false,
+        ),
         pas: (),
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,

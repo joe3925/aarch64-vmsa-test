@@ -1,20 +1,22 @@
 use aarch64_vmsa::address::Level;
 use aarch64_vmsa::attrs::{
-    AttrError, AttributeCodec, D128Stage1AliasKind, DataAccess, DeviceMemoryType,
-    DirtyBitManagement, LiveVmsaConfig, MemoryAttributes, SemanticStage1LeafAttrs,
-    SemanticStage2LeafAttrs, SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage2LeafControls,
-    Shareability, SoftwareMetadata, Stage1EffectivePermissions, Stage2MemoryAttributes,
-    Stage2MemoryMode, Stage2Permission,
+    AttrError, D128Stage1AliasKind, DataRights, DeviceMemoryType, DirtyBitManagement,
+    LiveVmsaConfig, MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage2LeafAttrs,
+    SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage2LeafControls, Shareability,
+    SoftwareMetadata, Stage1Permissions, Stage2MemoryAttributes, Stage2MemoryMode,
+    Stage2Permissions,
 };
 use aarch64_vmsa::config::format::Vmsa64;
 use aarch64_vmsa::config::granule::Granule4KiB;
 use aarch64_vmsa::config::regime::{NonSecureEl2Stage1, NonSecureEl2Stage2};
+use vmsa_test_harness::AttributeCodecCompat as AttributeCodec;
 use vmsa_test_harness::TestResult;
 
 pub fn vmsa64_four_bit() -> TestResult {
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -88,8 +90,7 @@ pub fn vmsa64_four_bit() -> TestResult {
 
 pub fn d128_stage1_ten_bit() -> TestResult {
     use aarch64_vmsa::attrs::{
-        DirtyState, SemanticVmsa128Stage1LeafControls, Stage1EffectivePermissions,
-        Stage1PermissionRegisters,
+        DirtyState, SemanticVmsa128Stage1LeafControls, Stage1PermissionRegisters, Stage1Permissions,
     };
     use aarch64_vmsa::config::format::Vmsa128;
 
@@ -109,6 +110,7 @@ pub fn d128_stage1_ten_bit() -> TestResult {
         },
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
         d128_stage1_alias: D128Stage1AliasKind::NonGlobal,
@@ -117,14 +119,14 @@ pub fn d128_stage1_ten_bit() -> TestResult {
     };
     let leaf = |value| SemanticStage1LeafAttrs {
         memory: memory(),
-        permissions: Stage1EffectivePermissions {
-            privileged_data: DataAccess::ReadOnly,
-            unprivileged_data: DataAccess::None,
-            privileged_execute: false,
-            unprivileged_execute: false,
-            privileged_gcs: false,
-            unprivileged_gcs: false,
-        },
+        permissions: Stage1Permissions::new(
+            DataRights::Read,
+            DataRights::None,
+            false,
+            false,
+            false,
+            false,
+        ),
         pas: (),
         controls: SemanticVmsa128Stage1LeafControls {
             bbm_nt: false,
@@ -174,14 +176,15 @@ pub fn d128_stage1_ten_bit() -> TestResult {
 
 pub fn d128_stage2_ten_bit() -> TestResult {
     use aarch64_vmsa::attrs::{
-        DirtyState, SemanticVmsa128Stage2LeafControls, Stage2Permission, Stage2PermissionRegisters,
+        DirtyState, SemanticVmsa128Stage2LeafControls, Stage2PermissionRegisters, Stage2Permissions,
     };
     use aarch64_vmsa::config::format::Vmsa128;
-    use aarch64_vmsa::config::stage2::Stage2Permissions;
+    use aarch64_vmsa::config::stage2::StandardStage2PermissionModel;
 
     let config = LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings {
             base: aarch64_vmsa::attrs::Stage2BasePermissions::Indirect(
@@ -196,14 +199,14 @@ pub fn d128_stage2_ten_bit() -> TestResult {
     };
     let leaf = |value| SemanticStage2LeafAttrs {
         memory: Stage2MemoryAttributes::Combined(memory()),
-        permissions: Stage2Permission::NoAccess,
+        permissions: Stage2Permissions::no_access(),
         output_address_space: (),
         controls: SemanticVmsa128Stage2LeafControls {
             bbm_nt: false,
             dirty_state: DirtyState::Clean,
             shareability: Shareability::InnerShareable,
             access_flag: true,
-            force_no_execute: false,
+            force_no_xs: false,
             contiguous: false,
             assured_only: false,
             software: SoftwareMetadata::new(value),
@@ -213,7 +216,7 @@ pub fn d128_stage2_ten_bit() -> TestResult {
     for value in 0..=1023u16 {
         let semantic = leaf(value);
         let round_trip = <Vmsa128 as AttributeCodec<
-            NonSecureEl2Stage2<Stage2Permissions>,
+            NonSecureEl2Stage2<StandardStage2PermissionModel>,
             Granule4KiB,
             _,
         >>::encode_leaf(&config, Level::L3, semantic)
@@ -221,7 +224,8 @@ pub fn d128_stage2_ten_bit() -> TestResult {
             if raw.software.bits() != value {
                 return Err(AttrError::RawFieldOutOfRange);
             }
-            <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
+            <Vmsa128 as AttributeCodec<
+                NonSecureEl2Stage2<StandardStage2PermissionModel>,
                 Granule4KiB,
                 _,
             >>::decode_leaf(&config, Level::L3, raw)
@@ -230,7 +234,8 @@ pub fn d128_stage2_ten_bit() -> TestResult {
             failures += 1;
         }
     }
-    if <Vmsa128 as AttributeCodec<NonSecureEl2Stage2<Stage2Permissions>,
+    if <Vmsa128 as AttributeCodec<
+        NonSecureEl2Stage2<StandardStage2PermissionModel>,
         Granule4KiB,
         _,
     >>::encode_leaf(&config, Level::L3, leaf(1024))
@@ -247,17 +252,17 @@ fn memory() -> MemoryAttributes {
 
 fn stage1_leaf(
     value: u16,
-) -> SemanticStage1LeafAttrs<Stage1EffectivePermissions, (), SemanticVmsa64Stage1LeafControls> {
+) -> SemanticStage1LeafAttrs<Stage1Permissions, (), SemanticVmsa64Stage1LeafControls> {
     SemanticStage1LeafAttrs {
         memory: memory(),
-        permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions {
-            privileged_data: DataAccess::ReadWrite,
-            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
-            privileged_execute: false,
-            unprivileged_execute: false,
-            privileged_gcs: false,
-            unprivileged_gcs: false,
-        },
+        permissions: aarch64_vmsa::attrs::Stage1Permissions::new(
+            DataRights::ReadWrite,
+            aarch64_vmsa::attrs::DataRights::None,
+            false,
+            false,
+            false,
+            false,
+        ),
         pas: (),
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,
@@ -273,24 +278,25 @@ fn stage1_leaf(
 
 fn stage2_leaf(
     value: u16,
-) -> SemanticStage2LeafAttrs<Stage2Permission, (), SemanticVmsa64Stage2LeafControls> {
+) -> SemanticStage2LeafAttrs<Stage2Permissions, (), SemanticVmsa64Stage2LeafControls> {
     SemanticStage2LeafAttrs {
         memory: Stage2MemoryAttributes::Combined(memory()),
-        permissions: match DataAccess::ReadWrite {
-            aarch64_vmsa::attrs::DataAccess::None => {
-                aarch64_vmsa::attrs::Stage2Permission::NoAccess
+        permissions: match DataRights::ReadWrite {
+            aarch64_vmsa::attrs::DataRights::None => {
+                aarch64_vmsa::attrs::Stage2Permissions::no_access()
             }
-            aarch64_vmsa::attrs::DataAccess::ReadOnly => {
-                aarch64_vmsa::attrs::Stage2Permission::ReadOnly {
-                    privileged_execute: false,
-                    unprivileged_execute: false,
-                }
+            aarch64_vmsa::attrs::DataRights::Write => {
+                aarch64_vmsa::attrs::Stage2Permissions::special_write_only()
             }
-            aarch64_vmsa::attrs::DataAccess::ReadWrite => {
-                aarch64_vmsa::attrs::Stage2Permission::ReadWrite {
-                    privileged_execute: false,
-                    unprivileged_execute: false,
-                }
+            aarch64_vmsa::attrs::DataRights::Read => {
+                aarch64_vmsa::attrs::Stage2Permissions::read_only(
+                    aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+                )
+            }
+            aarch64_vmsa::attrs::DataRights::ReadWrite => {
+                aarch64_vmsa::attrs::Stage2Permissions::read_write(
+                    aarch64_vmsa::attrs::ExecuteRights::from_privileged_unprivileged(false, false),
+                )
             }
         },
         output_address_space: (),

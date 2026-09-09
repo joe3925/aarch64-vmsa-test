@@ -23,12 +23,12 @@ where
             G,
             aarch64_vmsa::attrs::LiveVmsaConfig<P>,
             SemanticLeaf = aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
-                aarch64_vmsa::attrs::Stage1EffectivePermissions,
+                aarch64_vmsa::attrs::Stage1Permissions,
                 P,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
             >,
             SemanticTable = aarch64_vmsa::attrs::SemanticStage1TableAttrs<
-                aarch64_vmsa::attrs::TwoPrivilegeTablePermissionLimits,
+                aarch64_vmsa::attrs::TwoPrivilegeTableRestrictions,
                 Q,
                 aarch64_vmsa::attrs::SemanticVmsa64Stage1TableControls,
             >,
@@ -37,11 +37,10 @@ where
         >,
 {
     use aarch64_vmsa::attrs::{
-        Cacheability, D128Stage1AliasKind, DataAccess, DirtyBitManagement, LiveVmsaConfig,
+        Cacheability, D128Stage1AliasKind, DataRights, DirtyBitManagement, LiveVmsaConfig,
         MemoryAttributes, SemanticStage1LeafAttrs, SemanticStage1TableAttrs,
         SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
-        SoftwareMetadata, Stage1EffectivePermissions, Stage2MemoryMode,
-        TwoPrivilegeTablePermissionLimits,
+        SoftwareMetadata, Stage1Permissions, Stage2MemoryMode, TwoPrivilegeTableRestrictions,
     };
     use aarch64_vmsa::config::format::Vmsa64;
     use vmsa_test_harness::{AddressBits, LookupLevel, PhysicalAddress};
@@ -81,6 +80,7 @@ where
     let config = LiveVmsaConfig {
         mair: 0x44,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -88,14 +88,14 @@ where
         shareability: Shareability::InnerShareable,
         output_pas: pas,
     };
-    let permissions = Stage1EffectivePermissions {
-        privileged_data: DataAccess::ReadWrite,
-        unprivileged_data: DataAccess::ReadWrite,
-        privileged_execute: false,
-        unprivileged_execute: false,
-        privileged_gcs: false,
-        unprivileged_gcs: false,
-    };
+    let permissions = Stage1Permissions::new(
+        DataRights::ReadWrite,
+        DataRights::ReadWrite,
+        false,
+        false,
+        false,
+        false,
+    );
     let leaf = SemanticStage1LeafAttrs {
         memory: MemoryAttributes::Normal {
             inner: Cacheability::NonCacheable,
@@ -114,9 +114,9 @@ where
         },
     };
     let table = SemanticStage1TableAttrs {
-        permission_limits: TwoPrivilegeTablePermissionLimits {
-            privileged_data_limit: DataAccess::ReadWrite,
-            unprivileged_data_limit: DataAccess::ReadWrite,
+        restrictions: TwoPrivilegeTableRestrictions {
+            privileged_data_limit: DataRights::ReadWrite,
+            unprivileged_data_limit: DataRights::ReadWrite,
             privileged_execute_limit: false,
             unprivileged_execute_limit: false,
         },

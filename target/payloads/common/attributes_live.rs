@@ -5,6 +5,7 @@ pub(super) fn semantic_codec(context: &mut TestContext<'_, CurrentEnvironment>) 
     let config = aarch64_vmsa::attrs::LiveVmsaConfig {
         mair: 0x0000_ff44,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
@@ -101,8 +102,8 @@ pub(super) fn semantic_codec(context: &mut TestContext<'_, CurrentEnvironment>) 
     }
     live.restore()?;
     let observations = u64::from(
-        semantic.permissions.privileged_data == aarch64_vmsa::attrs::DataAccess::ReadWrite,
-    ) | (u64::from(!semantic.permissions.privileged_execute) << 1)
+        semantic.permissions.data.privileged == aarch64_vmsa::attrs::DataRights::ReadWrite,
+    ) | (u64::from(!semantic.permissions.execute.privileged()) << 1)
         | (u64::from(semantic.controls.access_flag) << 2)
         | (u64::from(
             semantic.controls.shareability == aarch64_vmsa::attrs::Shareability::InnerShareable,
@@ -126,6 +127,7 @@ pub(super) fn missing_memory_attribute(
     let config = aarch64_vmsa::attrs::LiveVmsaConfig {
         mair: 0,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: aarch64_vmsa::attrs::Stage2MemoryMode::FwbDisabled,
@@ -155,7 +157,7 @@ pub(super) fn missing_memory_attribute(
 }
 
 fn semantic_leaf() -> aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
-    aarch64_vmsa::attrs::Stage1EffectivePermissions,
+    aarch64_vmsa::attrs::Stage1Permissions,
     (),
     aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
 > {
@@ -172,14 +174,14 @@ fn semantic_leaf() -> aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
                 allocation: aarch64_vmsa::attrs::AllocationHints::ReadWriteAllocate,
             },
         },
-        permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions {
-            privileged_data: aarch64_vmsa::attrs::DataAccess::ReadWrite,
-            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
-            privileged_execute: false,
-            unprivileged_execute: false,
-            privileged_gcs: false,
-            unprivileged_gcs: false,
-        },
+        permissions: aarch64_vmsa::attrs::Stage1Permissions::new(
+            aarch64_vmsa::attrs::DataRights::ReadWrite,
+            aarch64_vmsa::attrs::DataRights::None,
+            false,
+            false,
+            false,
+            false,
+        ),
         pas: (),
         controls: aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls {
             shareability: aarch64_vmsa::attrs::Shareability::InnerShareable,
@@ -196,13 +198,13 @@ fn semantic_leaf() -> aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
 }
 
 fn semantic_table() -> aarch64_vmsa::attrs::SemanticStage1TableAttrs<
-    aarch64_vmsa::attrs::SinglePrivilegeTablePermissionLimits,
+    aarch64_vmsa::attrs::SinglePrivilegeTableRestrictions,
     (),
     aarch64_vmsa::attrs::SemanticVmsa64Stage1TableControls,
 > {
     aarch64_vmsa::attrs::SemanticStage1TableAttrs {
-        permission_limits: aarch64_vmsa::attrs::SinglePrivilegeTablePermissionLimits {
-            data_limit: aarch64_vmsa::attrs::DataAccess::ReadWrite,
+        restrictions: aarch64_vmsa::attrs::SinglePrivilegeTableRestrictions {
+            data_limit: aarch64_vmsa::attrs::DataRights::ReadWrite,
             execute_limit: true,
         },
         pas: (),

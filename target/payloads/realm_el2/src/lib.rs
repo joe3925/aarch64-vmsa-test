@@ -78,11 +78,11 @@ pub type LowerRegime = aarch64_vmsa::config::regime::RealmEl1Stage1;
 pub type HostRegime = aarch64_vmsa::config::regime::RealmEl2HostStage1;
 pub type Stage2Regime = aarch64_vmsa::config::regime::RealmEl2Stage2;
 pub type Stage2XnxRegime = aarch64_vmsa::config::regime::RealmEl2Stage2<
-    aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+    aarch64_vmsa::config::stage2::XnxStage2PermissionModel,
 >;
 pub type AlternateStage2Regime = aarch64_vmsa::config::regime::RealmEl2Stage2;
 pub type AlternateStage2XnxRegime = aarch64_vmsa::config::regime::RealmEl2Stage2<
-    aarch64_vmsa::config::stage2::Stage2XnxPermissions,
+    aarch64_vmsa::config::stage2::XnxStage2PermissionModel,
 >;
 pub type Stage2Pas = aarch64_vmsa::attrs::RealmOrNonSecurePa;
 pub const fn stage2_pas() -> Stage2Pas {
@@ -143,23 +143,23 @@ fn regime_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult 
     use aarch64_vmsa::config::regime::{
         RealmEl1Stage1, RealmEl2HostStage1, RealmEl2Stage1, RealmEl2Stage2,
     };
-    use aarch64_vmsa::config::stage2::Stage2Permissions;
-    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
+    use aarch64_vmsa::config::stage2::StandardStage2PermissionModel;
+    use aarch64_vmsa::config::stage2::XnxStage2PermissionModel;
     let current = aarch64_vmsa::arch::VmsaFeatures::current();
     features::regime_result(features::require_regimes!(&current;
         RealmEl2Stage1,
         RealmEl1Stage1,
         RealmEl2HostStage1,
-        RealmEl2Stage2<Stage2Permissions>,
-        RealmEl2Stage2<Stage2XnxPermissions>,
+        RealmEl2Stage2<StandardStage2PermissionModel>,
+        RealmEl2Stage2<XnxStage2PermissionModel>,
     ))
 }
 fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {
     use aarch64_vmsa::config::regime::{
         RealmEl1Stage1, RealmEl2HostStage1, RealmEl2Stage1, RealmEl2Stage2,
     };
-    use aarch64_vmsa::config::stage2::Stage2Permissions;
-    use aarch64_vmsa::config::stage2::Stage2XnxPermissions;
+    use aarch64_vmsa::config::stage2::StandardStage2PermissionModel;
+    use aarch64_vmsa::config::stage2::XnxStage2PermissionModel;
     let current = &aarch64_vmsa::arch::VmsaFeatures::current();
     macro_rules! check {
         ($regime:ty) => {
@@ -171,10 +171,10 @@ fn regime_format_validation(_: &mut TestContext<'_, CurrentEnvironment>) -> Test
         check!(RealmEl2Stage1)
             && check!(RealmEl1Stage1)
             && check!(RealmEl2HostStage1)
-            && features::require_base_format!(current; RealmEl2Stage2<Stage2Permissions>)
-            && features::require_live_format_agreement!(current; RealmEl2Stage2<Stage2Permissions>, stage2 = true)
-            && features::require_base_format!(current; RealmEl2Stage2<Stage2XnxPermissions>)
-            && features::require_live_format_agreement!(current; RealmEl2Stage2<Stage2XnxPermissions>, stage2 = true),
+            && features::require_base_format!(current; RealmEl2Stage2<StandardStage2PermissionModel>)
+            && features::require_live_format_agreement!(current; RealmEl2Stage2<StandardStage2PermissionModel>, stage2 = true)
+            && features::require_base_format!(current; RealmEl2Stage2<XnxStage2PermissionModel>)
+            && features::require_live_format_agreement!(current; RealmEl2Stage2<XnxStage2PermissionModel>, stage2 = true),
     )
 }
 fn current_access(c: &mut TestContext<'_, CurrentEnvironment>) -> TestResult {

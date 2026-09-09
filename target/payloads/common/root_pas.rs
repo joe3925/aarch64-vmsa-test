@@ -1,4 +1,5 @@
 use crate::CurrentEnvironment;
+use vmsa_test_harness::AttributeCodecCompat as AttributeCodec;
 use vmsa_test_harness::{TestContext, TestResult};
 
 fn memory() -> aarch64_vmsa::attrs::MemoryAttributes {
@@ -15,6 +16,7 @@ fn config() -> aarch64_vmsa::attrs::LiveVmsaConfig<()> {
     LiveVmsaConfig {
         mair: 0x44,
         mair2: None,
+        smmu_v3_aie: false,
         stage1_permissions: aarch64_vmsa::attrs::Stage1PermissionSettings::direct(),
         stage2_permissions: aarch64_vmsa::attrs::Stage2PermissionSettings::direct(),
         stage2_memory_mode: Stage2MemoryMode::FwbDisabled,
@@ -27,24 +29,24 @@ fn config() -> aarch64_vmsa::attrs::LiveVmsaConfig<()> {
 fn leaf(
     pas: aarch64_vmsa::attrs::RootExtendedPa,
 ) -> aarch64_vmsa::attrs::SemanticStage1LeafAttrs<
-    aarch64_vmsa::attrs::Stage1EffectivePermissions,
+    aarch64_vmsa::attrs::Stage1Permissions,
     aarch64_vmsa::attrs::RootExtendedPa,
     aarch64_vmsa::attrs::SemanticVmsa64Stage1LeafControls,
 > {
     use aarch64_vmsa::attrs::{
-        DataAccess, DirtyBitManagement, SemanticStage1LeafAttrs, SemanticVmsa64Stage1LeafControls,
-        Shareability, SoftwareMetadata, Stage1EffectivePermissions,
+        DataRights, DirtyBitManagement, SemanticStage1LeafAttrs, SemanticVmsa64Stage1LeafControls,
+        Shareability, SoftwareMetadata, Stage1Permissions,
     };
     SemanticStage1LeafAttrs {
         memory: memory(),
-        permissions: aarch64_vmsa::attrs::Stage1EffectivePermissions {
-            privileged_data: DataAccess::ReadWrite,
-            unprivileged_data: aarch64_vmsa::attrs::DataAccess::None,
-            privileged_execute: false,
-            unprivileged_execute: false,
-            privileged_gcs: false,
-            unprivileged_gcs: false,
-        },
+        permissions: aarch64_vmsa::attrs::Stage1Permissions::new(
+            DataRights::ReadWrite,
+            aarch64_vmsa::attrs::DataRights::None,
+            false,
+            false,
+            false,
+            false,
+        ),
         pas,
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,
@@ -59,17 +61,17 @@ fn leaf(
 }
 
 fn table() -> aarch64_vmsa::attrs::SemanticStage1TableAttrs<
-    aarch64_vmsa::attrs::SinglePrivilegeTablePermissionLimits,
+    aarch64_vmsa::attrs::SinglePrivilegeTableRestrictions,
     (),
     aarch64_vmsa::attrs::SemanticVmsa64Stage1TableControls,
 > {
     use aarch64_vmsa::attrs::{
-        DataAccess, SemanticStage1TableAttrs, SemanticVmsa64Stage1TableControls,
-        SinglePrivilegeTablePermissionLimits,
+        DataRights, SemanticStage1TableAttrs, SemanticVmsa64Stage1TableControls,
+        SinglePrivilegeTableRestrictions,
     };
     SemanticStage1TableAttrs {
-        permission_limits: SinglePrivilegeTablePermissionLimits {
-            data_limit: DataAccess::ReadWrite,
+        restrictions: SinglePrivilegeTableRestrictions {
+            data_limit: DataRights::ReadWrite,
             execute_limit: true,
         },
         pas: (),
@@ -79,7 +81,6 @@ fn table() -> aarch64_vmsa::attrs::SemanticStage1TableAttrs<
 
 fn codec_case(pas: aarch64_vmsa::attrs::RootExtendedPa) -> TestResult {
     use aarch64_vmsa::address::Level;
-    use aarch64_vmsa::attrs::AttributeCodec;
     use aarch64_vmsa::config::format::Vmsa64;
     use aarch64_vmsa::config::granule::Granule4KiB;
     use aarch64_vmsa::config::regime::RootEl3Stage1;
