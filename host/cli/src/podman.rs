@@ -372,22 +372,8 @@ fn container_command(
 }
 
 pub fn stop_container(name: &str) -> Result<(), PodmanError> {
-    let exists = Command::new("podman")
-        .args(["container", "exists", name])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| {
-            PodmanError::unavailable(format!("cannot start Podman container check: {error}"))
-        })?;
-    match wait_bounded(exists, Duration::from_secs(2))? {
-        Some(status) if !status.success() => return Ok(()),
-        Some(_) => {}
-        None => {
-            return Err(PodmanError::unavailable(format!(
-                "Podman could not check container {name} within the shutdown deadline"
-            )));
-        }
+    if !container_exists(name)? {
+        return Ok(());
     }
 
     let timeout = SHUTDOWN_TIMEOUT.as_secs().to_string();
@@ -397,10 +383,8 @@ pub fn stop_container(name: &str) -> Result<(), PodmanError> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|error| PodmanError::unavailable(format!("cannot start Podman stop: {error}")))?;
-    if matches!(
-        wait_bounded(stopped, SHUTDOWN_TIMEOUT + Duration::from_secs(1))?,
-        Some(status) if status.success()
-    ) {
+    let stop_status = wait_bounded(stopped, SHUTDOWN_TIMEOUT + Duration::from_secs(1))?;
+    if wait_for_container_removal(name, Duration::from_secs(2))? {
         return Ok(());
     }
 
@@ -410,14 +394,35 @@ pub fn stop_container(name: &str) -> Result<(), PodmanError> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|error| PodmanError::unavailable(format!("cannot start Podman kill: {error}")))?;
-    match wait_bounded(killed, Duration::from_secs(2))? {
-        Some(status) if status.success() => Ok(()),
+    let kill_status = wait_bounded(killed, Duration::from_secs(2))?;
+    if wait_for_container_removal(name, Duration::from_secs(2))? {
+        return Ok(());
+    }
+
+    match kill_status {
         Some(status) => Err(PodmanError::unavailable(format!(
-            "Podman could not stop or kill container {name}: kill exited with {status}"
+            "Podman could not stop or kill container {name}: stop result {stop_status:?}, kill exited with {status}"
         ))),
         None => Err(PodmanError::unavailable(format!(
-            "Podman could not stop or kill container {name} within the shutdown deadline"
+            "Podman could not stop or kill container {name}: stop result {stop_status:?}, kill exceeded the shutdown deadline"
         ))),
+    }
+}
+
+fn wait_for_container_removal(name: &str, timeout: Duration) -> Result<bool, PodmanError> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if !container_exists(name)? {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        std::thread::park_timeout(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(25)),
+        );
     }
 }
 
