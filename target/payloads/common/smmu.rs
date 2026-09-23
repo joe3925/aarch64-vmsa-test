@@ -105,7 +105,7 @@ pub fn smmu_v2_stage2_exact_vector() -> TestResult {
         expected: 1,
         actual: 0,
     })?;
-    let raw = <Layout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+    let raw = <Layout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
         PhysAddr(0x1234_5000).into(),
         Level::L3,
         fields,
@@ -131,7 +131,7 @@ pub fn smmu_v2_stage2_exact_vector() -> TestResult {
         return failed(expected, raw);
     }
     let decoded_fields =
-        <Layout as DescriptorLayout<_, Granule4KiB>>::decode_leaf_fields(expected, Level::L3);
+        <Layout as DescriptorLayout<Granule4KiB>>::decode_leaf_fields(expected, Level::L3);
     let decoded = <Vmsa64 as AttributeCodec<NonSecureIpaStage2, Granule4KiB, _>>::decode_leaf(
         &config,
         Level::L3,
@@ -354,7 +354,6 @@ where
     G: aarch64_vmsa::address::TranslationGranule,
     <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::translation::Stage1,
                 G,
                 Format = F,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage1LeafAttrs,
@@ -388,7 +387,7 @@ where
         guarded: true,
         software: FourBit::new(0b0110).map_err(|_| HarnessError::InvalidState)?,
     };
-    let raw = <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::leaf_descriptor(
+    let raw = <Layout<F, R, G> as DescriptorLayout<G>>::leaf_descriptor(
         PhysAddr(0x4000_0000),
         Level::L3,
         leaf,
@@ -397,31 +396,24 @@ where
     let mut failures = 0u64;
     for raw_level in -1..=3 {
         let level = Level::new(raw_level);
-        if !F::supports_leaf_level::<G>(level) {
+        if !<Layout<F, R, G> as DescriptorLayout<G>>::supports_leaf_level(level) {
             failures += u64::from(
-                <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::leaf_descriptor(
-                    PhysAddr(0),
-                    level,
-                    leaf,
-                ) != Err(aarch64_vmsa::descriptor::DescriptorError::InvalidLeafLevel { level }),
+                <Layout<F, R, G> as DescriptorLayout<G>>::leaf_descriptor(PhysAddr(0), level, leaf)
+                    != Err(aarch64_vmsa::descriptor::DescriptorError::InvalidLeafLevel { level }),
             );
         }
         failures += u64::from(
-            <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::kind(2, level)
-                != DescriptorKind::Invalid,
+            <Layout<F, R, G> as DescriptorLayout<G>>::kind(2, level) != DescriptorKind::Invalid,
         );
     }
     failures += u64::from(
-        <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::kind(raw, Level::L3)
-            != DescriptorKind::Page,
+        <Layout<F, R, G> as DescriptorLayout<G>>::kind(raw, Level::L3) != DescriptorKind::Page,
     );
     failures += u64::from(
-        <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::decode_leaf_fields(raw, Level::L3)
-            != leaf,
+        <Layout<F, R, G> as DescriptorLayout<G>>::decode_leaf_fields(raw, Level::L3) != leaf,
     );
     failures += u64::from(
-        <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::output_address(raw, Level::L3).0
-            != 0x4000_0000,
+        <Layout<F, R, G> as DescriptorLayout<G>>::output_address(raw, Level::L3).0 != 0x4000_0000,
     );
 
     let table = RawVmsa64Stage1TableAttrs {
@@ -436,22 +428,19 @@ where
     let child = TableShape::<F, G>::new(Level::L2, 1).map_err(|_| HarnessError::InvalidState)?;
     let transition = TableTransition::new(parent, child).map_err(|_| HarnessError::InvalidState)?;
     let address = TableAddr::<G>::new(0x8000_0000).map_err(|_| HarnessError::InvalidState)?;
-    let raw = <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::table_descriptor(
-        address, transition, table,
-    )
-    .map_err(|_| HarnessError::InvalidState)?;
-    let next = <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::next_table(raw, Level::L1)
+    let raw =
+        <Layout<F, R, G> as DescriptorLayout<G>>::table_descriptor(address, transition, table)
+            .map_err(|_| HarnessError::InvalidState)?;
+    let next = <Layout<F, R, G> as DescriptorLayout<G>>::next_table(raw, Level::L1)
         .ok_or(HarnessError::InvalidState)?;
     failures += u64::from(
-        <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::kind(raw, Level::L1)
-            != DescriptorKind::Table,
+        <Layout<F, R, G> as DescriptorLayout<G>>::kind(raw, Level::L1) != DescriptorKind::Table,
     );
     failures += u64::from(
-        <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::decode_table_fields(raw, Level::L1)
-            != table,
+        <Layout<F, R, G> as DescriptorLayout<G>>::decode_table_fields(raw, Level::L1) != table,
     );
     failures += u64::from(
-        <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::table_address(raw, Level::L1).raw()
+        <Layout<F, R, G> as DescriptorLayout<G>>::table_address(raw, Level::L1).raw()
             != address.raw(),
     );
     failures += u64::from(
@@ -468,7 +457,6 @@ where
     G: aarch64_vmsa::address::TranslationGranule,
     <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::translation::Stage1,
                 G,
                 Format = F,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
@@ -503,7 +491,7 @@ where
         ns: true,
         software: TenBit::new(0x2aa).map_err(|_| HarnessError::InvalidState)?,
     };
-    let raw = <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::leaf_descriptor(
+    let raw = <Layout<F, R, G> as DescriptorLayout<G>>::leaf_descriptor(
         PhysAddr(0x4000_0000),
         Level::L3,
         leaf,
@@ -512,31 +500,24 @@ where
     let mut failures = 0u64;
     for raw_level in -1..=3 {
         let level = Level::new(raw_level);
-        if !F::supports_leaf_level::<G>(level) {
+        if !<Layout<F, R, G> as DescriptorLayout<G>>::supports_leaf_level(level) {
             failures += u64::from(
-                <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::leaf_descriptor(
-                    PhysAddr(0),
-                    level,
-                    leaf,
-                ) != Err(aarch64_vmsa::descriptor::DescriptorError::InvalidLeafLevel { level }),
+                <Layout<F, R, G> as DescriptorLayout<G>>::leaf_descriptor(PhysAddr(0), level, leaf)
+                    != Err(aarch64_vmsa::descriptor::DescriptorError::InvalidLeafLevel { level }),
             );
         }
         failures += u64::from(
-            <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::kind(2, level)
-                != DescriptorKind::Invalid,
+            <Layout<F, R, G> as DescriptorLayout<G>>::kind(2, level) != DescriptorKind::Invalid,
         );
     }
     failures += u64::from(
-        <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::kind(raw, Level::L3)
-            != DescriptorKind::Page,
+        <Layout<F, R, G> as DescriptorLayout<G>>::kind(raw, Level::L3) != DescriptorKind::Page,
     );
     failures += u64::from(
-        <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::decode_leaf_fields(raw, Level::L3)
-            != leaf,
+        <Layout<F, R, G> as DescriptorLayout<G>>::decode_leaf_fields(raw, Level::L3) != leaf,
     );
     failures += u64::from(
-        <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::output_address(raw, Level::L3).0
-            != 0x4000_0000,
+        <Layout<F, R, G> as DescriptorLayout<G>>::output_address(raw, Level::L3).0 != 0x4000_0000,
     );
 
     let table = RawVmsa128Stage1TableAttrs {
@@ -551,22 +532,19 @@ where
     let child = TableShape::<F, G>::new(Level::L2, 1).map_err(|_| HarnessError::InvalidState)?;
     let transition = TableTransition::new(parent, child).map_err(|_| HarnessError::InvalidState)?;
     let address = TableAddr::<G>::new(0x8000_0000).map_err(|_| HarnessError::InvalidState)?;
-    let raw = <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::table_descriptor(
-        address, transition, table,
-    )
-    .map_err(|_| HarnessError::InvalidState)?;
-    let next = <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::next_table(raw, Level::L1)
+    let raw =
+        <Layout<F, R, G> as DescriptorLayout<G>>::table_descriptor(address, transition, table)
+            .map_err(|_| HarnessError::InvalidState)?;
+    let next = <Layout<F, R, G> as DescriptorLayout<G>>::next_table(raw, Level::L1)
         .ok_or(HarnessError::InvalidState)?;
     failures += u64::from(
-        <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::kind(raw, Level::L1)
-            != DescriptorKind::Table,
+        <Layout<F, R, G> as DescriptorLayout<G>>::kind(raw, Level::L1) != DescriptorKind::Table,
     );
     failures += u64::from(
-        <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::decode_table_fields(raw, Level::L1)
-            != table,
+        <Layout<F, R, G> as DescriptorLayout<G>>::decode_table_fields(raw, Level::L1) != table,
     );
     failures += u64::from(
-        <Layout<F, R, G> as DescriptorLayout<Stage1, G>>::table_address(raw, Level::L1).raw()
+        <Layout<F, R, G> as DescriptorLayout<G>>::table_address(raw, Level::L1).raw()
             != address.raw(),
     );
     failures += u64::from(
@@ -1201,9 +1179,8 @@ pub fn smmu_v2_stage2_descriptor_matrix() -> TestResult {
             type Layout = <Vmsa64 as HasRegimeLayout<NonSecureIpaStage2, $granule>>::Layout;
             for raw_level in -1..=3 {
                 let level = Level::new(raw_level);
-                let supported =
-                    <Vmsa64 as DescriptorFormat>::supports_leaf_level::<$granule>(level);
-                let result = <Layout as DescriptorLayout<_, $granule>>::leaf_descriptor(
+                let supported = <Layout as DescriptorLayout<$granule>>::supports_leaf_level(level);
+                let result = <Layout as DescriptorLayout<$granule>>::leaf_descriptor(
                     PhysAddr($address),
                     level,
                     smmu_v2_raw_fields(0b10, 0b11)?,
@@ -1216,16 +1193,14 @@ pub fn smmu_v2_stage2_descriptor_matrix() -> TestResult {
                             DescriptorKind::Block
                         };
                         failures += u64::from(
-                            <Layout as DescriptorLayout<_, $granule>>::kind(raw, level)
-                                != wanted_kind,
+                            <Layout as DescriptorLayout<$granule>>::kind(raw, level) != wanted_kind,
                         );
                         failures += u64::from(
-                            <Layout as DescriptorLayout<_, $granule>>::decode_leaf_fields(
-                                raw, level,
-                            ) != smmu_v2_raw_fields(0b10, 0b11)?,
+                            <Layout as DescriptorLayout<$granule>>::decode_leaf_fields(raw, level)
+                                != smmu_v2_raw_fields(0b10, 0b11)?,
                         );
                         failures += u64::from(
-                            <Layout as DescriptorLayout<_, $granule>>::output_address(raw, level).0
+                            <Layout as DescriptorLayout<$granule>>::output_address(raw, level).0
                                 != $address,
                         );
                     }
@@ -1241,30 +1216,30 @@ pub fn smmu_v2_stage2_descriptor_matrix() -> TestResult {
     granule!(Granule64KiB, 0x4000_0000);
 
     type Layout4K = <Vmsa64 as HasRegimeLayout<NonSecureIpaStage2, Granule4KiB>>::Layout;
-    let read_reserved = <Layout4K as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+    let read_reserved = <Layout4K as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
         PhysAddr(0),
         Level::L3,
         smmu_v2_raw_fields(0b01, 0b00)?,
     );
-    let write_reserved = <Layout4K as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+    let write_reserved = <Layout4K as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
         PhysAddr(0),
         Level::L3,
         smmu_v2_raw_fields(0b00, 0b01)?,
     );
     failures += u64::from(read_reserved != Err(DescriptorError::ReservedFieldSet { bit: 60 }));
     failures += u64::from(write_reserved != Err(DescriptorError::ReservedFieldSet { bit: 62 }));
-    let base = <Layout4K as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+    let base = <Layout4K as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
         PhysAddr(0x1234_5000),
         Level::L3,
         smmu_v2_raw_fields(0b00, 0b00)?,
     )
     .map_err(|_| HarnessError::InvalidState)?;
     failures += u64::from(
-        <Layout4K as DescriptorLayout<_, Granule4KiB>>::kind(base | (1u64 << 60), Level::L3)
+        <Layout4K as DescriptorLayout<Granule4KiB>>::kind(base | (1u64 << 60), Level::L3)
             != DescriptorKind::Page,
     );
     failures += u64::from(
-        <Layout4K as DescriptorLayout<_, Granule4KiB>>::kind(base | (1u64 << 62), Level::L3)
+        <Layout4K as DescriptorLayout<Granule4KiB>>::kind(base | (1u64 << 62), Level::L3)
             != DescriptorKind::Page,
     );
 
@@ -1291,18 +1266,15 @@ pub fn smmu_v2_descriptor_field_mutations() -> TestResult {
     type Layout = <Vmsa64 as HasRegimeLayout<NonSecureIpaStage2, Granule4KiB>>::Layout;
     let output = PhysAddr(0x4321_0000);
     let base_fields = smmu_v2_raw_fields(0b10, 0b11)?;
-    let base = <Layout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
-        output,
-        Level::L3,
-        base_fields,
-    )
-    .map_err(|_| HarnessError::InvalidState)?;
+    let base =
+        <Layout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(output, Level::L3, base_fields)
+            .map_err(|_| HarnessError::InvalidState)?;
     let mut failures = 0u64;
     macro_rules! leaf_mutation {
         ($mask:expr, $change:expr) => {{
             let mut fields = base_fields;
             $change(&mut fields)?;
-            let raw = <Layout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+            let raw = <Layout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
                 output,
                 Level::L3,
                 fields,
@@ -1311,7 +1283,7 @@ pub fn smmu_v2_descriptor_field_mutations() -> TestResult {
             let delta = raw ^ base;
             failures += u64::from(delta == 0 || delta & !($mask as u64) != 0);
             failures += u64::from(
-                <Layout as DescriptorLayout<_, Granule4KiB>>::decode_leaf_fields(raw, Level::L3)
+                <Layout as DescriptorLayout<Granule4KiB>>::decode_leaf_fields(raw, Level::L3)
                     != fields,
             );
         }};
@@ -1364,7 +1336,7 @@ pub fn smmu_v2_descriptor_field_mutations() -> TestResult {
         access_flag: true,
         software: FourBit::new(0b1010).map_err(|_| HarnessError::InvalidState)?,
     };
-    let base_table = <Layout as DescriptorLayout<_, Granule4KiB>>::table_descriptor(
+    let base_table = <Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(
         table_address,
         transition,
         base_table_fields,
@@ -1386,7 +1358,7 @@ pub fn smmu_v2_descriptor_field_mutations() -> TestResult {
             0xfu64 << 55,
         ),
     ] {
-        let raw = <Layout as DescriptorLayout<_, Granule4KiB>>::table_descriptor(
+        let raw = <Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(
             table_address,
             transition,
             fields,
@@ -1395,7 +1367,7 @@ pub fn smmu_v2_descriptor_field_mutations() -> TestResult {
         let delta = raw ^ base_table;
         failures += u64::from(delta == 0 || delta & !mask != 0);
         failures += u64::from(
-            <Layout as DescriptorLayout<_, Granule4KiB>>::decode_table_fields(raw, Level::L1)
+            <Layout as DescriptorLayout<Granule4KiB>>::decode_table_fields(raw, Level::L1)
                 != fields,
         );
     }
@@ -1449,7 +1421,7 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
         ns: true,
         software: ten_a,
     };
-    let stage1_raw = <Stage1Layout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+    let stage1_raw = <Stage1Layout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
         output,
         Level::L2,
         stage1_leaf,
@@ -1459,7 +1431,7 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
         ($mask:expr, $change:expr) => {{
             let mut fields = stage1_leaf;
             $change(&mut fields);
-            let raw = <Stage1Layout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+            let raw = <Stage1Layout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
                 output,
                 Level::L2,
                 fields,
@@ -1468,10 +1440,8 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
             let delta = raw ^ stage1_raw;
             failures += u64::from(delta == 0 || delta & !($mask as u128) != 0);
             failures += u64::from(
-                <Stage1Layout as DescriptorLayout<_, Granule4KiB>>::decode_leaf_fields(
-                    raw,
-                    Level::L2,
-                ) != fields,
+                <Stage1Layout as DescriptorLayout<Granule4KiB>>::decode_leaf_fields(raw, Level::L2)
+                    != fields,
             );
         }};
     }
@@ -1524,7 +1494,7 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
         ns_table: true,
         software: ten_a,
     };
-    let stage1_table_raw = <Stage1Layout as DescriptorLayout<_, Granule4KiB>>::table_descriptor(
+    let stage1_table_raw = <Stage1Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(
         table_address,
         transition,
         stage1_table,
@@ -1534,7 +1504,7 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
         ($mask:expr, $change:expr) => {{
             let mut fields = stage1_table;
             $change(&mut fields);
-            let raw = <Stage1Layout as DescriptorLayout<_, Granule4KiB>>::table_descriptor(
+            let raw = <Stage1Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(
                 table_address,
                 transition,
                 fields,
@@ -1543,7 +1513,7 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
             let delta = raw ^ stage1_table_raw;
             failures += u64::from(delta == 0 || delta & !($mask as u128) != 0);
             failures += u64::from(
-                <Stage1Layout as DescriptorLayout<_, Granule4KiB>>::decode_table_fields(
+                <Stage1Layout as DescriptorLayout<Granule4KiB>>::decode_table_fields(
                     raw,
                     Level::L0,
                 ) != fields,
@@ -1583,7 +1553,7 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
         ns: true,
         software: ten_a,
     };
-    let stage2_raw = <Stage2Layout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+    let stage2_raw = <Stage2Layout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
         output,
         Level::L2,
         stage2_leaf,
@@ -1593,7 +1563,7 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
         ($mask:expr, $change:expr) => {{
             let mut fields = stage2_leaf;
             $change(&mut fields);
-            let raw = <Stage2Layout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+            let raw = <Stage2Layout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
                 output,
                 Level::L2,
                 fields,
@@ -1602,10 +1572,8 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
             let delta = raw ^ stage2_raw;
             failures += u64::from(delta == 0 || delta & !($mask as u128) != 0);
             failures += u64::from(
-                <Stage2Layout as DescriptorLayout<_, Granule4KiB>>::decode_leaf_fields(
-                    raw,
-                    Level::L2,
-                ) != fields,
+                <Stage2Layout as DescriptorLayout<Granule4KiB>>::decode_leaf_fields(raw, Level::L2)
+                    != fields,
             );
         }};
     }
@@ -1646,7 +1614,7 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
         access_flag: true,
         software: ten_a,
     };
-    let stage2_table_raw = <Stage2Layout as DescriptorLayout<_, Granule4KiB>>::table_descriptor(
+    let stage2_table_raw = <Stage2Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(
         table_address,
         transition,
         stage2_table,
@@ -1656,7 +1624,7 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
         ($mask:expr, $change:expr) => {{
             let mut fields = stage2_table;
             $change(&mut fields);
-            let raw = <Stage2Layout as DescriptorLayout<_, Granule4KiB>>::table_descriptor(
+            let raw = <Stage2Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(
                 table_address,
                 transition,
                 fields,
@@ -1665,7 +1633,7 @@ pub fn smmu_v3_d128_descriptor_field_mutations() -> TestResult {
             let delta = raw ^ stage2_table_raw;
             failures += u64::from(delta == 0 || delta & !($mask as u128) != 0);
             failures += u64::from(
-                <Stage2Layout as DescriptorLayout<_, Granule4KiB>>::decode_table_fields(
+                <Stage2Layout as DescriptorLayout<Granule4KiB>>::decode_table_fields(
                     raw,
                     Level::L0,
                 ) != fields,
@@ -1733,7 +1701,7 @@ pub fn smmu_v3_vmsa64_descriptor_field_mutations() -> TestResult {
                 guarded: true,
                 software: four_a,
             };
-            let stage1_raw = <Stage1Layout as DescriptorLayout<_, $granule>>::leaf_descriptor(
+            let stage1_raw = <Stage1Layout as DescriptorLayout<$granule>>::leaf_descriptor(
                 output,
                 Level::L3,
                 stage1_leaf,
@@ -1743,7 +1711,7 @@ pub fn smmu_v3_vmsa64_descriptor_field_mutations() -> TestResult {
                 ($mask:expr, $change:expr) => {{
                     let mut fields = stage1_leaf;
                     $change(&mut fields);
-                    let raw = <Stage1Layout as DescriptorLayout<_, $granule>>::leaf_descriptor(
+                    let raw = <Stage1Layout as DescriptorLayout<$granule>>::leaf_descriptor(
                         output,
                         Level::L3,
                         fields,
@@ -1752,7 +1720,7 @@ pub fn smmu_v3_vmsa64_descriptor_field_mutations() -> TestResult {
                     let delta = raw ^ stage1_raw;
                     failures += u64::from(delta == 0 || delta & !($mask as u64) != 0);
                     failures += u64::from(
-                        <Stage1Layout as DescriptorLayout<_, $granule>>::decode_leaf_fields(
+                        <Stage1Layout as DescriptorLayout<$granule>>::decode_leaf_fields(
                             raw,
                             Level::L3,
                         ) != fields,
@@ -1808,18 +1776,17 @@ pub fn smmu_v3_vmsa64_descriptor_field_mutations() -> TestResult {
                 ns_table: true,
                 software: four_a,
             };
-            let stage1_table_raw =
-                <Stage1Layout as DescriptorLayout<_, $granule>>::table_descriptor(
-                    table_address,
-                    transition,
-                    stage1_table,
-                )
-                .map_err(|_| HarnessError::InvalidState)?;
+            let stage1_table_raw = <Stage1Layout as DescriptorLayout<$granule>>::table_descriptor(
+                table_address,
+                transition,
+                stage1_table,
+            )
+            .map_err(|_| HarnessError::InvalidState)?;
             macro_rules! s1_table {
                 ($mask:expr, $change:expr) => {{
                     let mut fields = stage1_table;
                     $change(&mut fields);
-                    let raw = <Stage1Layout as DescriptorLayout<_, $granule>>::table_descriptor(
+                    let raw = <Stage1Layout as DescriptorLayout<$granule>>::table_descriptor(
                         table_address,
                         transition,
                         fields,
@@ -1828,7 +1795,7 @@ pub fn smmu_v3_vmsa64_descriptor_field_mutations() -> TestResult {
                     let delta = raw ^ stage1_table_raw;
                     failures += u64::from(delta == 0 || delta & !($mask as u64) != 0);
                     failures += u64::from(
-                        <Stage1Layout as DescriptorLayout<_, $granule>>::decode_table_fields(
+                        <Stage1Layout as DescriptorLayout<$granule>>::decode_table_fields(
                             raw,
                             Level::L1,
                         ) != fields,
@@ -1860,7 +1827,7 @@ pub fn smmu_v3_vmsa64_descriptor_field_mutations() -> TestResult {
                 contiguous: true,
                 software: four_a,
             };
-            let stage2_raw = <Stage2Layout as DescriptorLayout<_, $granule>>::leaf_descriptor(
+            let stage2_raw = <Stage2Layout as DescriptorLayout<$granule>>::leaf_descriptor(
                 output,
                 Level::L3,
                 stage2_leaf,
@@ -1870,7 +1837,7 @@ pub fn smmu_v3_vmsa64_descriptor_field_mutations() -> TestResult {
                 ($mask:expr, $change:expr) => {{
                     let mut fields = stage2_leaf;
                     $change(&mut fields);
-                    let raw = <Stage2Layout as DescriptorLayout<_, $granule>>::leaf_descriptor(
+                    let raw = <Stage2Layout as DescriptorLayout<$granule>>::leaf_descriptor(
                         output,
                         Level::L3,
                         fields,
@@ -1879,7 +1846,7 @@ pub fn smmu_v3_vmsa64_descriptor_field_mutations() -> TestResult {
                     let delta = raw ^ stage2_raw;
                     failures += u64::from(delta == 0 || delta & !($mask as u64) != 0);
                     failures += u64::from(
-                        <Stage2Layout as DescriptorLayout<_, $granule>>::decode_leaf_fields(
+                        <Stage2Layout as DescriptorLayout<$granule>>::decode_leaf_fields(
                             raw,
                             Level::L3,
                         ) != fields,
@@ -1916,13 +1883,12 @@ pub fn smmu_v3_vmsa64_descriptor_field_mutations() -> TestResult {
                 access_flag: true,
                 software: four_a,
             };
-            let stage2_table_raw =
-                <Stage2Layout as DescriptorLayout<_, $granule>>::table_descriptor(
-                    table_address,
-                    transition,
-                    stage2_table,
-                )
-                .map_err(|_| HarnessError::InvalidState)?;
+            let stage2_table_raw = <Stage2Layout as DescriptorLayout<$granule>>::table_descriptor(
+                table_address,
+                transition,
+                stage2_table,
+            )
+            .map_err(|_| HarnessError::InvalidState)?;
             for (fields, mask) in [
                 (
                     RawVmsa64Stage2TableAttrs {
@@ -1939,7 +1905,7 @@ pub fn smmu_v3_vmsa64_descriptor_field_mutations() -> TestResult {
                     0xfu64 << 55,
                 ),
             ] {
-                let raw = <Stage2Layout as DescriptorLayout<_, $granule>>::table_descriptor(
+                let raw = <Stage2Layout as DescriptorLayout<$granule>>::table_descriptor(
                     table_address,
                     transition,
                     fields,
@@ -1948,7 +1914,7 @@ pub fn smmu_v3_vmsa64_descriptor_field_mutations() -> TestResult {
                 let delta = raw ^ stage2_table_raw;
                 failures += u64::from(delta == 0 || delta & !mask != 0);
                 failures += u64::from(
-                    <Stage2Layout as DescriptorLayout<_, $granule>>::decode_table_fields(
+                    <Stage2Layout as DescriptorLayout<$granule>>::decode_table_fields(
                         raw,
                         Level::L1,
                     ) != fields,
@@ -1982,14 +1948,14 @@ pub fn smmu_v2_stage2_output_normalization() -> TestResult {
     macro_rules! check {
         ($granule:ty, $level:expr, $architectural_shift:expr) => {{
             type Layout = <Vmsa64 as HasRegimeLayout<NonSecureIpaStage2, $granule>>::Layout;
-            let raw = <Layout as DescriptorLayout<_, $granule>>::leaf_descriptor(
+            let raw = <Layout as DescriptorLayout<$granule>>::leaf_descriptor(
                 PhysAddr(OUTPUT),
                 $level,
                 smmu_v2_raw_fields(0, 0)?,
             )
             .map_err(|_| HarnessError::InvalidState)?;
             let expected = OUTPUT & !((1u64 << $architectural_shift) - 1);
-            let actual = <Layout as DescriptorLayout<_, $granule>>::output_address(raw, $level).0;
+            let actual = <Layout as DescriptorLayout<$granule>>::output_address(raw, $level).0;
             failures += u64::from(actual != expected);
         }};
     }
@@ -2009,7 +1975,7 @@ pub fn smmu_v2_stage2_output_normalization() -> TestResult {
             type Layout = <Format as HasRegimeLayout<NonSecureIpaStage2, $granule>>::Layout;
             let root_page = unsafe { core::ptr::addr_of_mut!(SMMU_L0.0) as u64 };
             unsafe { core::ptr::write_bytes(root_page as *mut u8, 0, 65536) };
-            let raw = <Layout as DescriptorLayout<_, $granule>>::leaf_descriptor(
+            let raw = <Layout as DescriptorLayout<$granule>>::leaf_descriptor(
                 PhysAddr(OUTPUT),
                 $level,
                 smmu_v2_raw_fields(0, 0)?,
@@ -2078,24 +2044,24 @@ pub fn smmu_v2_stage2_table_matrix() -> TestResult {
     let transition = TableTransition::new(parent, child).map_err(|_| HarnessError::InvalidState)?;
     let address = TableAddr::new(0x8000).map_err(|_| HarnessError::InvalidState)?;
     let raw =
-        <Layout as DescriptorLayout<_, Granule4KiB>>::table_descriptor(address, transition, fields)
+        <Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(address, transition, fields)
             .map_err(|_| HarnessError::InvalidState)?;
-    let next = <Layout as DescriptorLayout<_, Granule4KiB>>::next_table(raw, Level::L1)
+    let next = <Layout as DescriptorLayout<Granule4KiB>>::next_table(raw, Level::L1)
         .ok_or(HarnessError::InvalidState)?;
     let mut failures = 0u64;
     failures += u64::from(
-        <Layout as DescriptorLayout<_, Granule4KiB>>::kind(raw, Level::L1) != DescriptorKind::Table,
+        <Layout as DescriptorLayout<Granule4KiB>>::kind(raw, Level::L1) != DescriptorKind::Table,
     );
     failures += u64::from(
-        <Layout as DescriptorLayout<_, Granule4KiB>>::decode_table_fields(raw, Level::L1) != fields,
+        <Layout as DescriptorLayout<Granule4KiB>>::decode_table_fields(raw, Level::L1) != fields,
     );
     failures += u64::from(
-        <Layout as DescriptorLayout<_, Granule4KiB>>::table_address(raw, Level::L1) != address,
+        <Layout as DescriptorLayout<Granule4KiB>>::table_address(raw, Level::L1) != address,
     );
     failures +=
         u64::from(next.address != address || next.level != Level::L2 || next.stride_count != 1);
     failures += u64::from(
-        <Layout as DescriptorLayout<_, Granule4KiB>>::kind(raw | (1 << 2), Level::L1)
+        <Layout as DescriptorLayout<Granule4KiB>>::kind(raw | (1 << 2), Level::L1)
             != DescriptorKind::Invalid,
     );
 
@@ -2103,7 +2069,7 @@ pub fn smmu_v2_stage2_table_matrix() -> TestResult {
         .map_err(|_| HarnessError::InvalidState)?;
     let bad_transition =
         TableTransition::new(parent, skipped).map_err(|_| HarnessError::InvalidState)?;
-    let bad = <Layout as DescriptorLayout<_, Granule4KiB>>::table_descriptor(
+    let bad = <Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(
         address,
         bad_transition,
         fields,
@@ -2147,23 +2113,23 @@ pub fn smmu_v2_stage2_table_granules() -> TestResult {
                 .map_err(|_| HarnessError::InvalidState)?;
             let transition =
                 TableTransition::new(parent, child).map_err(|_| HarnessError::InvalidState)?;
-            let raw = <Layout as DescriptorLayout<_, $granule>>::table_descriptor(
+            let raw = <Layout as DescriptorLayout<$granule>>::table_descriptor(
                 address, transition, fields,
             )
             .map_err(|_| HarnessError::InvalidState)?;
-            let next = <Layout as DescriptorLayout<_, $granule>>::next_table(raw, Level::L1)
+            let next = <Layout as DescriptorLayout<$granule>>::next_table(raw, Level::L1)
                 .ok_or(HarnessError::InvalidState)?;
 
             failures += u64::from(
-                <Layout as DescriptorLayout<_, $granule>>::kind(raw, Level::L1)
+                <Layout as DescriptorLayout<$granule>>::kind(raw, Level::L1)
                     != DescriptorKind::Table,
             );
             failures += u64::from(
-                <Layout as DescriptorLayout<_, $granule>>::decode_table_fields(raw, Level::L1)
+                <Layout as DescriptorLayout<$granule>>::decode_table_fields(raw, Level::L1)
                     != fields,
             );
             failures += u64::from(
-                <Layout as DescriptorLayout<_, $granule>>::table_address(raw, Level::L1) != address,
+                <Layout as DescriptorLayout<$granule>>::table_address(raw, Level::L1) != address,
             );
             failures += u64::from(
                 next.address != address || next.level != Level::L2 || next.stride_count != 1,
@@ -2519,13 +2485,13 @@ pub fn smmu_v2_stage2_semantic_errors() -> TestResult {
     );
 
     type Layout = <Vmsa64 as HasRegimeLayout<NonSecureIpaStage2, Granule4KiB>>::Layout;
-    let valid = <Layout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+    let valid = <Layout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
         aarch64_vmsa::address::PhysAddr(0),
         Level::L3,
         smmu_v2_raw_fields(0, 0)?,
     )
     .map_err(|_| HarnessError::InvalidState)?;
-    let invalid_shareability = <Layout as DescriptorLayout<_, Granule4KiB>>::decode_leaf_fields(
+    let invalid_shareability = <Layout as DescriptorLayout<Granule4KiB>>::decode_leaf_fields(
         (valid & !(0b11 << 8)) | (1 << 8),
         Level::L3,
     );
@@ -5191,7 +5157,7 @@ fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
             expected: 1,
             actual: 0,
         })?;
-    let l1_raw = <LittleLayout as DescriptorLayout<_, Granule4KiB>>::table_descriptor(
+    let l1_raw = <LittleLayout as DescriptorLayout<Granule4KiB>>::table_descriptor(
         TableAddr::new(l2 as u64).map_err(|_| HarnessError::InvalidState)?,
         TableTransition::new(l1_shape, l2_shape).map_err(|_| HarnessError::InvalidState)?,
         l1_fields,
@@ -5200,7 +5166,7 @@ fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
         expected: 1,
         actual: 0,
     })?;
-    let l2_raw = <LittleLayout as DescriptorLayout<_, Granule4KiB>>::table_descriptor(
+    let l2_raw = <LittleLayout as DescriptorLayout<Granule4KiB>>::table_descriptor(
         TableAddr::new(l3 as u64).map_err(|_| HarnessError::InvalidState)?,
         TableTransition::new(l2_shape, l3_shape).map_err(|_| HarnessError::InvalidState)?,
         l2_fields,
@@ -5245,7 +5211,7 @@ fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
     } else {
         destination as u64
     };
-    let mut source_raw = <LittleLayout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+    let mut source_raw = <LittleLayout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
         PhysAddr(source_output),
         destination_level,
         source_fields,
@@ -5254,7 +5220,7 @@ fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
         expected: 1,
         actual: 0,
     })?;
-    let mut destination_raw = <LittleLayout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+    let mut destination_raw = <LittleLayout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
         PhysAddr(destination_output),
         destination_level,
         destination_fields,
@@ -5353,7 +5319,7 @@ fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
                 expected: 1,
                 actual: 0,
             })?;
-        let root_raw = <Layout64 as DescriptorLayout<_, Granule64KiB>>::table_descriptor(
+        let root_raw = <Layout64 as DescriptorLayout<Granule64KiB>>::table_descriptor(
             TableAddr::new(l3 as u64).map_err(|_| HarnessError::InvalidState)?,
             TableTransition::new(middle, last).map_err(|_| HarnessError::InvalidState)?,
             l2_fields,
@@ -5364,7 +5330,7 @@ fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
         })?;
         let l1_raw = if root_level == Level::L1 {
             Some(
-                <Layout64 as DescriptorLayout<_, Granule64KiB>>::table_descriptor(
+                <Layout64 as DescriptorLayout<Granule64KiB>>::table_descriptor(
                     TableAddr::new(l2 as u64).map_err(|_| HarnessError::InvalidState)?,
                     TableTransition::new(root, middle).map_err(|_| HarnessError::InvalidState)?,
                     l1_fields,
@@ -5407,7 +5373,7 @@ fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
         } else {
             65535
         };
-        let source_raw = <Layout64 as DescriptorLayout<_, Granule64KiB>>::leaf_descriptor(
+        let source_raw = <Layout64 as DescriptorLayout<Granule64KiB>>::leaf_descriptor(
             PhysAddr((source as u64) & !mask),
             level,
             source_fields,
@@ -5416,7 +5382,7 @@ fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
             expected: 1,
             actual: 0,
         })?;
-        let destination_raw = <Layout64 as DescriptorLayout<_, Granule64KiB>>::leaf_descriptor(
+        let destination_raw = <Layout64 as DescriptorLayout<Granule64KiB>>::leaf_descriptor(
             PhysAddr((destination as u64) & !mask),
             level,
             destination_fields,
@@ -5598,7 +5564,7 @@ fn smmu_v2_live_stage2(case: SmmuV2LiveCase) -> TestResult {
     let mut tlb_ok = true;
     if case == SmmuV2LiveCase::TlbInvalidate && completed {
         let alternate = destination + 4096;
-        let alternate_raw = <LittleLayout as DescriptorLayout<_, Granule4KiB>>::leaf_descriptor(
+        let alternate_raw = <LittleLayout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
             PhysAddr(alternate as u64),
             Level::L3,
             destination_fields,
@@ -5883,7 +5849,6 @@ impl SmmuLiveStage1Setup {
 
 trait SmmuLiveStage1Layout<F, G>:
     aarch64_vmsa::descriptor::DescriptorLayout<
-        aarch64_vmsa::translation::Stage1,
         G,
         Format = F,
         LeafFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage1LeafAttrs,
@@ -5900,7 +5865,6 @@ where
     F: aarch64_vmsa::descriptor::DescriptorFormat,
     G: aarch64_vmsa::address::TranslationGranule,
     T: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage1,
             G,
             Format = F,
             LeafFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage1LeafAttrs,
@@ -6052,7 +6016,6 @@ where
     >>::Layout: SmmuLiveStage1Layout<F, G>,
     <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
-                <R as aarch64_vmsa::regime::TranslationRegime>::Stage,
                 G,
                 Format = F,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa64Stage2LeafAttrs,
@@ -6293,7 +6256,7 @@ where
         let transition =
             TableTransition::new(l0_shape, l1_shape).map_err(|_| HarnessError::InvalidState)?;
         Some(
-            <Layout<F, G, R> as DescriptorLayout<_, G>>::table_descriptor(
+            <Layout<F, G, R> as DescriptorLayout<G>>::table_descriptor(
                 TableAddr::new(l1 as u64).map_err(|_| HarnessError::InvalidState)?,
                 transition,
                 table_fields,
@@ -6303,7 +6266,7 @@ where
     } else {
         None
     };
-    let l1_raw = <Layout<F, G, R> as DescriptorLayout<_, G>>::table_descriptor(
+    let l1_raw = <Layout<F, G, R> as DescriptorLayout<G>>::table_descriptor(
         TableAddr::new(l2 as u64).map_err(|_| HarnessError::InvalidState)?,
         l1_to_l2,
         table_fields,
@@ -6324,7 +6287,7 @@ where
         expected: 1,
         actual: 0,
     })?;
-    let l2_raw = <Layout<F, G, R> as DescriptorLayout<_, G>>::table_descriptor(
+    let l2_raw = <Layout<F, G, R> as DescriptorLayout<G>>::table_descriptor(
         TableAddr::new(l3 as u64).map_err(|_| HarnessError::InvalidState)?,
         l2_to_l3,
         table_fields,
@@ -6350,7 +6313,7 @@ where
     } else {
         destination as u64
     };
-    let source_raw = <Layout<F, G, R> as DescriptorLayout<_, G>>::leaf_descriptor(
+    let source_raw = <Layout<F, G, R> as DescriptorLayout<G>>::leaf_descriptor(
         PhysAddr(source_output),
         leaf_level,
         leaf_fields,
@@ -6359,7 +6322,7 @@ where
         expected: 1,
         actual: 0,
     })?;
-    let destination_raw = <Layout<F, G, R> as DescriptorLayout<_, G>>::leaf_descriptor(
+    let destination_raw = <Layout<F, G, R> as DescriptorLayout<G>>::leaf_descriptor(
         PhysAddr(destination_output),
         leaf_level,
         <F as AttributeCodec<R, G, _>>::encode_leaf(&config, leaf_level, destination_semantic)
@@ -6537,31 +6500,30 @@ where
         macro_rules! install_stage1 {
             ($regime:ty) => {{
                 type Stage1Layout<F, G> = <F as HasRegimeLayout<$regime, G>>::Layout;
-                let l1_raw = <Stage1Layout<F, G> as DescriptorLayout<_, G>>::table_descriptor(
+                let l1_raw = <Stage1Layout<F, G> as DescriptorLayout<G>>::table_descriptor(
                     TableAddr::new(l2 as u64).map_err(|_| HarnessError::InvalidState)?,
                     l1_to_l2,
                     table,
                 )
                 .map_err(|_| HarnessError::InvalidState)?;
-                let l2_raw = <Stage1Layout<F, G> as DescriptorLayout<_, G>>::table_descriptor(
+                let l2_raw = <Stage1Layout<F, G> as DescriptorLayout<G>>::table_descriptor(
                     TableAddr::new(l3 as u64).map_err(|_| HarnessError::InvalidState)?,
                     l2_to_l3,
                     table,
                 )
                 .map_err(|_| HarnessError::InvalidState)?;
-                let source_raw = <Stage1Layout<F, G> as DescriptorLayout<_, G>>::leaf_descriptor(
+                let source_raw = <Stage1Layout<F, G> as DescriptorLayout<G>>::leaf_descriptor(
                     PhysAddr(source as u64),
                     Level::L3,
                     leaf(1)?,
                 )
                 .map_err(|_| HarnessError::InvalidState)?;
-                let destination_raw =
-                    <Stage1Layout<F, G> as DescriptorLayout<_, G>>::leaf_descriptor(
-                        PhysAddr(destination as u64),
-                        Level::L3,
-                        leaf(1)?,
-                    )
-                    .map_err(|_| HarnessError::InvalidState)?;
+                let destination_raw = <Stage1Layout<F, G> as DescriptorLayout<G>>::leaf_descriptor(
+                    PhysAddr(destination as u64),
+                    Level::L3,
+                    leaf(1)?,
+                )
+                .map_err(|_| HarnessError::InvalidState)?;
                 unsafe {
                     <F as DescriptorFormat>::write_descriptor(l1 as *mut u64, l1_raw);
                     <F as DescriptorFormat>::write_descriptor(l2 as *mut u64, l2_raw);

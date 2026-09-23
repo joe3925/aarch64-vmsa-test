@@ -1300,7 +1300,26 @@ impl AdapterCore {
     where
         R: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>
             + vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule16KiB>
-            + vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule64KiB>,
+            + vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule64KiB>
+            + vmsa_test_harness::PagingRegime<
+                aarch64_vmsa::config::format::Vmsa64Lpa2,
+                aarch64_vmsa::config::granule::Granule4KiB,
+            > + vmsa_test_harness::PagingRegime<
+                aarch64_vmsa::config::format::Vmsa64Lpa2,
+                aarch64_vmsa::config::granule::Granule16KiB,
+            > + vmsa_test_harness::PagingRegime<
+                aarch64_vmsa::config::format::Vmsa64Lpa2,
+                aarch64_vmsa::config::granule::Granule64KiB,
+            > + vmsa_test_harness::PagingRegime<
+                aarch64_vmsa::config::format::Vmsa128,
+                aarch64_vmsa::config::granule::Granule4KiB,
+            > + vmsa_test_harness::PagingRegime<
+                aarch64_vmsa::config::format::Vmsa128,
+                aarch64_vmsa::config::granule::Granule16KiB,
+            > + vmsa_test_harness::PagingRegime<
+                aarch64_vmsa::config::format::Vmsa128,
+                aarch64_vmsa::config::granule::Granule64KiB,
+            >,
         aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
                 crate::StageOf<R>,
                 aarch64_vmsa::config::granule::Granule4KiB,
@@ -1341,7 +1360,6 @@ impl AdapterCore {
             crate::StageOf<R>,
             aarch64_vmsa::config::granule::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                crate::StageOf<R>,
                 aarch64_vmsa::config::granule::Granule4KiB,
                 LeafFields = crate::LeafFieldsOf<
                     aarch64_vmsa::config::format::Vmsa64,
@@ -1358,7 +1376,6 @@ impl AdapterCore {
             crate::StageOf<R>,
             aarch64_vmsa::config::granule::Granule16KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                crate::StageOf<R>,
                 aarch64_vmsa::config::granule::Granule16KiB,
                 LeafFields = crate::LeafFieldsOf<
                     aarch64_vmsa::config::format::Vmsa64,
@@ -1375,7 +1392,6 @@ impl AdapterCore {
             crate::StageOf<R>,
             aarch64_vmsa::config::granule::Granule64KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                crate::StageOf<R>,
                 aarch64_vmsa::config::granule::Granule64KiB,
                 LeafFields = crate::LeafFieldsOf<
                     aarch64_vmsa::config::format::Vmsa64,
@@ -1396,7 +1412,6 @@ impl AdapterCore {
             crate::StageOf<R>,
             aarch64_vmsa::config::granule::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                crate::StageOf<R>,
                 aarch64_vmsa::config::granule::Granule4KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
@@ -1412,7 +1427,6 @@ impl AdapterCore {
             crate::StageOf<R>,
             aarch64_vmsa::config::granule::Granule16KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                crate::StageOf<R>,
                 aarch64_vmsa::config::granule::Granule16KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
@@ -1421,7 +1435,6 @@ impl AdapterCore {
             crate::StageOf<R>,
             aarch64_vmsa::config::granule::Granule64KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                crate::StageOf<R>,
                 aarch64_vmsa::config::granule::Granule64KiB,
                 LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
                 TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
@@ -1740,7 +1753,17 @@ impl AdapterCore {
     where
         R: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>
             + vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule16KiB>
-            + vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule64KiB>,
+            + vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule64KiB>
+            + vmsa_test_harness::PagingRegime<
+                aarch64_vmsa::config::format::Vmsa64Lpa2,
+                aarch64_vmsa::config::granule::Granule4KiB,
+            > + vmsa_test_harness::PagingRegime<
+                aarch64_vmsa::config::format::Vmsa64Lpa2,
+                aarch64_vmsa::config::granule::Granule16KiB,
+            > + vmsa_test_harness::PagingRegime<
+                aarch64_vmsa::config::format::Vmsa64Lpa2,
+                aarch64_vmsa::config::granule::Granule64KiB,
+            >,
         aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
                 crate::StageOf<R>,
                 aarch64_vmsa::config::granule::Granule4KiB,
@@ -1780,7 +1803,6 @@ impl AdapterCore {
             crate::StageOf<R>,
             aarch64_vmsa::config::granule::Granule4KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                crate::StageOf<R>,
                 aarch64_vmsa::config::granule::Granule4KiB,
                 LeafFields = crate::LeafFieldsOf<
                     aarch64_vmsa::config::format::Vmsa64,
@@ -1797,7 +1819,6 @@ impl AdapterCore {
             crate::StageOf<R>,
             aarch64_vmsa::config::granule::Granule16KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                crate::StageOf<R>,
                 aarch64_vmsa::config::granule::Granule16KiB,
                 LeafFields = crate::LeafFieldsOf<
                     aarch64_vmsa::config::format::Vmsa64,
@@ -1814,7 +1835,6 @@ impl AdapterCore {
             crate::StageOf<R>,
             aarch64_vmsa::config::granule::Granule64KiB,
         >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-                crate::StageOf<R>,
                 aarch64_vmsa::config::granule::Granule64KiB,
                 LeafFields = crate::LeafFieldsOf<
                     aarch64_vmsa::config::format::Vmsa64,

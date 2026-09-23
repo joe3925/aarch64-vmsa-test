@@ -257,7 +257,6 @@ where
         CurrentRegime,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage1,
             G,
             LeafFields = crate::LeafFieldsOf<
                 aarch64_vmsa::config::format::Vmsa64,

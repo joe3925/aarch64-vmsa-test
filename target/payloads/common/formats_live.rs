@@ -35,7 +35,6 @@ where
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>,
     <F as aarch64_vmsa::regime::HasRegimeLayout<CurrentRegime, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::translation::Stage1,
                 G,
                 LeafFields = crate::LeafFieldsOf<
                     aarch64_vmsa::config::format::Vmsa64,
@@ -194,7 +193,6 @@ where
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>,
     <F as aarch64_vmsa::regime::HasRegimeLayout<CurrentRegime, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::translation::Stage1,
                 G,
                 LeafFields = crate::LeafFieldsOf<
                     aarch64_vmsa::config::format::Vmsa64,
@@ -724,7 +722,6 @@ where
         CurrentRegime,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage1,
             G,
             LeafFields = crate::LeafFieldsOf<
                 aarch64_vmsa::config::format::Vmsa64,
@@ -897,7 +894,6 @@ where
         aarch64_vmsa::translation::Stage1,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage1,
             G,
             LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
             TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
@@ -1228,7 +1224,6 @@ where
         aarch64_vmsa::translation::Stage1,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage1,
             G,
             LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
             TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,

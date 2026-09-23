@@ -11,4 +11,5 @@ bench = false
 
 [dependencies]
 aarch64-vmsa = { path = "../external/aarch64-vmsa" }
+paging = { git = "https://github.com/joe3925/paging", rev = "c8a6c2856981ca7079a7a238419a3d25bb20764c" }
 vmsa-test-architecture = { path = "../architecture" }

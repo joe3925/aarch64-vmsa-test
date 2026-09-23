@@ -349,8 +349,11 @@ pub fn mapper_lpa2<E: vmsa_test_harness::adapter::TranslationRegimeEnvironment>(
     context: &mut TestContext<'_, E>,
 ) -> TestResult
 where
-    E::Regime:
-        vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>,
+    E::Regime: vmsa_test_harness::adapter::TestRegimeFor<aarch64_vmsa::config::granule::Granule4KiB>
+        + vmsa_test_harness::PagingRegime<
+            aarch64_vmsa::config::format::Vmsa64Lpa2,
+            aarch64_vmsa::config::granule::Granule4KiB,
+        >,
     aarch64_vmsa::config::format::Vmsa64: aarch64_vmsa::descriptor::HasLayout<
             crate::StageOf<E::Regime>,
             aarch64_vmsa::config::granule::Granule4KiB,
@@ -363,7 +366,6 @@ where
         crate::StageOf<E::Regime>,
         aarch64_vmsa::config::granule::Granule4KiB,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            crate::StageOf<E::Regime>,
             aarch64_vmsa::config::granule::Granule4KiB,
             LeafFields = crate::LeafFieldsOf<
                 aarch64_vmsa::config::format::Vmsa64,
@@ -416,6 +418,10 @@ pub fn mapper_d128<E: vmsa_test_harness::adapter::TranslationRegimeEnvironment>(
     context: &mut TestContext<'_, E>,
 ) -> TestResult
 where
+    E::Regime: vmsa_test_harness::PagingRegime<
+            aarch64_vmsa::config::format::Vmsa128,
+            aarch64_vmsa::config::granule::Granule4KiB,
+        >,
     aarch64_vmsa::config::format::Vmsa128: aarch64_vmsa::descriptor::HasLayout<
             crate::StageOf<E::Regime>,
             aarch64_vmsa::config::granule::Granule4KiB,
@@ -424,7 +430,6 @@ where
         crate::StageOf<E::Regime>,
         aarch64_vmsa::config::granule::Granule4KiB,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            crate::StageOf<E::Regime>,
             aarch64_vmsa::config::granule::Granule4KiB,
             LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
             TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,

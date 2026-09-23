@@ -527,7 +527,8 @@ pub fn root_address_out_of_range(
 
 pub fn value_boundaries() -> TestResult {
     use aarch64_vmsa::address::{
-        GranuleError, GranuleKind, Level, PhysAddr, TranslationGranule, VirtAddr,
+        ArmTranslationGranule, GranuleError, GranuleKind, Level, PhysAddr, TranslationGranule,
+        VirtAddr,
     };
     use aarch64_vmsa::config::format::{Vmsa64, Vmsa128};
     use aarch64_vmsa::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
@@ -561,9 +562,9 @@ pub fn value_boundaries() -> TestResult {
             .into();
         }
     }
-    if Granule4KiB::kind() != GranuleKind::Size4KiB
-        || Granule16KiB::kind() != GranuleKind::Size16KiB
-        || Granule64KiB::kind() != GranuleKind::Size64KiB
+    if Granule4KiB::KIND != GranuleKind::Size4KiB
+        || Granule16KiB::KIND != GranuleKind::Size16KiB
+        || Granule64KiB::KIND != GranuleKind::Size64KiB
         || Granule4KiB::align_up(u64::MAX).is_some()
     {
         return HarnessError::CrateBehavior {

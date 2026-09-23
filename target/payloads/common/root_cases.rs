@@ -40,10 +40,7 @@ pub fn d128_reserved_rejection() -> TestResult {
             actual: 0,
         })?,
     };
-    match <Layout as DescriptorLayout<
-        aarch64_vmsa::translation::Stage1,
-        aarch64_vmsa::config::granule::Granule4KiB,
-    >>::leaf_descriptor(
+    match <Layout as DescriptorLayout<aarch64_vmsa::config::granule::Granule4KiB>>::leaf_descriptor(
         aarch64_vmsa::address::PhysAddr(0x4000).into(),
         aarch64_vmsa::address::Level::L3,
         fields,

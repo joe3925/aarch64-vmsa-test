@@ -934,6 +934,32 @@ type StageOf<R> = <R as TranslationRegime>::Stage;
 type LeafFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedLeafFields<F, R, G>;
 type TableFieldsOf<F, R, G> = aarch64_vmsa::regime::InterpretedTableFields<F, R, G>;
 
+pub trait PagingRegime<F, G>:
+    PeTranslationRegime
+    + paging::regime::TranslationRegime<
+        F,
+        G,
+        Layout = <F as aarch64_vmsa::regime::HasRegimeLayout<Self, G>>::Layout,
+    >
+where
+    F: DescriptorFormat + aarch64_vmsa::regime::HasRegimeLayout<Self, G>,
+    G: aarch64_vmsa::address::ArmTranslationGranule,
+{
+}
+
+impl<F, R, G> PagingRegime<F, G> for R
+where
+    F: DescriptorFormat + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
+    R: PeTranslationRegime
+        + paging::regime::TranslationRegime<
+            F,
+            G,
+            Layout = <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout,
+        >,
+    G: aarch64_vmsa::address::ArmTranslationGranule,
+{
+}
+
 fn arena_table_access(memory: NonNull<TestMemory>) -> OffsetTableAccess {
     // SAFETY: TestMemory owns one stable, contiguous direct-map region for its
     // full lifetime; table addresses handed to the crate are allocated within it.
@@ -984,12 +1010,23 @@ where
 
 impl<F, R, G, Cfg> AttributeCodecCompat<R, G, Cfg> for F
 where
-    R: TranslationRegime,
+    R: TranslationRegime
+        + paging::regime::TranslationRegime<
+            F,
+            G,
+            Layout = <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout,
+        > + paging::regime::SemanticRegime<
+            F,
+            Leaf = aarch64_vmsa::attrs::SemanticLeafAttrs<F, R>,
+            Table = aarch64_vmsa::attrs::SemanticTableAttrs<F, R>,
+            Codec = R::Stage,
+        >,
     G: aarch64_vmsa::address::TranslationGranule,
     F: aarch64_vmsa::regime::HasRegimeLayout<R, G>
         + HasLayout<R::Stage, G>
         + aarch64_vmsa::attrs::SemanticAttributeTypes<R::Stage, R>,
-    R::Stage: aarch64_vmsa::attrs::AttributeCodec<F, R, G, Cfg>,
+    R::Stage:
+        aarch64_vmsa::attrs::AttributeCodec<F, R, G, Cfg, Error = aarch64_vmsa::attrs::AttrError>,
 {
     type SemanticLeaf = aarch64_vmsa::attrs::SemanticLeafAttrs<F, R>;
     type SemanticTable = aarch64_vmsa::attrs::SemanticTableAttrs<F, R>;
@@ -1047,9 +1084,9 @@ trait RootTableCompat<F, R, G> {
 
 impl<F, R, G> RootTableCompat<F, R, G> for RootTable<F, R, G>
 where
-    F: DescriptorFormat,
-    R: PeTranslationRegime,
-    G: aarch64_vmsa::address::TranslationGranule,
+    F: DescriptorFormat + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
+    R: PagingRegime<F, G>,
+    G: aarch64_vmsa::address::ArmTranslationGranule,
 {
     fn new(addr: TableAddr<G>, level: Level, addr_bits: u8, output_addr_bits: u8) -> Self {
         Self::from_geometry(
@@ -1109,7 +1146,8 @@ pub trait TestRegime: aarch64_vmsa::regime::PeTranslationRegime {
     fn default_input_bits(capabilities: crate::Capabilities) -> u8;
 }
 
-pub trait TestRegimeFor<G: TranslationGranule>: TestRegime
+pub trait TestRegimeFor<G: aarch64_vmsa::address::ArmTranslationGranule>:
+    TestRegime + PagingRegime<Vmsa64, G>
 where
     Vmsa64: HasLayout<StageOf<Self>, G>,
 {
@@ -1125,7 +1163,9 @@ where
     fn raw_table() -> Result<TableFieldsOf<Vmsa64, Self, G>, HarnessError>;
 }
 
-fn lpa2_uses_ds<G: TranslationGranule>(format: TranslationFormat) -> bool {
+fn lpa2_uses_ds<G: aarch64_vmsa::address::ArmTranslationGranule>(
+    format: TranslationFormat,
+) -> bool {
     matches!(format, TranslationFormat::Vmsa64Lpa2)
         && matches!(G::kind(), GranuleKind::Size4KiB | GranuleKind::Size16KiB)
 }
@@ -1851,9 +1891,10 @@ where
     Some(address)
 }
 
-unsafe impl<F, G> aarch64_vmsa::mapper::MapperInvalidation<F, G> for ArchitecturalInvalidation
+unsafe impl<F, R, G> aarch64_vmsa::mapper::MapperInvalidation<F, R, G> for ArchitecturalInvalidation
 where
     F: DescriptorFormat,
+    R: paging::regime::TranslationRegime<F, G>,
     G: TranslationGranule,
 {
     fn leaf_inserted(
@@ -1970,7 +2011,7 @@ where
     )
     .map_err(|_| HarnessError::InvalidState)?;
     type Layout<R> = <Vmsa64 as HasLayout<StageOf<R>, Granule4KiB>>::Layout;
-    let descriptor = <Layout<R> as DescriptorLayout<StageOf<R>, Granule4KiB>>::table_descriptor(
+    let descriptor = <Layout<R> as DescriptorLayout<Granule4KiB>>::table_descriptor(
         root_address,
         transition,
         <R as TestRegimeFor<Granule4KiB>>::raw_table()?,
@@ -2031,7 +2072,7 @@ pub(crate) fn live_mapper<F, R, G>(
 ) -> Result<LiveTestMapper<F, R, G>, HarnessError>
 where
     F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
-    R: PeTranslationRegime,
+    R: PagingRegime<F, G>,
     G: TestGranule,
 {
     if setup.format != F::FORMAT || setup.granule != G::GRANULE {
@@ -2073,7 +2114,7 @@ pub(crate) fn replace_live_mapping<F, R, G>(
 ) -> Result<MappingInspection, HarnessError>
 where
     F: DescriptorFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
-    R: PeTranslationRegime,
+    R: PagingRegime<F, G>,
     G: TestGranule,
     LeafFieldsOf<F, R, G>: Copy,
     TableFieldsOf<F, R, G>: Copy,
@@ -2124,11 +2165,10 @@ pub(crate) fn replace_live_d128_stage1_mapping<R>(
     permissions: D128MappingPermissions,
 ) -> Result<MappingInspection, HarnessError>
 where
-    R: PeTranslationRegime,
+    R: PagingRegime<Vmsa128, Granule4KiB>,
     R: aarch64_vmsa::regime::TranslationRegime<Stage = Stage1>,
     Vmsa128: HasLayout<Stage1, Granule4KiB>,
     <Vmsa128 as aarch64_vmsa::regime::HasRegimeLayout<R, Granule4KiB>>::Layout: DescriptorLayout<
-            Stage1,
             Granule4KiB,
             LeafFields = RawVmsa128Stage1LeafAttrs,
             TableFields = RawVmsa128Stage1TableAttrs,
@@ -2216,11 +2256,10 @@ pub(crate) fn replace_live_d128_stage2_mapping<R>(
     attributes: MappingAttributes,
 ) -> Result<MappingInspection, HarnessError>
 where
-    R: PeTranslationRegime,
+    R: PagingRegime<Vmsa128, Granule4KiB>,
     R: aarch64_vmsa::regime::TranslationRegime<Stage = Stage2>,
     Vmsa128: HasLayout<Stage2, Granule4KiB>,
     <Vmsa128 as aarch64_vmsa::regime::HasRegimeLayout<R, Granule4KiB>>::Layout: DescriptorLayout<
-            Stage2,
             Granule4KiB,
             LeafFields = RawVmsa128Stage2LeafAttrs,
             TableFields = RawVmsa128Stage2TableAttrs,
@@ -2242,7 +2281,12 @@ pub fn prepare_lower_runtime<R>(
     runtime_data: [u64; 12],
 ) -> Result<(), HarnessError>
 where
-    R: TestRegimeFor<Granule4KiB> + TestRegimeFor<Granule16KiB> + TestRegimeFor<Granule64KiB>,
+    R: TestRegimeFor<Granule4KiB>
+        + TestRegimeFor<Granule16KiB>
+        + TestRegimeFor<Granule64KiB>
+        + PagingRegime<Vmsa64Lpa2, Granule4KiB>
+        + PagingRegime<Vmsa64Lpa2, Granule16KiB>
+        + PagingRegime<Vmsa64Lpa2, Granule64KiB>,
     Vmsa64: HasLayout<StageOf<R>, Granule4KiB>,
     Vmsa64: HasLayout<StageOf<R>, Granule16KiB>,
     Vmsa64: HasLayout<StageOf<R>, Granule64KiB>,
@@ -2250,19 +2294,16 @@ where
     Vmsa64Lpa2: HasLayout<StageOf<R>, Granule16KiB>,
     Vmsa64Lpa2: HasLayout<StageOf<R>, Granule64KiB>,
     <Vmsa64Lpa2 as HasLayout<StageOf<R>, Granule4KiB>>::Layout: DescriptorLayout<
-            StageOf<R>,
             Granule4KiB,
             LeafFields = LeafFieldsOf<Vmsa64, R, Granule4KiB>,
             TableFields = TableFieldsOf<Vmsa64, R, Granule4KiB>,
         >,
     <Vmsa64Lpa2 as HasLayout<StageOf<R>, Granule16KiB>>::Layout: DescriptorLayout<
-            StageOf<R>,
             Granule16KiB,
             LeafFields = LeafFieldsOf<Vmsa64, R, Granule16KiB>,
             TableFields = TableFieldsOf<Vmsa64, R, Granule16KiB>,
         >,
     <Vmsa64Lpa2 as HasLayout<StageOf<R>, Granule64KiB>>::Layout: DescriptorLayout<
-            StageOf<R>,
             Granule64KiB,
             LeafFields = LeafFieldsOf<Vmsa64, R, Granule64KiB>,
             TableFields = TableFieldsOf<Vmsa64, R, Granule64KiB>,
@@ -2358,12 +2399,11 @@ fn prepare_lower_runtime_for<R, F, G>(
     runtime_data: [u64; 12],
 ) -> Result<(), HarnessError>
 where
-    R: TestRegimeFor<G>,
+    R: TestRegimeFor<G> + PagingRegime<F, G>,
     G: TestGranule,
     Vmsa64: HasLayout<StageOf<R>, G>,
     F: DescriptorFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
     <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout: DescriptorLayout<
-            StageOf<R>,
             G,
             LeafFields = LeafFieldsOf<Vmsa64, R, G>,
             TableFields = TableFieldsOf<Vmsa64, R, G>,
@@ -2739,12 +2779,11 @@ pub fn prepare_lower_runtime_d128<R, G>(
     runtime_data: [u64; 12],
 ) -> Result<(), HarnessError>
 where
-    R: PeTranslationRegime,
+    R: PeTranslationRegime + PagingRegime<Vmsa128, G>,
     G: TestGranule,
     Vmsa128: HasLayout<StageOf<R>, G>,
     Vmsa128: aarch64_vmsa::regime::HasRegimeLayout<R, G>,
     <Vmsa128 as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout: DescriptorLayout<
-            StageOf<R>,
             G,
             LeafFields = RawVmsa128Stage1LeafAttrs,
             TableFields = RawVmsa128Stage1TableAttrs,
@@ -2998,7 +3037,7 @@ where
 }
 
 pub struct TestMapper<
-    R: PeTranslationRegime,
+    R: PagingRegime<F, G>,
     G: TestGranule = Granule4KiB,
     F: DescriptorFormat = Vmsa64,
 > where
@@ -3230,9 +3269,10 @@ pub(crate) fn verify_mapper_provider_probe(
     }
 }
 
-unsafe impl<F, G> aarch64_vmsa::mapper::MapperInvalidation<F, G> for ProbeInvalidation
+unsafe impl<F, R, G> aarch64_vmsa::mapper::MapperInvalidation<F, R, G> for ProbeInvalidation
 where
     F: DescriptorFormat,
+    R: paging::regime::TranslationRegime<F, G>,
     G: TranslationGranule,
 {
     fn leaf_inserted(
@@ -3464,7 +3504,7 @@ pub struct MapLeafResult {
 /// frame allocation, installed register state, or cleanup operations.
 pub struct IsolatedMalformedTable<'a, R, G, F>
 where
-    R: PeTranslationRegime,
+    R: PagingRegime<F, G>,
     G: TestGranule,
     F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
 {
@@ -3473,7 +3513,7 @@ where
 
 impl<R, G, F> TestMapper<R, G, F>
 where
-    R: PeTranslationRegime,
+    R: PagingRegime<F, G>,
     G: TestGranule,
     F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
 {
@@ -3565,7 +3605,7 @@ where
 
 impl<R, G, F> IsolatedMalformedTable<'_, R, G, F>
 where
-    R: PeTranslationRegime,
+    R: PagingRegime<F, G>,
     G: TestGranule,
     F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
 {
@@ -3687,7 +3727,7 @@ pub(crate) fn inspect_walk_with_access<R, G, F, A>(
     input: u64,
 ) -> Result<WalkInspection, HarnessError>
 where
-    R: PeTranslationRegime,
+    R: PagingRegime<F, G>,
     G: TestGranule,
     F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
     A: TableAccess<F, G>,
@@ -3767,7 +3807,7 @@ pub struct UnmapResult {
     pub root_now_empty: bool,
 }
 
-impl<R: PeTranslationRegime, G: TestGranule, F: DescriptorFormat> TestMapper<R, G, F>
+impl<R: PagingRegime<F, G>, G: TestGranule, F: DescriptorFormat> TestMapper<R, G, F>
 where
     F: HasLayout<StageOf<R>, G>,
 {
@@ -3981,12 +4021,11 @@ where
 
 impl<R, G, F> TestMapper<R, G, F>
 where
-    R: TestRegimeFor<G>,
+    R: TestRegimeFor<G> + PagingRegime<F, G>,
     G: TestGranule,
     F: TestFormat + HasLayout<StageOf<R>, G> + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
     Vmsa64: HasLayout<StageOf<R>, G>,
     <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout: DescriptorLayout<
-            StageOf<R>,
             G,
             LeafFields = LeafFieldsOf<Vmsa64, R, G>,
             TableFields = TableFieldsOf<Vmsa64, R, G>,
@@ -4623,13 +4662,12 @@ where
     }
 }
 
-impl<R: TestRegime, G: TestGranule> TestMapper<R, G, Vmsa64Lpa2>
+impl<R: TestRegime + PagingRegime<Vmsa64Lpa2, G>, G: TestGranule> TestMapper<R, G, Vmsa64Lpa2>
 where
     R: TestRegimeFor<G>,
     Vmsa64: HasLayout<StageOf<R>, G>,
     Vmsa64Lpa2: HasLayout<StageOf<R>, G>,
     <Vmsa64Lpa2 as HasLayout<StageOf<R>, G>>::Layout: DescriptorLayout<
-            StageOf<R>,
             G,
             LeafFields = LeafFieldsOf<Vmsa64, R, G>,
             TableFields = TableFieldsOf<Vmsa64, R, G>,
@@ -4674,12 +4712,11 @@ where
     }
 }
 
-impl<R: TestRegime, G: TestGranule> TestMapper<R, G, Vmsa128>
+impl<R: TestRegime + PagingRegime<Vmsa128, G>, G: TestGranule> TestMapper<R, G, Vmsa128>
 where
     Vmsa128: HasLayout<StageOf<R>, G>,
     Vmsa128: aarch64_vmsa::regime::HasRegimeLayout<R, G>,
     <Vmsa128 as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout: DescriptorLayout<
-            StageOf<R>,
             G,
             LeafFields = RawVmsa128Stage1LeafAttrs,
             TableFields = RawVmsa128Stage1TableAttrs,
@@ -5162,12 +5199,11 @@ where
     }
 }
 
-impl<R: TestRegime, G: TestGranule> TestMapper<R, G, Vmsa128>
+impl<R: TestRegime + PagingRegime<Vmsa128, G>, G: TestGranule> TestMapper<R, G, Vmsa128>
 where
     R: aarch64_vmsa::regime::TranslationRegime<Stage = Stage2>,
     Vmsa128: HasLayout<Stage2, G>,
     <Vmsa128 as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout: DescriptorLayout<
-            Stage2,
             G,
             LeafFields = RawVmsa128Stage2LeafAttrs,
             TableFields = RawVmsa128Stage2TableAttrs,

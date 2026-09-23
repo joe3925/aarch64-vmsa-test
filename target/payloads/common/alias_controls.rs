@@ -641,7 +641,7 @@ fn d128_table_control(control: D128TableControl) -> TestResult {
                     .map_err(|_| aarch64_vmsa::attrs::AttrError::InvalidD128Configuration)?,
             )
             .map_err(|_| aarch64_vmsa::attrs::AttrError::InvalidD128Configuration)?;
-            <Layout as DescriptorLayout<Stage1, Granule4KiB>>::table_descriptor(
+            <Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(
                 aarch64_vmsa::table::TableAddr::new(0x4000).expect("aligned table address"),
                 transition,
                 raw,
@@ -820,7 +820,7 @@ fn d128_stage2_table_control(control: D128Stage2TableControl) -> TestResult {
                     .map_err(|_| aarch64_vmsa::attrs::AttrError::InvalidD128Configuration)?,
             )
             .map_err(|_| aarch64_vmsa::attrs::AttrError::InvalidD128Configuration)?;
-            <Layout as DescriptorLayout<Stage2, Granule4KiB>>::table_descriptor(
+            <Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(
                 aarch64_vmsa::table::TableAddr::new(0x4000).expect("aligned table address"),
                 transition,
                 raw,

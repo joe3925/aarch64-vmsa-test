@@ -349,7 +349,6 @@ where
         aarch64_vmsa::translation::Stage1,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage1,
             G,
             LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1LeafAttrs,
             TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,

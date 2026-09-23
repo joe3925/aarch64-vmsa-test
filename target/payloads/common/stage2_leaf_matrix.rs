@@ -36,7 +36,7 @@ fn active_standard_leaf_case<F, G, R>(
 ) -> TestResult
 where
     G: vmsa_test_harness::adapter::TestGranule,
-    R: vmsa_test_harness::adapter::TestRegimeFor<G>,
+    R: vmsa_test_harness::adapter::TestRegimeFor<G> + vmsa_test_harness::PagingRegime<F, G>,
     R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
     F: vmsa_test_harness::adapter::TestFormat
         + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>
@@ -45,7 +45,6 @@ where
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
     <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::translation::Stage2,
                 G,
                 LeafFields = crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
                 TableFields = crate::TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
@@ -407,7 +406,7 @@ fn active_standard_leaf<F, G, R>(
 ) -> TestResult
 where
     G: vmsa_test_harness::adapter::TestGranule,
-    R: vmsa_test_harness::adapter::TestRegimeFor<G>,
+    R: vmsa_test_harness::adapter::TestRegimeFor<G> + vmsa_test_harness::PagingRegime<F, G>,
     R: aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
     F: vmsa_test_harness::adapter::TestFormat
         + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>
@@ -416,7 +415,6 @@ where
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
     <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::translation::Stage2,
                 G,
                 LeafFields = crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
                 TableFields = crate::TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
@@ -485,7 +483,8 @@ fn standard_boundary<F, G, R>(
 where
     G: vmsa_test_harness::adapter::TestGranule,
     R: vmsa_test_harness::adapter::TestRegimeFor<G>
-        + aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>,
+        + aarch64_vmsa::regime::TranslationRegime<Stage = aarch64_vmsa::translation::Stage2>
+        + vmsa_test_harness::PagingRegime<F, G>,
     F: vmsa_test_harness::adapter::TestFormat
         + aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>
         + aarch64_vmsa::regime::HasRegimeLayout<R, G>,
@@ -493,7 +492,6 @@ where
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage2, G>,
     <F as aarch64_vmsa::regime::HasRegimeLayout<R, G>>::Layout:
         aarch64_vmsa::descriptor::DescriptorLayout<
-                aarch64_vmsa::translation::Stage2,
                 G,
                 LeafFields = crate::LeafFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
                 TableFields = crate::TableFieldsOf<aarch64_vmsa::config::format::Vmsa64, R, G>,
@@ -1232,7 +1230,6 @@ where
         aarch64_vmsa::translation::Stage2,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage2,
             G,
             LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2LeafAttrs,
             TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2TableAttrs,
@@ -1503,7 +1500,6 @@ where
         aarch64_vmsa::translation::Stage2,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage2,
             G,
             LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2LeafAttrs,
             TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2TableAttrs,
@@ -1642,7 +1638,6 @@ where
         aarch64_vmsa::translation::Stage2,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage2,
             G,
             LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2LeafAttrs,
             TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2TableAttrs,
@@ -1677,7 +1672,6 @@ where
         aarch64_vmsa::translation::Stage2,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage2,
             G,
             LeafFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2LeafAttrs,
             TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage2TableAttrs,

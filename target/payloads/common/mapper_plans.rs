@@ -214,14 +214,13 @@ pub fn max_skl_extended_root() -> TestResult {
 
 fn d128_skl_transition_failures<G>() -> Result<u64, HarnessError>
 where
-    G: aarch64_vmsa::address::TranslationGranule,
+    G: aarch64_vmsa::address::ArmTranslationGranule,
     aarch64_vmsa::config::format::Vmsa128:
         aarch64_vmsa::descriptor::HasLayout<aarch64_vmsa::translation::Stage1, G>,
     <aarch64_vmsa::config::format::Vmsa128 as aarch64_vmsa::descriptor::HasLayout<
         aarch64_vmsa::translation::Stage1,
         G,
     >>::Layout: aarch64_vmsa::descriptor::DescriptorLayout<
-            aarch64_vmsa::translation::Stage1,
             G,
             TableFields = aarch64_vmsa::low_level::raw::RawVmsa128Stage1TableAttrs,
         >,
@@ -240,7 +239,7 @@ where
     type Regime = NonSecureEl2Stage1;
     let raw_fields = fields()?;
     let input = WalkInputAddr::new(0x1234_0000);
-    let maximum_stride = if G::kind() == GranuleKind::Size4KiB {
+    let maximum_stride = if G::KIND == GranuleKind::Size4KiB {
         4
     } else {
         3
@@ -292,9 +291,7 @@ where
             let supported = <<Vmsa128 as HasLayout<
                 aarch64_vmsa::translation::Stage1,
                 G,
-            >>::Layout as DescriptorLayout<
-                aarch64_vmsa::translation::Stage1,
-                G,
+            >>::Layout as DescriptorLayout<G,
             >>::supports_table_transition(transition);
             if supported != (distance <= maximum_stride) {
                 failures += 1;
@@ -566,7 +563,7 @@ fn offline_parts_case<R, G, F>(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult
 where
-    R: aarch64_vmsa::regime::PeTranslationRegime,
+    R: aarch64_vmsa::regime::PeTranslationRegime + vmsa_test_harness::PagingRegime<F, G>,
     G: vmsa_test_harness::TestGranule,
     F: aarch64_vmsa::descriptor::DescriptorFormat
         + aarch64_vmsa::descriptor::HasLayout<crate::StageOf<R>, G>
@@ -594,7 +591,7 @@ fn live_parts_case<R, G, F>(
     context: &mut vmsa_test_harness::TestContext<'_, crate::CurrentEnvironment>,
 ) -> TestResult
 where
-    R: aarch64_vmsa::regime::PeTranslationRegime,
+    R: aarch64_vmsa::regime::PeTranslationRegime + vmsa_test_harness::PagingRegime<F, G>,
     G: vmsa_test_harness::TestGranule,
     F: aarch64_vmsa::descriptor::DescriptorFormat
         + aarch64_vmsa::descriptor::SupportsLiveDescriptorIo

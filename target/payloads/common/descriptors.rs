@@ -86,12 +86,10 @@ pub fn level_sensitive_address_decoding() -> TestResult {
             let leaf_raw = BASE | (1u64 << $leaf_bit);
             let table_raw = BASE | (1u64 << $table_bit);
             failures += u64::from(
-                <Layout as DescriptorLayout<$stage, $granule>>::output_address(leaf_raw, $level).0
-                    != BASE,
+                <Layout as DescriptorLayout<$granule>>::output_address(leaf_raw, $level).0 != BASE,
             );
             failures += u64::from(
-                <Layout as DescriptorLayout<$stage, $granule>>::table_address(table_raw, $level)
-                    .raw()
+                <Layout as DescriptorLayout<$granule>>::table_address(table_raw, $level).raw()
                     != BASE,
             );
         }};
@@ -156,7 +154,7 @@ pub fn descriptor_errors() -> TestResult {
         guarded: false,
         software: FourBit::ZERO,
     };
-    if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::leaf_descriptor(
+    if <Layout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
         PhysAddr(0).into(),
         Level::L0,
         leaf,
@@ -196,7 +194,7 @@ pub fn descriptor_errors() -> TestResult {
         ns_table: false,
         software: FourBit::ZERO,
     };
-    if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::table_descriptor(
+    if <Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(
         aarch64_vmsa::table::TableAddr::new(0x4000).expect("aligned table address"),
         transition,
         table,
@@ -284,7 +282,7 @@ pub fn d128_stage1_final_bbm_nt_error() -> TestResult {
     use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout};
     use aarch64_vmsa::translation::Stage1;
     type Layout = <Vmsa128 as HasLayout<Stage1, Granule4KiB>>::Layout;
-    if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::leaf_descriptor(
+    if <Layout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
         PhysAddr(0).into(),
         Level::L3,
         d128_stage1_leaf(true)?,
@@ -307,7 +305,7 @@ pub fn d128_stage2_final_bbm_nt_error() -> TestResult {
     use aarch64_vmsa::descriptor::{DescriptorError, DescriptorLayout, HasLayout};
     use aarch64_vmsa::translation::Stage2;
     type Layout = <Vmsa128 as HasLayout<Stage2, Granule4KiB>>::Layout;
-    if <Layout as DescriptorLayout<Stage2, Granule4KiB>>::leaf_descriptor(
+    if <Layout as DescriptorLayout<Granule4KiB>>::leaf_descriptor(
         PhysAddr(0).into(),
         Level::L3,
         d128_stage2_leaf(true)?,
@@ -354,7 +352,7 @@ pub fn d128_stage1_table_nt_skl0_error() -> TestResult {
         table_nt: true,
         ..RawVmsa128Stage1TableAttrs::default()
     };
-    if <Layout as DescriptorLayout<Stage1, Granule4KiB>>::table_descriptor(
+    if <Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(
         aarch64_vmsa::table::TableAddr::new(0).expect("aligned table address"),
         transition,
         fields,
@@ -401,7 +399,7 @@ pub fn d128_stage2_table_nt_skl0_error() -> TestResult {
         table_nt: true,
         ..RawVmsa128Stage2TableAttrs::default()
     };
-    if <Layout as DescriptorLayout<Stage2, Granule4KiB>>::table_descriptor(
+    if <Layout as DescriptorLayout<Granule4KiB>>::table_descriptor(
         aarch64_vmsa::table::TableAddr::new(0).expect("aligned table address"),
         transition,
         fields,
