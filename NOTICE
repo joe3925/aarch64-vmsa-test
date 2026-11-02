@@ -1,0 +1,13 @@
+aarch64-vmsa-test
+Copyright 2026 Boden
+
+Original project code and original changes owned by Boden are licensed under
+the Apache License, Version 2.0. See LICENSE.
+
+Third-party code keeps its existing copyright and license terms. This
+includes upstream code in integration files and patches.
+
+External firmware, Arm model binaries, container images, and tools keep
+their own licenses. The Apache grant does not change their terms.
+
+Earlier MIT and Apache license grants remain in effect.
